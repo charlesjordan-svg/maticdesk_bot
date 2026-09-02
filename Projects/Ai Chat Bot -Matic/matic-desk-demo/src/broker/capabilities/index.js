@@ -13,7 +13,7 @@ export const EXECUTORS = {
   async restart_service({ serviceName }) {
     const detail = await restartService(serviceName);
     return {
-      message: `Restarted the ${serviceName} service — it went ${detail.stateBefore} → ${detail.stateAfter}.`,
+      message: describeServiceRestart(serviceName, detail),
       detail,
     };
   },
@@ -52,6 +52,31 @@ export const EXECUTORS = {
     };
   },
 };
+
+/**
+ * How to describe what a service restart actually did.
+ *
+ * "it went RUNNING -> RUNNING" is true and reads as a no-op, which is the opposite of what
+ * happened: the service WAS stopped and started again, the steps prove it, and the before/after
+ * states are identical only because it was healthy to begin with. Observed in the UI on the dev
+ * box when Scenario 1 was run without injecting the printer fault first - which is exactly what
+ * happens during rehearsal, and what happens on stage if the fault injection is forgotten.
+ *
+ * The STOPPED -> RUNNING wording is kept verbatim: it is the money line for Scenario 1.
+ */
+export function describeServiceRestart(serviceName, detail) {
+  const { stateBefore, stateAfter, steps = [] } = detail ?? {};
+  if (stateAfter !== "RUNNING") {
+    return `Tried to restart the ${serviceName} service, but it is ${stateAfter ?? "in an unknown state"} now, not running.`;
+  }
+  if (stateBefore !== stateAfter) {
+    return `Restarted the ${serviceName} service — it went ${stateBefore} → ${stateAfter}.`;
+  }
+  if (steps.includes("stopped")) {
+    return `Restarted the ${serviceName} service — it was already running, so it was stopped and started again. It is running now.`;
+  }
+  return `The ${serviceName} service is running, but it was not actually stopped and started.`;
+}
 
 /**
  * How to describe the address an adapter ended up with, after a renew or a reset.

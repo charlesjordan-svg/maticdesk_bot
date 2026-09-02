@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { validateAgainstSchema } from "../src/broker/schema.js";
-import { probeMachine, describeAddress } from "../src/broker/capabilities/index.js";
+import { probeMachine, describeAddress, describeServiceRestart } from "../src/broker/capabilities/index.js";
 
 const cat = JSON.parse(readFileSync(new URL("../src/broker/catalog.json", import.meta.url), "utf8"));
 const schema = cat.capabilities.find((c) => c.id === "restart_service").parameters;
@@ -69,5 +69,28 @@ console.log("=== describeAddress: a 169.254 address is not a success ===");
   console.log(`        ${bad}`);
 }
 
+
+console.log("=== describeServiceRestart: a real restart must not read as a no-op ===");
+{
+  const r = describeServiceRestart('spooler', { stateBefore: 'STOPPED', stateAfter: 'RUNNING', steps: ['already stopped', 'started'] });
+  check("the Scenario 1 money line is unchanged", r === "Restarted the spooler service — it went STOPPED → RUNNING.", r);
+}
+{
+  // The healthy-service case: identical before/after, but it really was bounced.
+  const r = describeServiceRestart('spooler', { stateBefore: 'RUNNING', stateAfter: 'RUNNING', steps: ['stopped', 'started'] });
+  check("an already-running service does not report RUNNING to RUNNING", !/RUNNING → RUNNING/.test(r), r);
+  check("it says the service was stopped and started", /stopped and started again/.test(r), r);
+  check("and confirms the end state", /running now/.test(r), r);
+  console.log("        " + r);
+}
+{
+  const r = describeServiceRestart('spooler', { stateBefore: 'RUNNING', stateAfter: 'STOPPED', steps: ['stopped'] });
+  check("a service that did not come back is not reported as restarted", !/^Restarted/.test(r), r);
+  check("and the failure names the actual state", /STOPPED now, not running/.test(r), r);
+}
+{
+  const r = describeServiceRestart('spooler', { stateBefore: 'RUNNING', stateAfter: 'RUNNING', steps: [] });
+  check("a no-op is reported as a no-op, not as a restart", /not actually stopped and started/.test(r), r);
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
