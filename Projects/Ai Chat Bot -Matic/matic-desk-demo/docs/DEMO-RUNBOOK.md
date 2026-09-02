@@ -378,6 +378,55 @@ than the model simply not knowing.
 
 ---
 
+## 6a. The video backup
+
+The playbook below says "play the video" twice. This is how you have one.
+
+**What it is:** a screen recording of a clean end-to-end run, held locally on the demo machine, so
+that if the live demo breaks you show the recorded run instead of debugging in front of the design
+partner.
+
+### Record from run one
+
+Not after five. If the machine ends up in a bad state late in rehearsal — and Scenario 2 is the one
+that can do that — you still have footage of it working. A recording you did not make because you
+were planning to make a better one later is the most common way to end up with none.
+
+### Capture the whole window, including the Broker Inspector
+
+The panels are the evidence. A recording of just the chat column loses the consent token, the
+validation verdict, and the `CONSENT –` / `EXECUTION –` pair that carries the `dnscache` beat.
+
+**Use Display Capture, not Window Capture.** The app runs elevated, and unelevated recorders often
+cannot capture an elevated window — they record a black rectangle. Display capture goes through
+desktop duplication and does not care. If you use Xbox Game Bar (`Win`+`Alt`+`R`), **test it
+against the elevated app before relying on it**; it is a window recorder and may refuse.
+
+**Record system audio.** The Piper voice is part of the demo, and a silent recording of a talking
+avatar is worse than no recording.
+
+### What to capture, in one take
+
+1. Scenario 1 — printer, `source: tier0`, `STOPPED → RUNNING`
+2. Scenario 2 — `-Fault dhcp`, the cable out, tier-0 recovering the machine
+3. The off-script moment — someone typing "this thing is useless" with no network (§4)
+4. The `dnscache` refusal (§5)
+5. Scenario 3 — escalation, with the EXECUTION panel visible (§2)
+
+One take per scenario is fine; one take for all five is better, because it shows the machine
+surviving the whole sequence.
+
+### The part people get wrong
+
+**Keep the file on the demo machine's local disk.** Not Drive, not YouTube, not a share.
+
+The failure you most need it for is *"the network did not come back"* — and a video that needs the
+network to play is worthless in exactly that moment. Have the file open in a player and paused
+before you start, on a second desktop or minimised, so recovery is one keystroke rather than a
+scramble through Explorer while the room watches.
+
+---
+
 ## 7. Failure playbook
 
 | If | Then | Say |
