@@ -148,16 +148,50 @@ The dev box has Ethernet, Wi-Fi and Tailscale, so `reset_adapter` **never actual
 connectivity there.** On a single-NIC demo machine that path runs for the first time in front of
 people. Rehearse it specifically.
 
-### 3.1 Measure these, and write the answers in
+### 3.1 What the dev box already told us
 
-| Question | Answer on the demo machine |
+`npm.cmd run verify:privileged -- -IncludeNetwork` on the dev box (Intel I225-V, 2026-09-02)
+answered part of this, and the answer is a stage risk:
+
+```
+D. reset_adapter
+   result: Reset the Intel(R) Ethernet Controller (2) I225-V adapter — it is back up
+           on 169.254.17.252.
+   PASS  adapter came back up
+```
+
+**169.254 is APIPA — it means DHCP had not answered yet.** The adapter was up, the check passed,
+and the machine was not usable. It reached `192.168.50.223` on its own some seconds later.
+
+`resetAdapter()` settles for 1.5 s before reporting, and DHCP reacquisition is longer than that,
+so **APIPA is the normal outcome of a reset, not an edge case.**
+
+Since 2026-09-02 the app says so rather than claiming success:
+
+> Reset the Intel(R) Ethernet Controller (2) I225-V adapter — it is back up, but so far only a
+> self-assigned address (169.254.17.252), which means DHCP has not answered yet — that usually
+> settles within a few seconds.
+
+That is the honest message, and it is also the line that buys you the wait. **Say something during
+it** — silence reads as a crash:
+
+> "It's back up, but it hasn't been given an address yet. Watch the panel."
+
+Then let the facts panel update. If it is still APIPA after ten seconds or so, that is what
+`renew_dhcp` is for, and asking for it on stage is a perfectly good second beat rather than a
+recovery.
+
+### 3.1a Still to measure, on the demo machine
+
+| Question | Answer |
 |---|---|
 | Does the app survive its own network reset? (a pending fetch or keepalive can hang the renderer and freeze the avatar mid-sentence) | |
-| Dead air: adapter down → up → DHCP reacquired, in seconds | |
-| Does connectivity return unattended, or does it need a nudge? | |
+| Seconds from reset to a real DHCP address — time it with a stopwatch, the app does not | |
+| Does it always recover unattended, or does it sometimes need `renew_dhcp`? | |
 
-If the dead air is long, the avatar must say something during the wait. **Silence reads as a
-crash.**
+The dev box has three adapters, so its answers do not transfer. On a single-NIC machine the app is
+also severing the path its own cloud call would use — which is now handled (§4, point 4), but has
+still never been watched happen.
 
 ### 3.2 Which fault to inject — decide this during rehearsal
 

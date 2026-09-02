@@ -7,8 +7,10 @@
   checked without breaking anything, so the manual checklist shrinks to the handful of things a
   script genuinely cannot see.
 
-  CHANGES NOTHING. It does not stop services, touch adapters, or write files. Safe to run at any
-  point, including minutes before the demo.
+  Touches no adapter and writes no file. ONE caveat: when run elevated, the test suite it invokes
+  exercises restart_service against the live Print Spooler, which briefly stops and restarts it and
+  leaves it RUNNING. That is harmless, but it is not nothing - use -SkipTests for the last run
+  immediately before going on stage.
 
   Run it elevated - not because the checks need admin, but because the demo runs elevated, and
   koffi loading under your ordinary account proves nothing about whether it loads under RunAs.
@@ -133,8 +135,15 @@ if ($env:ANTHROPIC_API_KEY) {
 if (-not $SkipTests) {
   Write-Host "`nTests" -ForegroundColor Cyan
   Push-Location $root
+  # broker.test.mjs case 8 branches on MATIC_ELEVATED: without it the suite asserts that a
+  # privileged action is REFUSED, which is false when we are elevated - the spooler restart
+  # actually succeeds and the check fails for the wrong reason. verify-privileged.ps1 sets the
+  # same variable; this keeps the contract consistent.
+  $priorElevatedFlag = $env:MATIC_ELEVATED
+  if ($elevated) { $env:MATIC_ELEVATED = '1' }
   $testOutput = & npm.cmd test 2>&1 | Out-String
   $testExit = $LASTEXITCODE
+  $env:MATIC_ELEVATED = $priorElevatedFlag
   Pop-Location
   $failedLines = $testOutput -split "`n" | Where-Object { $_ -match '\bFAIL\b' }
   if ($testExit -eq 0 -and -not $failedLines) {
