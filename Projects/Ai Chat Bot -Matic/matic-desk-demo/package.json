@@ -13,7 +13,8 @@
     "inject-fault": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/inject-fault.ps1",
     "reset-demo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/reset-demo.ps1",
     "verify:privileged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-privileged.ps1",
-    "test:cloud": "node test/cloud.test.mjs"
+    "test:cloud": "node test/cloud.test.mjs",
+    "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

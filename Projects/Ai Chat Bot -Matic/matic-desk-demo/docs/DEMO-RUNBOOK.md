@@ -9,36 +9,74 @@ Everything here is either verified or explicitly marked as unverified. Nothing i
 
 ## 0. The two things most likely to go wrong
 
-1. **There is no `.env` file yet**, so the cloud half is currently dead and Scenario 3 cannot run.
-   See §1, first item. This was the top item on the previous handover's list and is still open.
+1. **The `.env` key line is still commented out**, so the cloud half is dead and Scenario 3
+   cannot run. One line to fix — see §1. `npm.cmd run preflight` reports it as blocking until
+   it is done.
 2. **`inject-fault.ps1 -Fault network` may be the wrong fault on a single-adapter machine.**
    See §3.2. Decide this during rehearsal, not on stage.
 
 ---
 
-## 1. Pre-flight — on the demo machine, in this order
+## 1. Pre-flight — on the demo machine
 
-Each line is a thing to *observe*, not a thing to assume.
+### Step 1 — put the key in `.env` (the only part a script cannot do)
 
-- [ ] **`.env` exists in the project root** containing `ANTHROPIC_API_KEY=sk-ant-...`
-      **A file, not a session variable.** `RunAs` spawns a process that does not inherit the
-      session environment, so an exported key silently never arrives and the app degrades to
-      tier-0 only without saying anything you would notice mid-demo.
-- [ ] Startup log reads `[cloud] claude-haiku-4-5 ready (key from .env file)`.
-      If it reads `ANTHROPIC_API_KEY not set`, stop and fix it — Scenario 3 will not run.
-- [ ] `.env` is gitignored. It already is; confirm you did not copy the repo in a way that lost it.
-- [ ] `py -3` resolves, Piper imports, and the 63 MB voice model is **copied to disk in advance**,
-      at the path in `config.json`. Do not re-download it live.
-- [ ] `npm.cmd install` — **`npm.cmd`, not `npm`.** The execution policy blocks npm's `.ps1` shim.
-- [ ] `koffi` loads in the **packaged / elevated** context, not only under `npm.cmd start`.
-- [ ] `npm.cmd test` — all four suites green.
+Copy the committed template and edit the copy — `.env` itself is gitignored, so it does not
+travel with the repo:
+
+```bash
+copy .env.example .env
+```
+
+Then uncomment the key line in `.env` and paste the key after the `=`:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+No quotes, no spaces around the `=`, no `export` prefix. The file is gitignored — do not commit it.
+
+**It must be the file, not a session variable.** `start-elevated.ps1` uses `RunAs`, which spawns a
+process that does not inherit the session environment, so a key exported in an ordinary shell never
+reaches the app and the demo silently degrades to tier-0 only.
+
+### Step 2 — run the preflight, from an **elevated** PowerShell window in the project root
+
+```bash
+npm.cmd run preflight
+```
+
+Read-only: it changes nothing, touches no adapter and stops no service, so it is safe to run
+minutes before the demo. It exits non-zero with a list if anything is blocking.
+
+It covers: `py -3`, Piper importing, the voice model **and its `.onnx.json` sidecar**,
+`node_modules`, **koffi loading in the context you are actually running in**, whether the `.env`
+key line is live (it never reads or prints the value), the full test suite, the probe's view of
+services and adapters, and how many physical adapters are connected.
+
+Run it **elevated**. koffi loading under your ordinary account proves nothing about whether it
+loads under `RunAs`, which is how the demo starts.
+
+Two of its checks are worth understanding rather than just passing:
+
+- **`probe reports online` must pass.** If it fails on a machine that is plainly working, the agent
+  will skip every cloud call (§4, point 4) and Scenario 3 will never reach the model.
+- **`connected physical adapters` warns at 1.** That is the single-NIC case — read §3.2 before
+  choosing which fault to inject for Scenario 2.
+
+### Step 3 — the rest, by hand
+
+- [ ] Launch the app and confirm the startup log reads
+      `[cloud] claude-haiku-4-5 ready (key from .env file)`. Anything else — especially
+      `ANTHROPIC_API_KEY not set` — means Scenario 3 will not run.
 - [ ] `npm.cmd run verify:privileged -- -IncludeNetwork` — green, **elevated, on this hardware.**
-- [ ] `npm.cmd run probe` — read the output. **`online: true` must appear**, and the primary
-      adapter list must be non-empty. If `online` is false on a machine that is plainly working,
-      the agent will skip every cloud call (§4, point 4) and Scenario 3 will not run.
+      Preflight does not run this: it executes the real primitives against the real machine.
 - [ ] `inject-fault.ps1` runs elevated for all four faults; `reset-demo.ps1` returns the machine
       to clean afterwards. **Run both locally and elevated — never over a remote session**, because
       the first thing the network fault does is disconnect you.
+- [ ] The 63 MB voice model is **copied to the demo machine in advance**, not re-downloaded live.
+      Preflight confirms it is present at the `config.json` path; it cannot tell you that you
+      remembered to copy it early.
 - [ ] Piper pre-warmed (~4 s ONNX load) **before anyone is watching**.
 - [ ] App launched elevated in advance — **no UAC prompt in front of the audience.**
 - [ ] Notifications, Teams popups, and screen sleep all off.
