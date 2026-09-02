@@ -211,7 +211,12 @@ export class CloudClient {
       // Typed SDK errors, most specific first.
       if (err instanceof Anthropic.AuthenticationError) return { ok: false, error: "The API key was rejected." };
       if (err instanceof Anthropic.RateLimitError) return { ok: false, error: "The model is rate limited right now." };
-      if (err instanceof Anthropic.APIConnectionError) return { ok: false, error: "Could not reach the model - this machine may be offline." };
+      // `reason` distinguishes "the request never left this machine" from "the API answered and
+      // said no". Only the former is evidence about the network, and the state-only fallback
+      // relies on that distinction - see routeByState().
+      if (err instanceof Anthropic.APIConnectionError) {
+        return { ok: false, reason: "connection", error: "Could not reach the model - this machine may be offline." };
+      }
       if (err instanceof Anthropic.APIError) {
         // A bare status code is not diagnosable on stage. Dig the API's own message out of the
         // parsed body and log it in full, then hand back a short version for the transcript.

@@ -175,3 +175,144 @@ export function routeTier0(text, probe) {
   // honestly that it has nothing.
   return null;
 }
+
+/**
+ * State-only fallback (§2 of the Day-4 brief). Ignores the text entirely.
+ *
+ * `routeTier0` above needs a keyword to match. When someone says "this thing is useless" or just
+ * "help" - which is what people actually say, and what the design partner will say if he takes the
+ * keyboard - it matches nothing and returns null. That is fine while the cloud is reachable,
+ * because the cloud reads the sentence. With the cable out there IS no cloud, and the user got
+ * silence on the one scenario that is supposed to prove the local path.
+ *
+ * So: when there is no keyword and no cloud, propose from what the machine demonstrably IS.
+ * This is deliberately NOT called before the cloud - a proposal made without reading the sentence
+ * must never pre-empt a model that could have read it. `agent.js` calls it only on the
+ * cloud-unavailable path, and every confidence here is below TIER0_CONFIDENCE_THRESHOLD so it
+ * could not skip the cloud even if it were called earlier by mistake.
+ *
+ * The link-state gating from the keyword router is reused unchanged, via `probe.actionable`: an
+ * idle Bluetooth PAN or Wi-Fi Direct adapter is still not something to renew a lease on.
+ *
+ * @param {ReturnType<import("../broker/capabilities/index.js").probeMachine>} probe
+ * @param {{egressFailed?: boolean}} [evidence] `egressFailed` means the cloud request never left
+ *   this machine (an APIConnectionError, not an API rejection). On a box that is otherwise
+ *   routing, that is the only observation available here that points at name resolution.
+ * @returns {{proposal: Proposal, reply: string} | null} null means "the machine looks fine, or
+ *   there is no lever in the catalog for what is wrong" - in which case say so, do not invent.
+ */
+export function routeByState(probe, { egressFailed = false } = {}) {
+  const preface = "I didn't catch which part is failing, so I looked at the machine itself.";
+
+  // ---- 1. Not routing. The hardest fact on offer, and the Scenario 2 case. ----
+  if (!probe.online) {
+    const candidates = probe.actionable ?? [];
+
+    // Enabled and addressed, but the link is gone. `actionable` membership means it either has a
+    // link or holds a gateway, so linkUp === false here implies a real adapter that was routing.
+    const dark = candidates.find((a) => a.linkUp === false);
+    if (dark) {
+      return {
+        proposal: {
+          capabilityId: "reset_adapter",
+          parameters: { adapterId: dark.guid },
+          reasoning: `${dark.description} is configured but its link is down.`,
+          confidence: 0.6,
+          source: "tier0-state",
+        },
+        reply: `${preface} ${dark.description} is configured but has no link. I can reset that adapter, which will drop every connection on this machine for a few seconds.`,
+      };
+    }
+
+    const apipa = candidates.find((a) => a.isApipa);
+    if (apipa) {
+      return {
+        proposal: {
+          capabilityId: "renew_dhcp",
+          parameters: { adapterIndex: apipa.index },
+          reasoning: `${apipa.description} holds a self-assigned address (${apipa.ip}), so DHCP did not answer.`,
+          confidence: 0.6,
+          source: "tier0-state",
+        },
+        reply: `${preface} ${apipa.description} has fallen back to a self-assigned address, ${apipa.ip}, which means the network never gave it a real one. I can renew the lease.`,
+      };
+    }
+
+    const noIp = candidates.find((a) => !a.hasIp);
+    if (noIp) {
+      return {
+        proposal: {
+          capabilityId: "renew_dhcp",
+          parameters: { adapterIndex: noIp.index },
+          reasoning: `${noIp.description} has a link but no IPv4 address.`,
+          confidence: 0.6,
+          source: "tier0-state",
+        },
+        reply: `${preface} ${noIp.description} has a live link but no IP address at all. I can ask the network for one.`,
+      };
+    }
+
+    // Addressed and holding a route on paper, yet nothing gets out.
+    const addressed = probe.primary[0] ?? candidates.find((a) => a.hasIp);
+    if (addressed) {
+      return {
+        proposal: {
+          capabilityId: "reset_adapter",
+          parameters: { adapterId: addressed.guid },
+          reasoning: `${addressed.description} has an address but no working route off this machine.`,
+          confidence: 0.6,
+          source: "tier0-state",
+        },
+        reply: `${preface} ${addressed.description} has an address but nothing is routing through it. Resetting the adapter is the next step, though it will drop every connection here for a few seconds.`,
+      };
+    }
+
+    // Offline with nothing actionable - fall through. There may still be a stopped service worth
+    // fixing, and if not the caller reports the state honestly rather than inventing a lever.
+  }
+
+  // ---- 2. A stopped service is observed, not inferred. ----
+  // Both entries are the same rule over the same capability, so the audio one costs nothing and
+  // covers `inject-fault.ps1 -Fault sound`.
+  const STOPPED_SERVICES = [
+    { key: "spooler", label: "The print spooler service", effect: "nothing will print" },
+    { key: "audiosrv", label: "The Windows Audio service", effect: "nothing will play sound" },
+  ];
+  for (const { key, label, effect } of STOPPED_SERVICES) {
+    const svc = probe.services?.[key];
+    if (!svc || svc.error || svc.stateName !== "STOPPED") continue;
+    return {
+      proposal: {
+        capabilityId: "restart_service",
+        parameters: { serviceName: key },
+        reasoning: `${label} is stopped on this machine.`,
+        confidence: 0.6,
+        source: "tier0-state",
+      },
+      reply: `${preface} ${label} is stopped, which means ${effect}. I can start it again.`,
+    };
+  }
+
+  // ---- 3. Routing on paper, nothing down, but the machine could not get a request out. ----
+  //
+  // This branch needs `egressFailed`, and an earlier draft of it did not have that gate: it
+  // fired on `probe.online` alone, which made "my chair is broken and my monitor is cracked"
+  // come back as "I can flush your DNS cache". That is the failure mode this whole design is
+  // supposed to avoid, and an existing test caught it. A route plus a request that never left
+  // the machine IS an observation about name resolution; "the machine looks fine" is not.
+  if (probe.online && egressFailed) {
+    return {
+      proposal: {
+        capabilityId: "flush_dns",
+        parameters: {},
+        reasoning: "Addressing, routing and the local services are all healthy, yet a request could not leave this machine - which points at name resolution.",
+        confidence: 0.45,
+        source: "tier0-state",
+      },
+      reply: `${preface} Addressing, routing and the local services all look healthy, but nothing I send is getting out - which usually means name resolution. I can flush the DNS cache.`,
+    };
+  }
+
+  // Nothing observably wrong that this catalog can act on. Say so; do not reach for a lever.
+  return null;
+}

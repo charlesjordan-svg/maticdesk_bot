@@ -34,8 +34,13 @@ export interface Proposal {
   parameters: Record<string, unknown>;
   reasoning: string;
   confidence: number;
-  /** "tier0" = local deterministic router, "cloud" = Anthropic API. */
-  source: "tier0" | "cloud";
+  /**
+   * "tier0"       = local deterministic router, matched on what the user said.
+   * "tier0-state" = local fallback that matched nothing the user said and proposed from observed
+   *                 machine state alone, because the cloud was not reachable either.
+   * "cloud"       = Anthropic API.
+   */
+  source: "tier0" | "tier0-state" | "cloud";
 }
 
 export interface ValidationResult {

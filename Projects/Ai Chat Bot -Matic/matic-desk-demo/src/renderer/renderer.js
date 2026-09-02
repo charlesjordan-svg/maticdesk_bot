@@ -196,7 +196,13 @@ async function handleTurn(text) {
   show(validationJson, validation.ok
     ? { ok: true, capability: validation.capability.id, tier: validation.capability.tier, rollback: validation.capability.rollback }
     : { ok: false, errors: validation.errors });
-  bubble(`source: ${proposal.source}${proposal.source === "tier0" ? "  (no cloud call made)" : ""}`, "sys");
+  // "tier0-state" deliberately does NOT get the "no cloud call made" line: a cloud call WAS
+  // attempted on that path and failed. Drawing that distinction is the honest thing to show.
+  const SOURCE_NOTE = {
+    tier0: "  (no cloud call made)",
+    "tier0-state": "  (from machine state alone - nothing matched what was typed, and the cloud was unreachable)",
+  };
+  bubble(`source: ${proposal.source}${SOURCE_NOTE[proposal.source] ?? ""}`, "sys");
 
   if (!validation.ok) {
     // The broker refused the model's proposal. This is the safety invariant working, and it
