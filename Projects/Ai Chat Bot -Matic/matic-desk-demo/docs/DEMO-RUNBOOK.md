@@ -272,6 +272,47 @@ Four properties worth knowing while you are standing there:
 
 ---
 
+## 4a. When there is nothing to fix — the offline guidance tree
+
+Added 2026-09-02 after Ethernet was physically unplugged and Wi-Fi switched off on the dev box.
+The app had no lever, and answered with a paragraph explaining what it could not do. Useless to
+someone standing at a dead machine.
+
+The four capabilities can restart a service, flush DNS, renew a lease and reset an adapter. **None
+of them can plug in a cable or switch a radio on.** So when the machine is offline and no
+capability applies, the app now says what it can see and what to check:
+
+> **Nothing on this machine has a network link.**
+> 2 adapters are present, and none of them has a live connection. That is physical — a cable or a
+> radio — and it is not something I can fix from software.
+>
+> - check — Ethernet: check the cable at both ends…
+> - check — Wi-Fi: check it is switched on, Airplane Mode is off…
+> - check — Network Connections (`ncpa.cpl`): check the adapter is not disabled…
+
+Three states, each with its own checks: **no adapter visible at all** (everything disabled — a
+disabled adapter is invisible to the probe, §3.2), **adapters present but nothing has a link** (the
+unplugged case), and **a link but no usable address and nothing to act on** (points upstream at the
+router).
+
+Guidance only: no proposal, nothing privileged, and it never claims to have acted.
+
+**This is worth demoing deliberately.** Unplug the cable with no fault injected and let it tell you
+to check the cable. The line: **"It knows the difference between something it can fix and something
+you have to go and look at. It doesn't guess, and it doesn't pretend."**
+
+### The bug this found
+
+The same unplug exposed a real fault. Windows keeps a **stale default gateway** on a Wi-Fi adapter
+after the radio is switched off, so the adapter stayed in the router's `actionable` set while
+having no link and no address — and the router proposed **renewing a DHCP lease on a switched-off
+radio**, and would have reset it. Neither can work.
+
+Every adapter action now requires a **live link**, in both the keyword router and the state-only
+fallback. Link-down with no address is physical, and goes to the guidance above instead.
+
+---
+
 ## 5. The `dnscache` refusal — the best beat in the demo
 
 Get the model to propose restarting the DNS Client service. The broker refuses it, and explains

@@ -188,6 +188,16 @@ async function handleTurn(text) {
 
   if (!res.ok) {
     show(proposalJson, res.error ?? "no proposal");
+    if (res.guidance) {
+      // No capability applies. Show the checks as a list - the thing this replaced was a wall
+      // of prose that nobody standing at a dead machine was going to read.
+      show(proposalJson, { noCapabilityApplies: true, ...res.guidance });
+      bubble(res.guidance.cause, "sys");
+      for (const c of res.guidance.checks) bubble(`check — ${c}`, "sys");
+      setState("apologising");
+      await say(res.guidance.headline, "idle");
+      return;
+    }
     setState("idle");
     await say(res.reply ?? "I could not work out a safe next step for that.", "idle");
     return;

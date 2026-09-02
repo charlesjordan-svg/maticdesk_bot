@@ -118,12 +118,48 @@ console.log("=== the state-only path never runs while the model is reachable ===
 
 console.log("=== nothing is invented when there is genuinely no lever ===");
 {
-  // Disabling the only NIC removes it from GetAdaptersInfo entirely: not routing, no adapter to
-  // act on, no service down. The honest answer names the state and stops.
+  // Every NIC disabled: they vanish from GetAdaptersInfo entirely (measured 2026-09-02).
   const res = await agentOn(probe({ adapters: [], online: false }), stubCloud()).propose("help");
   check("no proposal is returned", res.ok === false && !res.proposal, JSON.stringify(res.proposal));
-  check("the reply says what was actually observed", /not routing/i.test(res.reply ?? ""), res.reply);
-  check("the reply does not pretend a fix exists", !/I can (restart|renew|reset|flush)/i.test(res.reply ?? ""), res.reply);
+  check("guidance is returned instead of silence", Boolean(res.guidance));
+  check("it says it cannot see an adapter at all", /cannot see a network adapter/i.test(res.reply ?? ""), res.reply);
+  check("it does not pretend a fix exists", !/I can (restart|renew|reset|flush)/i.test(res.reply ?? ""), res.reply);
+  check("checking the adapter is not disabled comes first", /disabled/i.test(res.guidance.checks[0]), res.guidance.checks[0]);
+}
+{
+  // The real thing, reproduced: Ethernet unplugged and Wi-Fi switched off, 2026-09-02.
+  //
+  // The Wi-Fi entry is the trap. Windows keeps its gateway after the radio goes off, so it stays
+  // in `actionable` while having no link and no address - and the router used to propose renewing
+  // a lease on it, or resetting it. Neither can work: there is no radio.
+  const ethUnplugged = adapter({ index: 4, guid: "{E}", ip: "0.0.0.0", linkUp: false });
+  const wifiRadioOff = adapter({
+    index: 9, guid: "{W}", description: "Intel(R) Wi-Fi 6 AX200 160MHz",
+    ip: "0.0.0.0", linkUp: false, hasGateway: true,
+  });
+  const dead = probe({ adapters: [ethUnplugged, wifiRadioOff], online: false });
+  check("the stale-gateway adapter is still in actionable (the trap is real)",
+    dead.actionable.some((a) => a.index === 9), JSON.stringify(dead.actionable.map((a) => a.index)));
+
+  const res = await agentOn(dead, stubCloud()).propose("I have no internet");
+  check("no lease is renewed on an adapter with no link", res.proposal?.capabilityId !== "renew_dhcp", JSON.stringify(res.proposal));
+  check("no adapter is reset when there is no link to restore", res.proposal?.capabilityId !== "reset_adapter", JSON.stringify(res.proposal));
+  check("no proposal at all", !res.proposal, JSON.stringify(res.proposal));
+  check("guidance is given", Boolean(res.guidance));
+  check("it names the link as the problem", /Nothing on this machine has a network link/i.test(res.reply ?? ""), res.reply);
+  check("it tells the user to check the cable", res.guidance.checks.some((c) => /cable/i.test(c)));
+  check("and to check the radio", res.guidance.checks.some((c) => /Airplane Mode/i.test(c)));
+  check("it does not claim to have done anything", !/I (restarted|renewed|reset|flushed)/i.test(res.reply ?? ""), res.reply);
+  console.log("        " + res.reply);
+  for (const c of res.guidance.checks) console.log("        check - " + c.slice(0, 86));
+}
+{
+  // Scenario 2 as it is actually demoed - lease released, link still up - must be unaffected.
+  const res = await agentOn(probe({
+    adapters: [adapter({ ip: "0.0.0.0" })], online: false,
+  }), stubCloud()).propose("I have no internet");
+  check("a live link with no lease still proposes renew_dhcp", res.proposal?.capabilityId === "renew_dhcp", JSON.stringify(res.proposal));
+  check("and gives no guidance, because there is a real fix", !res.guidance);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

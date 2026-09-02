@@ -12,6 +12,7 @@
  */
 import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
+import { diagnoseOffline } from "../router/offline-guide.js";
 
 export class Agent {
   /** @param {{broker: Broker, cloud: any, onLog?: (s:string)=>void}} deps */
@@ -97,16 +98,27 @@ export class Agent {
         };
       }
 
-      // Genuinely no lever: not routing, and no adapter or stopped service the catalog can act on.
-      // Say exactly that, with the state that led to it. Never invent a fix (§13).
-      const observed = probe.online
-        ? `spooler ${summary.spooler}, audio ${summary.audio}`
-        : "this machine is not routing, and I can see no network adapter here that I am able to act on";
+      // Genuinely no lever. Do NOT answer with a paragraph explaining what could not be done -
+      // that is what this used to do, and it is useless to someone whose cable is out. Say what
+      // is wrong and what to check. Guidance only: no proposal, nothing privileged, no claim to
+      // have acted.
+      const guidance = diagnoseOffline(probe);
+      if (guidance) {
+        this.onLog(`[router] no capability applies - returning offline guidance instead`);
+        return {
+          ok: false,
+          error: cloudResult.error,
+          guidance,
+          facts: summary,
+          reply: `${guidance.headline} ${guidance.cause}`,
+        };
+      }
+
       return {
         ok: false,
         error: cloudResult.error,
         facts: summary,
-        reply: `I could not reach the model to reason about that, nothing you described matched a local rule, and looking at the machine directly - ${observed} - I have no action in my catalogue that would help. ${cloudResult.error}`,
+        reply: `I could not reach the model, nothing you described matched a local rule, and I cannot see anything wrong on this machine that I am able to fix.`,
       };
     }
 

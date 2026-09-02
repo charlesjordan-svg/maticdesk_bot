@@ -123,8 +123,12 @@ export function routeTier0(text, probe) {
     };
   }
 
-  const down = candidates.find((a) => !a.hasIp);
-  const apipa = candidates.find((a) => a.isApipa);
+  // A live link is required, not implied. `actionable` admits an adapter on `hasGateway` alone,
+  // and Windows keeps a stale gateway on a Wi-Fi adapter whose radio is off - so without this
+  // check the router proposes renewing a lease on a dead radio. Observed 2026-09-02.
+  const down = candidates.find((a) => !a.hasIp && a.linkUp);
+  // Same for APIPA: a self-assigned address only means anything if there is a link to ask over.
+  const apipa = candidates.find((a) => a.isApipa && a.linkUp);
 
   if (apipa) {
     // 169.254.x.x means DHCP was asked and did not answer. Renewing the lease is the
@@ -156,7 +160,9 @@ export function routeTier0(text, probe) {
 
   // Offline, but addressing looks present - the adapter has an IP yet nothing routes.
   {
-    const target = probe.primary[0] ?? candidates[0];
+    // Resetting an adapter that has no link cannot create one - that is a cable or a radio,
+    // and offline-guide.js handles it. Only bounce something that is actually connected.
+    const target = [probe.primary[0], ...candidates].find((a) => a?.linkUp);
     if (!target) return null;
     return {
       proposal: {
@@ -208,9 +214,16 @@ export function routeByState(probe, { egressFailed = false } = {}) {
   if (!probe.online) {
     const candidates = probe.actionable ?? [];
 
-    // Enabled and addressed, but the link is gone. `actionable` membership means it either has a
-    // link or holds a gateway, so linkUp === false here implies a real adapter that was routing.
-    const dark = candidates.find((a) => a.linkUp === false);
+    // Link gone, but the adapter still holds an address - it was working moments ago, so the
+    // driver may simply be wedged and a down/up can re-negotiate.
+    //
+    // `hasIp` is doing real work here. Without it this matched a Wi-Fi adapter whose RADIO was
+    // switched off: Windows keeps the stale gateway, so `hasGateway` stays true and the adapter
+    // stays in `actionable` while having no link and no address. Resetting that cannot create a
+    // link, and it would have proposed a disruptive R2 action that could not possibly work.
+    // Observed on the dev box 2026-09-02 with Wi-Fi switched off. A link-down adapter with no
+    // address is a physical problem - offline-guide.js says so instead.
+    const dark = candidates.find((a) => a.linkUp === false && a.hasIp);
     if (dark) {
       return {
         proposal: {
@@ -224,7 +237,7 @@ export function routeByState(probe, { egressFailed = false } = {}) {
       };
     }
 
-    const apipa = candidates.find((a) => a.isApipa);
+    const apipa = candidates.find((a) => a.isApipa && a.linkUp);
     if (apipa) {
       return {
         proposal: {
@@ -238,7 +251,7 @@ export function routeByState(probe, { egressFailed = false } = {}) {
       };
     }
 
-    const noIp = candidates.find((a) => !a.hasIp);
+    const noIp = candidates.find((a) => !a.hasIp && a.linkUp);
     if (noIp) {
       return {
         proposal: {
@@ -253,7 +266,7 @@ export function routeByState(probe, { egressFailed = false } = {}) {
     }
 
     // Addressed and holding a route on paper, yet nothing gets out.
-    const addressed = probe.primary[0] ?? candidates.find((a) => a.hasIp);
+    const addressed = [probe.primary[0], ...candidates].find((a) => a?.hasIp && a.linkUp);
     if (addressed) {
       return {
         proposal: {
