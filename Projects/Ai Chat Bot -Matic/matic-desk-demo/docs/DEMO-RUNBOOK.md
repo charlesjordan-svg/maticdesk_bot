@@ -9,9 +9,9 @@ Everything here is either verified or explicitly marked as unverified. Nothing i
 
 ## 0. The two things most likely to go wrong
 
-1. **The `.env` key line is still commented out**, so the cloud half is dead and Scenario 3
-   cannot run. One line to fix — see §1. `npm.cmd run preflight` reports it as blocking until
-   it is done.
+1. **The `.env` key has to be set up again on the demo machine.** It is done and verified on the
+   dev box, but `.env` is gitignored and does not travel with the repo — a fresh clone has only
+   `.env.example`. See §1. `npm.cmd run preflight` reports it as blocking until it is done.
 2. **`inject-fault.ps1 -Fault network` may be the wrong fault on a single-adapter machine.**
    See §3.2. Decide this during rehearsal, not on stage.
 
@@ -132,8 +132,13 @@ and the UI stating plainly that **nothing was filed.**
 Say: **"It knows what it cannot fix. That payload is displayed, not sent — there is no ITSM
 integration here, and the interface says so."**
 
-> **Unverified:** a cloud-sourced proposal has never been through the real consent → execute flow
-> in the UI, and the renderer branches on `proposal.source`. Run this one early in rehearsal.
+**Verified headless** (2026-09-02, `npm.cmd run test:cloud`): the full five-tool set is accepted
+with and without `strict`, and the real `CloudClient` path returns `escalate` with
+`category: physical`, `suggestedOwner: facilities` for the cracked-screen complaint.
+
+> **Still unverified:** a cloud-sourced proposal has never been through the real consent → execute
+> flow **in the UI**, and the renderer branches on `proposal.source`. Headless success does not
+> cover the renderer. Run this one early in rehearsal.
 
 ---
 
@@ -238,19 +243,47 @@ service nobody thought to list."**
 Do not claim the message came from observed state. It did not, and the audience is a technical IT
 lead who may well ask.
 
-### Finding a phrasing that triggers it
+### The phrasing — verified, use it verbatim
 
-**Not done — this needs a working API key and has not been rehearsed.** The model has to choose
-`restart_service` with `serviceName: "dnscache"` on its own, and that is harder than it sounds:
-DNS-flavoured symptom words hit tier-0's network keywords and resolve to `flush_dns` before the
-cloud is ever consulted. The phrasing has to miss those keywords while still reading to the model
-as a name-resolution problem.
+**Primary (6 runs, 6 proposals of `restart_service(dnscache)`):**
 
-Budget rehearsal time for this, and write the working phrasing in once you have it:
+> **"please restart the name resolution client service on this box"**
 
-```
-Phrasing that works: ______________________________________________
-```
+**Backup (also 6 for 6):**
+
+> **"the caching resolver service is hung, bounce it"**
+
+Both reach the model, both make it propose restarting `dnscache`, and the broker refuses both with
+the message above. *Six runs each is six observations, not a benchmark — re-check them once on the
+demo machine.*
+
+### The trap: do not say "DNS"
+
+> **"restart the DNS Client service for me"** — 0 out of 6. It never reaches the model at all.
+
+`dns` is a tier-0 network keyword. On an online machine tier-0 answers `flush_dns` at confidence
+0.81, above the 0.8 threshold, so the cloud is never called and there is no proposal for the broker
+to refuse. **The beat dies silently and looks like it simply worked.**
+
+Any phrasing naming DNS directly will do the same. The two verified lines above avoid the word,
+which is exactly why they work.
+
+### Why these two work when symptom descriptions don't
+
+Symptom-style complaints — *"I can reach servers by IP but not by hostname"*, *"our intranet
+hostnames stopped working"*, *"names aren't being translated to addresses"* — all correctly produce
+`flush_dns`. That is the model behaving well, not a bug, and it is worth showing as the contrast
+immediately before or after the refusal.
+
+What triggers the refusal is a user **demanding a specific action** rather than describing a
+symptom. That is a realistic and flattering framing to narrate:
+
+> "Now let me be the user who's already decided what the fix is."
+
+Note what the model is up against: the machine-state block it receives already annotates
+`dnscache` as *"(cannot be stopped)"*. It proposes the restart anyway, because the user asked for
+it directly — and the broker, which does not care who asked, refuses it. That is a stronger story
+than the model simply not knowing.
 
 ---
 
