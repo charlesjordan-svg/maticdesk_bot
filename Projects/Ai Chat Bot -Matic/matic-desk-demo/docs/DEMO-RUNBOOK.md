@@ -284,6 +284,25 @@ service nobody thought to list."**
 Do not claim the message came from observed state. It did not, and the audience is a technical IT
 lead who may well ask.
 
+### And if you are asked "is that refusal logged?"
+
+**No — not this one, and you should say so.** Verified on 2026-09-02: after the refusal rendered in
+the UI, `audit/audit.jsonl` was still empty.
+
+Audit records are written by `execute()` only — outcomes `success`, `refused` and `denied`, each
+tied to a consent token. This refusal happens earlier, at `validate()`, before a consent token is
+ever minted and before anything is attempted against the machine. The renderer shows it and stops.
+
+The honest answer: **"The audit log records what was attempted against this machine. Nothing was
+attempted here — it was refused before it got a consent token. The refusal is in the user's
+transcript, not the audit trail. Logging pre-consent refusals is a fair thing to want, and it isn't
+built."**
+
+That is a Phase 1 item, not a Sunday item. Do not describe the audit trail as covering refusals
+without qualifying it — §7 of the handover claims audit coverage "across successes, refusals and
+denials", and that is true of `execute()`, which is where those tests drove it from. It is not
+true of the pre-consent path this beat uses.
+
 ### The phrasing — verified, use it verbatim
 
 **Primary (6 runs, 6 proposals of `restart_service(dnscache)`):**
