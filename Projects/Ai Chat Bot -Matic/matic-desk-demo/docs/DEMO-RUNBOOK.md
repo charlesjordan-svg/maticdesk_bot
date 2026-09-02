@@ -12,8 +12,7 @@ Everything here is either verified or explicitly marked as unverified. Nothing i
 1. **The `.env` key has to be set up again on the demo machine.** It is done and verified on the
    dev box, but `.env` is gitignored and does not travel with the repo — a fresh clone has only
    `.env.example`. See §1. `npm.cmd run preflight` reports it as blocking until it is done.
-2. **`inject-fault.ps1 -Fault network` may be the wrong fault on a single-adapter machine.**
-   See §3.2. Decide this during rehearsal, not on stage.
+2. **Use `-Fault dhcp` for Scenario 2, never `-Fault network`.** Settled by measurement — §3.2.
 
 ---
 
@@ -110,12 +109,13 @@ asked."**
 
 ### Scenario 2 — no network (tier-0, no cloud call) — *the differentiator*
 
-Choose the fault deliberately — read §3.2 before you pick.
+```bash
+npm.cmd run inject-fault -- -Fault dhcp
+```
 
-```
-inject-fault.ps1 -Fault dhcp        # recommended on a single-adapter machine
-inject-fault.ps1 -Fault network     # only if §3.2 checked out on this hardware
-```
+**`-Fault dhcp`, not `-Fault network`** — settled by measurement (§3.2). It releases the lease,
+leaves the adapter enumerable, and drives the `renew_dhcp` branch, which is the more proportionate
+fix to demonstrate anyway.
 
 Type: *"I have no internet"*
 
@@ -212,34 +212,37 @@ The dev box has three adapters, so its answers do not transfer. On a single-NIC 
 also severing the path its own cloud call would use — which is now handled (§4, point 4), but has
 still never been watched happen.
 
-### 3.2 Which fault to inject — decide this during rehearsal
+### 3.2 Which fault to inject — settled: `-Fault dhcp`
 
-`-Fault network` runs `Disable-NetAdapter`. A **disabled** adapter is expected to disappear from
-`GetAdaptersInfo` entirely, which is the API the probe reads. On a machine with several adapters
-that is harmless. On a single-NIC machine it may leave the probe with **no adapter at all**, and
-then neither the keyword router nor the state-only fallback has anything to propose — the app will
-honestly say it can see no adapter it is able to act on. Correct behaviour; poor demo.
+**Measured on the dev box, 2026-09-02, `npm.cmd run check:adapter`:**
 
-**Unverified.** No disabled adapter existed on the dev box to observe this against.
-
-**Settle it with one command, on the demo machine, elevated and locally:**
-
-```bash
-npm.cmd run check:adapter
+```
+before:         6 adapters visible, 2 actionable, online=True
+disabling Wi-Fi...
+while disabled: 3 adapters visible, 1 actionable, online=True
 ```
 
-It disables the primary adapter, reads the probe, and re-enables it — **the re-enable is in a
-`finally`, so it runs even if the probe throws or you Ctrl-C out.** Leaving an adapter disabled is
-the one outcome it must never produce. It prints a verdict naming which fault to use.
+**A disabled adapter disappears from the probe.** Confirmed, not inferred. `-Fault network` runs
+`Disable-NetAdapter`, and the probe reads adapters through `GetAdaptersInfo`, which omits them.
 
-**Run it locally.** Never over a remote session: the first thing it does disconnects you, and a
-`finally` block cannot help a session that is already gone.
+On this dual-NIC box that is survivable — Ethernet was still there, so the router still had a
+candidate. **On a single-NIC demo machine there would be nothing left**, and Scenario 2 would
+produce the honest *"I can see no network adapter here that I am able to act on"* instead of a
+demo. Correct behaviour, wasted scenario.
 
-On a machine with a second connected adapter you stay online throughout and it answers the
-mechanism question. On a true single-NIC machine you drop offline for a few seconds and it answers
-the question that actually matters.
+So: **`-Fault dhcp`.** It releases the lease, the adapter stays enumerable with a live link, and
+tier-0 takes the `renew_dhcp` branch.
 
----
+Two details worth knowing:
+
+- Disabling one adapter removed **three** entries, not one — Wi-Fi plus the two Microsoft Wi-Fi
+  Direct virtual adapters that depend on it. Nothing should assume one disable equals one adapter.
+- Six went down, **five** came back: one Wi-Fi Direct virtual adapter did not re-register.
+  Cosmetic — all four real adapters returned, `actionable` was back to 2, the machine was online —
+  but if you cycle adapters repeatedly in rehearsal, expect the count to drift.
+
+**Re-run `npm.cmd run check:adapter` on the demo machine** if it is a different box. The mechanism
+is settled; whether that box has a second adapter to fall back on is not.
 
 ## 4. The off-script moment — hand over the keyboard
 
