@@ -222,17 +222,22 @@ honestly say it can see no adapter it is able to act on. Correct behaviour; poor
 
 **Unverified.** No disabled adapter existed on the dev box to observe this against.
 
-**Check it in one sequence, on the demo machine, elevated and locally:**
+**Settle it with one command, on the demo machine, elevated and locally:**
 
 ```bash
-npm.cmd run inject-fault -- -Fault network
+npm.cmd run check:adapter
 ```
 
-Then run `npm.cmd run probe`, read the adapter list, and `npm.cmd run reset-demo` to restore.
+It disables the primary adapter, reads the probe, and re-enables it — **the re-enable is in a
+`finally`, so it runs even if the probe throws or you Ctrl-C out.** Leaving an adapter disabled is
+the one outcome it must never produce. It prints a verdict naming which fault to use.
 
-If `probe` still lists the adapter, `-Fault network` is safe to use. If the adapter list comes back
-empty, **use `-Fault dhcp` for Scenario 2** — it releases the lease, leaves the adapter enumerable,
-and drives the `renew_dhcp` branch, which is the more proportionate fix to demonstrate anyway.
+**Run it locally.** Never over a remote session: the first thing it does disconnects you, and a
+`finally` block cannot help a session that is already gone.
+
+On a machine with a second connected adapter you stay online throughout and it answers the
+mechanism question. On a true single-NIC machine you drop offline for a few seconds and it answers
+the question that actually matters.
 
 ---
 
