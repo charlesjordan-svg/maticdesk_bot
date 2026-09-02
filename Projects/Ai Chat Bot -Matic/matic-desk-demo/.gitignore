@@ -1,0 +1,8 @@
+node_modules/
+audit/
+scripts/demo-state.json
+# Voice model is 63 MB - referenced from disk via config.json, never committed (handover §3)
+*.onnx
+*.wav
+# Never commit credentials
+.env

@@ -1,0 +1,94 @@
+{
+  "catalogVersion": "0.1.0-demo",
+  "signature": null,
+  "_signatureNote": "TODO(phase1): catalog is unsigned in the demo build. Phase 1 signs this file and the broker verifies the signature before loading any capability. See verifyCatalogSignature() in in-process-broker.js.",
+  "capabilities": [
+    {
+      "id": "restart_service",
+      "tier": "R1",
+      "title": "Restart a Windows service",
+      "description": "Stops and restarts a single Windows background service. Reversible by restarting it again.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "enum": ["spooler", "audiosrv", "dnscache", "dhcp"],
+            "description": "Service to restart. Closed enum - no model-supplied string ever reaches the Service Control Manager."
+          }
+        },
+        "required": ["serviceName"],
+        "additionalProperties": false
+      },
+      "rollback": "restart_service",
+      "apis": [
+        "advapi32!OpenSCManagerW",
+        "advapi32!OpenServiceW",
+        "advapi32!QueryServiceStatus",
+        "advapi32!ControlService",
+        "advapi32!StartServiceW",
+        "advapi32!CloseServiceHandle"
+      ]
+    },
+    {
+      "id": "flush_dns",
+      "tier": "R1",
+      "title": "Flush the DNS resolver cache",
+      "description": "Clears cached DNS lookups so name resolution is retried fresh. Idempotent - no rollback needed.",
+      "parameters": { "type": "object", "properties": {}, "required": [], "additionalProperties": false },
+      "rollback": null,
+      "apis": ["dnsapi!DnsFlushResolverCache"]
+    },
+    {
+      "id": "renew_dhcp",
+      "tier": "R1",
+      "title": "Release and renew the DHCP lease",
+      "description": "Asks the network's DHCP server for a fresh IP address. Brief loss of connectivity while renewing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "adapterIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index from the local adapter enumeration. Resolved by the broker, not supplied freeform by the model."
+          }
+        },
+        "required": ["adapterIndex"],
+        "additionalProperties": false
+      },
+      "rollback": "renew_dhcp",
+      "apis": [
+        "iphlpapi!GetInterfaceInfo",
+        "iphlpapi!IpReleaseAddress",
+        "iphlpapi!IpRenewAddress"
+      ]
+    },
+    {
+      "id": "reset_adapter",
+      "tier": "R2",
+      "title": "Disable and re-enable a network adapter",
+      "description": "Turns the network adapter off and back on. This WILL drop every network connection on this machine for a few seconds, including any remote session.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "adapterId": {
+            "type": "string",
+            "description": "Adapter GUID from the broker's own enumeration. Validated against the live adapter list before execution."
+          }
+        },
+        "required": ["adapterId"],
+        "additionalProperties": false
+      },
+      "rollback": "reset_adapter",
+      "apis": [
+        "iphlpapi!GetAdaptersAddresses",
+        "TODO(phase1): WMI Win32_NetworkAdapter.Disable/Enable via IWbemServices"
+      ]
+    }
+  ],
+  "policy": {
+    "serviceStopBlocklist": {
+      "dnscache": "The DNS Client service does not accept stop requests on Windows 10/11 (SERVICE_ACCEPT_STOP is not set in its controls-accepted mask - verified on this machine: 0x58). Restarting it is not possible through the Service Control Manager. Use flush_dns instead."
+    }
+  }
+}

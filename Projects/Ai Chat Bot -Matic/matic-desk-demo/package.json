@@ -1,0 +1,25 @@
+{
+  "name": "matic-desk-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Matic Desk IT support assistant - demo build",
+  "main": "src/main/main.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "start:elevated": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-elevated.ps1",
+    "test": "node test/broker.test.mjs && node test/router.test.mjs && node test/probe.test.mjs",
+    "probe": "node test/probe.test.mjs",
+    "inject-fault": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/inject-fault.ps1",
+    "reset-demo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/reset-demo.ps1",
+    "verify:privileged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-privileged.ps1",
+    "test:cloud": "node test/cloud.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "koffi": "^3.2.0"
+  },
+  "devDependencies": {
+    "electron": "^44.1.1"
+  }
+}
