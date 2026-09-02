@@ -176,6 +176,11 @@ async function handleTurn(text) {
     show(executionJson, "nothing executed — no ticket was filed. This is the payload that would be sent to the ITSM integration, which is not built.");
     renderFacts(res.facts ?? {});
     bubble("no capability in the catalog covers this — escalating", "sys");
+    // The disclaimer belongs in the TRANSCRIPT, not only in the inspector panel. The avatar says
+    // "I would hand this to facilities", which an audience can hear as "a ticket has been
+    // raised" - and the next turn overwrites the panel that said otherwise. Observed on the dev
+    // box 2026-09-02. The demo must not imply an integration that does not exist.
+    bubble("nothing was filed — there is no ITSM integration in this build", "sys bad");
     setState("escalating");
     await say(res.reply, "idle");
     return;

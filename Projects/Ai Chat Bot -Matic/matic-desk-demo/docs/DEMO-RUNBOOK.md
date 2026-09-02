@@ -139,13 +139,25 @@ and the UI stating plainly that **nothing was filed.**
 Say: **"It knows what it cannot fix. That payload is displayed, not sent — there is no ITSM
 integration here, and the interface says so."**
 
-**Verified headless** (2026-09-02, `npm.cmd run test:cloud`): the full five-tool set is accepted
-with and without `strict`, and the real `CloudClient` path returns `escalate` with
-`category: physical`, `suggestedOwner: facilities` for the cracked-screen complaint.
+**Verified in the UI, 2026-09-02.** The model escalates, the avatar says it would hand this to
+facilities, and the inspector shows the payload.
 
-> **Still unverified:** a cloud-sourced proposal has never been through the real consent → execute
-> flow **in the UI**, and the renderer branches on `proposal.source`. Headless success does not
-> cover the renderer. Run this one early in rehearsal.
+**Two things to do while it is on screen:**
+
+1. **Point at the EXECUTION panel and read it out.** It says: *"nothing executed — no ticket was
+   filed. This is the payload that would be sent to the ITSM integration, which is not built."*
+   The transcript now carries a red line saying the same thing, but the panel is the evidence.
+2. **Do not type anything else until you have made that point.** The next turn overwrites all
+   three inspector panels, and the payload is gone.
+
+The reason this matters: the spoken line is *"I would hand this to facilities."* An audience can
+hear that as *"a ticket has been raised."* Nothing was raised, and letting the room believe
+otherwise is the one thing §13 exists to prevent.
+
+> **Still unverified:** a cloud-sourced proposal that is a real *capability* — not an escalation —
+> has still never been through the consent → execute flow in the UI. Both cloud turns run so far
+> ended without executing: one escalated, one was refused by the broker. The renderer branches on
+> `proposal.source`, and the `source: cloud` → consent → execute path has never run end to end.
 
 ---
 
