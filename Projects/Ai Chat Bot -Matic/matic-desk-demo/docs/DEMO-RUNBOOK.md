@@ -87,6 +87,13 @@ Two of its checks are worth understanding rather than just passing:
 
 Reset between every run: `reset-demo.ps1`, elevated, locally.
 
+> **`reset-demo.ps1` deletes `audit/audit.jsonl`.** That is deliberate — each rehearsal run should
+> start from an empty trail — but it means **the audit log is empty the moment you finish
+> resetting.** The audit trail is part of the safety story: every action, refusal and denial is
+> recorded, including the ones that were refused. If you intend to show it, show it **after** a run
+> and **before** the next reset. Resetting immediately before you walk on stage leaves you nothing
+> to point at.
+
 ### Scenario 1 — printer offline (tier-0, no cloud call)
 
 ```
