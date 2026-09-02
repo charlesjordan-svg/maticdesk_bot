@@ -272,44 +272,58 @@ Four properties worth knowing while you are standing there:
 
 ---
 
-## 4a. When there is nothing to fix — the offline guidance tree
+## 4a. When there is nothing to fix — the offline guidance
 
-Added 2026-09-02 after Ethernet was physically unplugged and Wi-Fi switched off on the dev box.
-The app had no lever, and answered with a paragraph explaining what it could not do. Useless to
-someone standing at a dead machine.
+Added 2026-09-02, after Ethernet was physically unplugged and Wi-Fi switched off on the dev box.
 
 The four capabilities can restart a service, flush DNS, renew a lease and reset an adapter. **None
 of them can plug in a cable or switch a radio on.** So when the machine is offline and no
-capability applies, the app now says what it can see and what to check:
+capability applies, the app says what it can see and hands the job over:
 
 > **Nothing on this machine has a network link.**
-> 2 adapters are present, and none of them has a live connection. That is physical — a cable or a
-> radio — and it is not something I can fix from software.
+> All 2 network adapters are switched on but none has a connection — that is a cable or a radio,
+> not something I can fix in software.
 >
-> - check — Ethernet: check the cable at both ends…
-> - check — Wi-Fi: check it is switched on, Airplane Mode is off…
-> - check — Network Connections (`ncpa.cpl`): check the adapter is not disabled…
+> ┌ **OVER TO YOU — THINGS I CANNOT CHECK FROM HERE**
+> │ 1. **Check the network cable** — both ends, and look for a light on the port.
+> │ 2. **Check Wi-Fi is switched on** — Airplane Mode off, physical switch or Fn key.
+> │ 3. **Check the adapter is not disabled** — `ncpa.cpl`. A disabled adapter is invisible to me.
+> │ *Once you have tried those, tell me and I will take another look.*
 
-Three states, each with its own checks: **no adapter visible at all** (everything disabled — a
+Three states, each with its own checks: **no adapter visible at all** (everything disabled — and a
 disabled adapter is invisible to the probe, §3.2), **adapters present but nothing has a link** (the
 unplugged case), and **a link but no usable address and nothing to act on** (points upstream at the
 router).
 
 Guidance only: no proposal, nothing privileged, and it never claims to have acted.
 
-**This is worth demoing deliberately.** Unplug the cable with no fault injected and let it tell you
-to check the cable. The line: **"It knows the difference between something it can fix and something
-you have to go and look at. It doesn't guess, and it doesn't pretend."**
+### It took two passes to make this land, which is the point worth telling
+
+The first version answered with a paragraph about what it could not do. The second listed the
+checks — but rendered them **before** the headline, in the same grey style used for system logging,
+with no call to action. The tester read straight past them: *"I didn't realise those instructions
+were for me."*
+
+So the order is now headline → cause → card → next step, and the card is deliberately shaped like
+the consent prompt, because that is already the established visual language for **this one needs
+you**. Same information, and the difference between it working and not working was entirely
+presentation.
+
+**This is worth demoing deliberately.** Unplug the cable with no fault injected:
+
+> **"It knows the difference between something it can fix and something you have to go and look at.
+> It doesn't guess, it doesn't pretend, and it tells you whose turn it is."**
 
 ### The bug this found
 
-The same unplug exposed a real fault. Windows keeps a **stale default gateway** on a Wi-Fi adapter
-after the radio is switched off, so the adapter stayed in the router's `actionable` set while
-having no link and no address — and the router proposed **renewing a DHCP lease on a switched-off
-radio**, and would have reset it. Neither can work.
+Windows keeps a **stale default gateway** on a Wi-Fi adapter after the radio is switched off, so it
+stayed in the router's `actionable` set while having no link and no address — and the router
+proposed **renewing a DHCP lease on a switched-off radio**, and would have reset it. Neither can
+work.
 
 Every adapter action now requires a **live link**, in both the keyword router and the state-only
-fallback. Link-down with no address is physical, and goes to the guidance above instead.
+fallback. Link-down with no address is physical, and goes to the guidance above instead. Scenario 2
+is unaffected — `-Fault dhcp` leaves the link up — and a regression test pins that.
 
 ---
 

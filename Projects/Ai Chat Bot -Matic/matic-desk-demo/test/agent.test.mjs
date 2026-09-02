@@ -124,7 +124,7 @@ console.log("=== nothing is invented when there is genuinely no lever ===");
   check("guidance is returned instead of silence", Boolean(res.guidance));
   check("it says it cannot see an adapter at all", /cannot see a network adapter/i.test(res.reply ?? ""), res.reply);
   check("it does not pretend a fix exists", !/I can (restart|renew|reset|flush)/i.test(res.reply ?? ""), res.reply);
-  check("checking the adapter is not disabled comes first", /disabled/i.test(res.guidance.checks[0]), res.guidance.checks[0]);
+  check("checking the adapter is not disabled comes first", /disabled/i.test(res.guidance.checks[0].label), JSON.stringify(res.guidance.checks[0]));
 }
 {
   // The real thing, reproduced: Ethernet unplugged and Wi-Fi switched off, 2026-09-02.
@@ -147,11 +147,17 @@ console.log("=== nothing is invented when there is genuinely no lever ===");
   check("no proposal at all", !res.proposal, JSON.stringify(res.proposal));
   check("guidance is given", Boolean(res.guidance));
   check("it names the link as the problem", /Nothing on this machine has a network link/i.test(res.reply ?? ""), res.reply);
-  check("it tells the user to check the cable", res.guidance.checks.some((c) => /cable/i.test(c)));
-  check("and to check the radio", res.guidance.checks.some((c) => /Airplane Mode/i.test(c)));
+  check("it tells the user to check the cable", res.guidance.checks.some((c) => /cable/i.test(c.label)));
+  check("and to check the radio", res.guidance.checks.some((c) => /Airplane Mode/i.test(c.detail)));
   check("it does not claim to have done anything", !/I (restarted|renewed|reset|flushed)/i.test(res.reply ?? ""), res.reply);
+  check("every check has a short label and a detail, so it can be scanned",
+    res.guidance.checks.every((c) => c.label && c.detail && c.label.length <= 40), JSON.stringify(res.guidance.checks));
+  check("the guidance tells the user what to do next",
+    /tell me/i.test(res.guidance.nextStep ?? ""), res.guidance.nextStep);
+  check("the headline is one short sentence, not a paragraph",
+    res.guidance.headline.length <= 70 && res.guidance.headline.split(". ").length === 1, res.guidance.headline);
   console.log("        " + res.reply);
-  for (const c of res.guidance.checks) console.log("        check - " + c.slice(0, 86));
+  for (const c of res.guidance.checks) console.log("        " + c.label + " - " + c.detail);
 }
 {
   // Scenario 2 as it is actually demoed - lease released, link still up - must be unaffected.

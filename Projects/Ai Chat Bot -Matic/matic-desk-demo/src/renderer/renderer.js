@@ -31,6 +31,40 @@ function setState(s) {
   stateLabel.textContent = s;
 }
 
+/**
+ * Checks the USER has to carry out. Rendered as a card rather than chat bubbles because a user
+ * missed them completely when they were grey system messages: they read as logging, not as
+ * instructions. Same shape as the consent card on purpose - that is the established language
+ * for "this one needs you".
+ */
+function todoCard({ checks, nextStep }) {
+  const box = document.createElement("div");
+  box.className = "msg todo";
+
+  const title = document.createElement("div");
+  title.className = "title";
+  title.textContent = "Over to you — things I cannot check from here";
+
+  const list = document.createElement("ol");
+  for (const c of checks) {
+    const li = document.createElement("li");
+    const label = document.createElement("b");
+    label.textContent = c.label;
+    const detail = document.createElement("span");
+    detail.textContent = c.detail;
+    li.append(label, detail);
+    list.append(li);
+  }
+
+  const next = document.createElement("div");
+  next.className = "next";
+  next.textContent = nextStep;
+
+  box.append(title, list, next);
+  logEl.append(box);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
 function bubble(text, cls = "bot") {
   const d = document.createElement("div");
   d.className = `msg ${cls}`;
@@ -189,13 +223,15 @@ async function handleTurn(text) {
   if (!res.ok) {
     show(proposalJson, res.error ?? "no proposal");
     if (res.guidance) {
-      // No capability applies. Show the checks as a list - the thing this replaced was a wall
-      // of prose that nobody standing at a dead machine was going to read.
+      // Order matters. These checks first rendered BEFORE the headline and in the grey system
+      // style, and a user read straight past them: "I didn't realize those instructions were
+      // for me." So: the assistant speaks first and gives the checks context, THEN they appear
+      // as a card that looks like something to act on, THEN it says what to do next.
       show(proposalJson, { noCapabilityApplies: true, ...res.guidance });
-      bubble(res.guidance.cause, "sys");
-      for (const c of res.guidance.checks) bubble(`check — ${c}`, "sys");
+      renderFacts(res.facts ?? {});
       setState("apologising");
-      await say(res.guidance.headline, "idle");
+      await say(`${res.guidance.headline} ${res.guidance.cause}`, "idle");
+      todoCard(res.guidance);
       return;
     }
     setState("idle");
