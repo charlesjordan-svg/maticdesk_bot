@@ -152,11 +152,16 @@ In isolated worktrees (`node_modules` junctioned in, then removed):
 
 No history rewritten; nothing to record against a bisect. Worktrees removed.
 
-### A2. `.gitattributes` and renormalise — done, two commits
+### A2. `.gitattributes` added — one commit; the renormalise was a no-op
 
-As specified (LF for source and docs, CRLF for `.ps1`, binaries named). `CLAUDE.md`'s
-"match the file's existing line endings" rule is replaced by "Git normalises on add; do not
-hand-convert." The renormalise commit is content-free by construction and separate.
+`.gitattributes` is as specified (LF for source and docs, CRLF for `.ps1`, binaries named) and
+committed on its own. **`git add --renormalize .` then staged nothing**, so there is no second
+commit: `core.autocrlf` is `true` on this machine and every blob in HEAD was already LF
+(`git ls-files --eol` shows `i/lf w/crlf` for the CRLF-looking files; `git show HEAD:<file>`
+contains zero CR bytes). The "CRLF files" this project has been careful about exist only in the
+working tree, as autocrlf's checkout conversion. `.gitattributes` makes that explicit and
+machine-independent rather than changing any stored byte. `CLAUDE.md`'s "match the file's
+existing line endings" rule is replaced by "Git normalises on add; do not hand-convert."
 
 ### A3. The four unfiled documents — re-checked, still absent
 
