@@ -63,6 +63,12 @@
         "why": "Windows remembers the address behind a name for a while. If that address has changed, or was saved while the network was broken, the stale entry keeps failing. Clearing it forces a fresh look-up.",
         "notice": "The next few pages may take a fraction longer to load while the list fills up again. That is all.",
         "undo": "Nothing to undo - the list rebuilds itself automatically as you browse."
+      },
+      "requires": {
+        "machineOnline": true
+      },
+      "requiresExplain": {
+        "machineOnline": "This machine has no working network route at all, so clearing the DNS cache cannot help - a name lookup needs a route to reach a DNS server in the first place. The address itself is the problem, not the cache."
       }
     },
     {
@@ -125,6 +131,12 @@
         "why": "When an adapter has an address but nothing is getting through, the adapter itself is often stuck. Turning it off and on clears that.",
         "notice": "EVERY network connection on this machine drops for several seconds, including any remote session, call or download. It can take 10 to 30 seconds to come back, and it may have no address at first while the network gives it a new one.",
         "undo": "The adapter is switched back on automatically. If it does not come back, it can be re-enabled from Network Connections (ncpa.cpl)."
+      },
+      "requires": {
+        "machineOnline": false
+      },
+      "requiresExplain": {
+        "machineOnline": "This machine is online and routing normally, so resetting the adapter would drop every connection on it for no reason. That is worth doing when the network is not working - not as a first thing to try. If something specific is failing, say what it is."
       }
     }
   ],
@@ -143,5 +155,6 @@
       "summary": "You will notice this happen. Read what it does before approving."
     }
   },
-  "_plainNote": "plain/* and tiers/* are what the CONSENT PROMPT shows. They are catalog data on purpose: the text a user consents to must not be written by the model that is asking for the consent. Reviewable, signable with the rest of the catalog, and identical whether or not the cloud is reachable."
+  "_plainNote": "plain/* and tiers/* are what the CONSENT PROMPT shows. They are catalog data on purpose: the text a user consents to must not be written by the model that is asking for the consent. Reviewable, signable with the rest of the catalog, and identical whether or not the cloud is reachable.",
+  "_requiresNote": "requires/* are preconditions on observed machine state, checked by the broker before any consent prompt. Deliberately a tiny grammar - a named fact and an expected boolean - because this file is the trust root (H3d). Added 2026-09-02 after every model tested, cloud included, proposed reset_adapter on a healthy machine when a user asked for it by name."
 }

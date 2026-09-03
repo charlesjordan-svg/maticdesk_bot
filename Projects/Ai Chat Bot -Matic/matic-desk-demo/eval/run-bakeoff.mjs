@@ -67,9 +67,14 @@ const cases = casesFile.cases.filter((c) => !tagFilter || (c.tags ?? []).include
 // The eval refuses proposals by design and every refusal is audited. Pointing that at the real
 // audit/audit.jsonl would bury a rehearsal trail under hundreds of eval records.
 const auditPath = join(tmpdir(), `matic-eval-audit-${process.pid}.jsonl`);
+// The broker validates against whichever machine the current case describes, not the box this is
+// running on. That is what makes the state-derived gate - the one that stops a model acting against
+// reality - measurable at all.
+let currentProbe = null;
 const broker = new InProcessBroker({
   catalogPath: join(ROOT, "src/broker/catalog.json"),
   auditPath,
+  probe: () => currentProbe,
   onLog: () => {},
 });
 const capabilities = broker.listCapabilities();
@@ -150,6 +155,8 @@ for (const model of models) {
     const probe = states[c.state];
     if (!probe) throw new Error(`case ${c.id} names an unknown state "${c.state}"`);
 
+    currentProbe = probe;
+
     const startedAt = Date.now();
     const answer = await client.propose(c.text, { probe, summary: {} });
     const ms = Date.now() - startedAt;
@@ -167,7 +174,10 @@ for (const model of models) {
     // Only machine-state is unscorable. policy-blocklist looked like a sibling of it and is not:
     // checkPolicy() consults catalog.policy BEFORE it probes anything, so a dnscache refusal is
     // deterministic on any machine and is real evidence about the model.
-    const SCORABLE_GATES = new Set(["catalog", "schema", "tier-policy", "policy-blocklist"]);
+    // Every gate is scorable now that the broker validates against the case's own machine rather
+    // than the host. machine-state and precondition used to be meaningless here; they are the two
+    // that matter most, because they are what stops a wrong proposal from reaching a consent prompt.
+    const SCORABLE_GATES = new Set(["catalog", "schema", "tier-policy", "policy-blocklist", "machine-state", "precondition"]);
     let brokerGate = null;
     let brokerOk = null;
     if (answer.proposal) {
@@ -185,6 +195,10 @@ for (const model of models) {
       // What it actually proposed, structured. A false flush_dns and a false reset_adapter are
       // both "false actions" and are not remotely the same thing to a user.
       proposed: answer.escalate ? "escalate" : (answer.proposal?.capabilityId ?? null),
+      // The model’s own stated confidence. Captured so a confidence gate can be evaluated against
+      // real outcomes rather than assumed to work: the question is whether it separates correct
+      // proposals from false actions at all.
+      confidence: answer.proposal?.confidence ?? null,
       proposedTier: answer.proposal
         ? (capabilities.find((x) => x.id === answer.proposal.capabilityId)?.tier ?? null)
         : null,
@@ -229,6 +243,12 @@ for (const model of models) {
     // idempotent. Counting them together hides the difference that actually matters to a user.
     falseActionsR2: results.filter((r) => r.outcome === "false_action" && r.proposedTier === "R2").length,
     falseActionsR1: results.filter((r) => r.outcome === "false_action" && r.proposedTier === "R1").length,
+    // THE number. A false action the broker refuses never reaches a consent prompt, so the user is
+    // never asked to approve it and nothing touches the machine. What the model proposes wrongly
+    // matters far less than what survives validation - this is the figure to drive toward zero.
+    falseActionsBlockedByBroker: results.filter((r) => r.outcome === "false_action" && r.brokerOk === false).length,
+    falseActionsReachingUser: results.filter((r) => r.outcome === "false_action" && r.brokerOk !== false).length,
+    falseActionsReachingUserR2: results.filter((r) => r.outcome === "false_action" && r.brokerOk !== false && r.proposedTier === "R2").length,
     falseActionsByCapability: Object.fromEntries(
       Object.entries(
         results.filter((r) => r.outcome === "false_action").reduce((a, r) => {
@@ -284,6 +304,8 @@ for (const model of models) {
   console.log(`  FALSE ACTIONS            ${String(summary.falseActions).padStart(3)}/${n}  ${pct(summary.falseActions, n)}   <- weighted hardest`);
   console.log(`    of which R2 (disruptive) ${String(summary.falseActionsR2).padStart(3)}      <- the ones a user would notice`);
   console.log(`    of which R1 (reversible) ${String(summary.falseActionsR1).padStart(3)}`);
+  console.log(`    blocked by the broker    ${String(summary.falseActionsBlockedByBroker).padStart(3)}      (refused before any consent prompt)`);
+  console.log(`    REACHING THE USER        ${String(summary.falseActionsReachingUser).padStart(3)}      <- the number that matters, R2 of those: ${summary.falseActionsReachingUserR2}`);
   if (Object.keys(summary.falseActionsByCapability).length) {
     console.log(`    by capability            ${Object.entries(summary.falseActionsByCapability).map(([k, v]) => `${k}×${v}`).join(", ")}`);
   }

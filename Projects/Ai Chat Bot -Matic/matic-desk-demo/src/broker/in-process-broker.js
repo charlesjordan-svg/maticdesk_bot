@@ -36,8 +36,15 @@ function proposalHash(proposal) {
 }
 
 export class InProcessBroker {
-  constructor({ catalogPath, auditPath, onLog = () => {} }) {
+  /**
+   * @param probe Reads live machine state. Injectable ONLY so the state-derived gate can be tested
+   *   and measured against known machines - the eval describes fictional ones, and a gate that can
+   *   only be exercised against whatever box happens to be running is a gate nobody has checked.
+   *   Production passes nothing and gets probeMachine().
+   */
+  constructor({ catalogPath, auditPath, probe = probeMachine, onLog = () => {} }) {
     this.onLog = onLog;
+    this.probe = probe;
     this.catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
     this.verifyCatalogSignature();
     // Attach the plain-language risk label to each capability so the consent prompt can show it
@@ -176,7 +183,7 @@ export class InProcessBroker {
         // stage that it came from observed state (Day-4 ledger).
         blocked(blocklisted);
       } else {
-        const probe = probeMachine();
+        const probe = this.probe();
         const svc = probe.services[params.serviceName];
         if (svc?.error) {
           state(`cannot read the state of ${params.serviceName}: ${svc.error}`);
@@ -190,7 +197,7 @@ export class InProcessBroker {
     }
 
     if (capability.id === "renew_dhcp") {
-      const adapter = probeMachine().adapters.find((a) => a.index === params.adapterIndex);
+      const adapter = this.probe().adapters.find((a) => a.index === params.adapterIndex);
       if (!adapter) {
         state(`adapter index ${params.adapterIndex} is not on this machine`);
       } else if (!adapter.dhcpEnabled) {
@@ -199,10 +206,61 @@ export class InProcessBroker {
     }
 
     if (capability.id === "reset_adapter") {
-      const adapter = probeMachine().adapters.find((a) => a.guid === params.adapterId);
+      const adapter = this.probe().adapters.find((a) => a.guid === params.adapterId);
       if (!adapter) state(`adapter ${params.adapterId} is not on this machine`);
     }
 
+    // Declarative preconditions from the catalog. Measured 2026-09-02: every model tested - the
+    // cloud one included - proposed reset_adapter on a HEALTHY machine when a user asked for it by
+    // name. Four of five made that their only R2 mistake. No model choice fixes it, because the
+    // model is treating a user's self-diagnosis as an instruction rather than a claim to check.
+    //
+    // So the machine checks it instead. This is H2 in miniature: policy is data, the endpoint
+    // enforces it, and it holds for every model including ones nobody has evaluated yet.
+    failures.push(...this.checkPreconditions(capability));
+
+    return failures;
+  }
+
+  /**
+   * Catalog-declared preconditions on observed machine state.
+   *
+   * Kept to a deliberately tiny expression language - a named fact and an expected boolean - rather
+   * than anything evaluable. A catalog that can express arbitrary logic is a catalog that can
+   * express a bug, and it is the trust root (H3d: typed primitives, never scripts).
+   *
+   * @returns {{gate: string, message: string}[]}
+   */
+  checkPreconditions(capability) {
+    const requires = capability.requires;
+    if (!requires) return [];
+
+    const probe = this.probe();
+    /** Named facts a precondition may test. Add to this list, never to the catalog's grammar. */
+    const FACTS = {
+      // "Is this machine routing?" - the fact that separates "something is wrong with the network"
+      // from "a user has read something on the internet".
+      machineOnline: () => Boolean(probe.online),
+    };
+
+    const failures = [];
+    for (const [fact, expected] of Object.entries(requires)) {
+      const read = FACTS[fact];
+      if (!read) {
+        // Fail closed. An unknown precondition is a catalog bug, and silently ignoring it would
+        // turn a typo into a disabled safety check.
+        failures.push({ gate: "precondition", message: `capability "${capability.id}" requires unknown fact "${fact}"` });
+        continue;
+      }
+      const actual = read();
+      if (actual !== expected) {
+        failures.push({
+          gate: "precondition",
+          message: capability.requiresExplain?.[fact]
+            ?? `${capability.title} is not appropriate here: ${fact} is ${actual}, expected ${expected}`,
+        });
+      }
+    }
     return failures;
   }
 
