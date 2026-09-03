@@ -118,7 +118,8 @@ export class OpenAICompatibleClient {
         ...this.extraBody,
       }),
     });
-    return { status: res.status, body: await res.json().catch(() => ({})) };
+    const body = await res.json().catch(() => ({}));
+    return { status: res.status, body, usage: body?.usage ?? null };
   }
 
   /** Pull the single tool call out of a response, tolerating both argument encodings. */
@@ -161,18 +162,31 @@ export class OpenAICompatibleClient {
       { role: "user", content: `${machineStateBlock(probe)}\n\nThe user says: ${text}` },
     ];
 
+    // Accumulated for the bake-off harness, which needs to know what a proposal COST - whether a
+    // repair turn fired, what the model got wrong first time, how many tokens and requests it took.
+    // The app ignores this; nothing here influences a decision.
+    const meta = { requests: 0, repaired: false, firstAttemptViolations: [], usage: { prompt_tokens: 0, completion_tokens: 0 } };
+    const countUsage = (u) => {
+      meta.requests++;
+      if (!u) return;
+      meta.usage.prompt_tokens += u.prompt_tokens ?? 0;
+      meta.usage.completion_tokens += u.completion_tokens ?? 0;
+    };
+
     try {
-      let { status, body } = await this.#call(messages);
+      let { status, body, usage } = await this.#call(messages);
+      countUsage(usage);
       if (status !== 200) {
         const detail = body?.error?.message ?? body?.error ?? JSON.stringify(body).slice(0, 200);
         this.onLog(`[local] HTTP ${status} from ${this.baseUrl}: ${detail}`);
-        return { ok: false, error: `Local model endpoint returned ${status}: ${detail}` };
+        return { ok: false, error: `Local model endpoint returned ${status}: ${detail}`, meta };
       }
 
       let read = this.#readToolCall(body);
-      if (read.error) return { ok: false, error: read.error };
+      if (read.error) return { ok: false, error: read.error, meta };
 
       let violations = this.#violations(read.name, read.args);
+      meta.firstAttemptViolations = [...violations];
 
       // One repair turn. The server did not enforce the schema, so ask the model to fix its own
       // output with the errors in front of it. One attempt, not a loop: a model that cannot
@@ -192,6 +206,8 @@ export class OpenAICompatibleClient {
           },
         ];
         const retry = await this.#call(repairMessages);
+        countUsage(retry.usage);
+        meta.repaired = true;
         if (retry.status === 200) {
           const reread = this.#readToolCall(retry.body);
           if (!reread.error) {
@@ -204,17 +220,17 @@ export class OpenAICompatibleClient {
         }
       }
 
-      if (read.name === "escalate") return this.#escalation(read.args, violations);
-      return this.#capabilityProposal(read.name, read.args, violations);
+      if (read.name === "escalate") return { ...this.#escalation(read.args, violations), meta };
+      return { ...this.#capabilityProposal(read.name, read.args, violations), meta };
     } catch (err) {
       // `reason: "connection"` distinguishes "the request never left this machine" from "the
       // server answered and said no". Only the former is evidence about the network, and
       // routeByState() relies on that distinction.
       if (err.name === "TimeoutError" || err.name === "AbortError") {
-        return { ok: false, reason: "connection", error: `The local model did not answer within ${Math.round(this.timeoutMs / 1000)}s. If it was cold, it may still be loading.` };
+        return { ok: false, reason: "connection", error: `The local model did not answer within ${Math.round(this.timeoutMs / 1000)}s. If it was cold, it may still be loading.`, meta };
       }
       this.onLog(`[local] ${err.stack ?? err.message}`);
-      return { ok: false, reason: "connection", error: `Could not reach the local model at ${this.baseUrl}: ${err.message}` };
+      return { ok: false, reason: "connection", error: `Could not reach the local model at ${this.baseUrl}: ${err.message}`, meta };
     }
   }
 

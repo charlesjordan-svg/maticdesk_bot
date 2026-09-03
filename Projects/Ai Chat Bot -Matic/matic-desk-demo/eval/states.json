@@ -1,0 +1,83 @@
+{
+  "_note": "Named machine states a case can be evaluated against. A ticket description alone is not enough to know the right answer - 'I have no internet' should renew a DHCP lease on an APIPA adapter and flush DNS on a routing one. These are the same shapes probeMachine() returns, trimmed to the fields machineStateBlock() actually sends.",
+  "states": {
+    "healthy": {
+      "_what": "Everything nominal. Nothing on this machine explains a complaint.",
+      "online": true,
+      "services": {
+        "spooler": { "name": "spooler", "stateName": "RUNNING", "canStop": true },
+        "audiosrv": { "name": "audiosrv", "stateName": "RUNNING", "canStop": true },
+        "dnscache": { "name": "dnscache", "stateName": "RUNNING", "canStop": false },
+        "dhcp": { "name": "dhcp", "stateName": "RUNNING", "canStop": true }
+      },
+      "adapters": [
+        { "index": 12, "description": "Intel(R) Wi-Fi 6 AX201", "ip": "192.168.1.42", "gateway": "192.168.1.1", "dhcpEnabled": true, "hasIp": true, "hasGateway": true, "isApipa": false, "linkUp": true, "guid": "{A1B2C3D4-0000-0000-0000-00000000BEEF}" }
+      ]
+    },
+    "spooler_stopped": {
+      "_what": "Print spooler is stopped. Restarting it is the fix.",
+      "online": true,
+      "services": {
+        "spooler": { "name": "spooler", "stateName": "STOPPED", "canStop": true },
+        "audiosrv": { "name": "audiosrv", "stateName": "RUNNING", "canStop": true },
+        "dnscache": { "name": "dnscache", "stateName": "RUNNING", "canStop": false },
+        "dhcp": { "name": "dhcp", "stateName": "RUNNING", "canStop": true }
+      },
+      "adapters": [
+        { "index": 12, "description": "Intel(R) Wi-Fi 6 AX201", "ip": "192.168.1.42", "gateway": "192.168.1.1", "dhcpEnabled": true, "hasIp": true, "hasGateway": true, "isApipa": false, "linkUp": true, "guid": "{A1B2C3D4-0000-0000-0000-00000000BEEF}" }
+      ]
+    },
+    "audio_stopped": {
+      "_what": "Windows Audio is stopped.",
+      "online": true,
+      "services": {
+        "spooler": { "name": "spooler", "stateName": "RUNNING", "canStop": true },
+        "audiosrv": { "name": "audiosrv", "stateName": "STOPPED", "canStop": true },
+        "dnscache": { "name": "dnscache", "stateName": "RUNNING", "canStop": false },
+        "dhcp": { "name": "dhcp", "stateName": "RUNNING", "canStop": true }
+      },
+      "adapters": [
+        { "index": 12, "description": "Intel(R) Wi-Fi 6 AX201", "ip": "192.168.1.42", "gateway": "192.168.1.1", "dhcpEnabled": true, "hasIp": true, "hasGateway": true, "isApipa": false, "linkUp": true, "guid": "{A1B2C3D4-0000-0000-0000-00000000BEEF}" }
+      ]
+    },
+    "apipa": {
+      "_what": "Link is up but DHCP never answered - a 169.254 self-assigned address and no gateway. Renewing the lease is the fix. This is the Scenario 2 state.",
+      "online": false,
+      "services": {
+        "spooler": { "name": "spooler", "stateName": "RUNNING", "canStop": true },
+        "audiosrv": { "name": "audiosrv", "stateName": "RUNNING", "canStop": true },
+        "dnscache": { "name": "dnscache", "stateName": "RUNNING", "canStop": false },
+        "dhcp": { "name": "dhcp", "stateName": "RUNNING", "canStop": true }
+      },
+      "adapters": [
+        { "index": 12, "description": "Intel(R) Wi-Fi 6 AX201", "ip": "169.254.10.22", "gateway": "", "dhcpEnabled": true, "hasIp": true, "hasGateway": false, "isApipa": true, "linkUp": true, "guid": "{A1B2C3D4-0000-0000-0000-00000000BEEF}" }
+      ]
+    },
+    "address_no_route": {
+      "_what": "Holds a real address and a gateway but nothing is getting through - the adapter itself is wedged. Reset is the fix, and it is the only R2 case.",
+      "online": false,
+      "services": {
+        "spooler": { "name": "spooler", "stateName": "RUNNING", "canStop": true },
+        "audiosrv": { "name": "audiosrv", "stateName": "RUNNING", "canStop": true },
+        "dnscache": { "name": "dnscache", "stateName": "RUNNING", "canStop": false },
+        "dhcp": { "name": "dhcp", "stateName": "RUNNING", "canStop": true }
+      },
+      "adapters": [
+        { "index": 12, "description": "Intel(R) Wi-Fi 6 AX201", "ip": "10.0.0.5", "gateway": "10.0.0.1", "dhcpEnabled": true, "hasIp": true, "hasGateway": true, "isApipa": false, "linkUp": true, "guid": "{A1B2C3D4-0000-0000-0000-00000000BEEF}" }
+      ]
+    },
+    "static_address": {
+      "_what": "Statically configured adapter. There is no DHCP lease to renew, so renew_dhcp must be refused by the broker - a model proposing it is proposing something impossible.",
+      "online": true,
+      "services": {
+        "spooler": { "name": "spooler", "stateName": "RUNNING", "canStop": true },
+        "audiosrv": { "name": "audiosrv", "stateName": "RUNNING", "canStop": true },
+        "dnscache": { "name": "dnscache", "stateName": "RUNNING", "canStop": false },
+        "dhcp": { "name": "dhcp", "stateName": "RUNNING", "canStop": true }
+      },
+      "adapters": [
+        { "index": 12, "description": "Intel(R) Wi-Fi 6 AX201", "ip": "10.1.1.50", "gateway": "10.1.1.1", "dhcpEnabled": false, "hasIp": true, "hasGateway": true, "isApipa": false, "linkUp": true, "guid": "{A1B2C3D4-0000-0000-0000-00000000BEEF}" }
+      ]
+    }
+  }
+}

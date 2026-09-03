@@ -6,3 +6,6 @@ scripts/demo-state.json
 *.wav
 # Never commit credentials
 .env
+
+# Bake-off results are machine- and run-specific, not source
+eval/results/
