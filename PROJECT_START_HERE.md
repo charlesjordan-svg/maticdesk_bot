@@ -2,7 +2,7 @@
 
 **Read this first, every session. Then read the documents it points to — fresh, not from memory.**
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-02 (post-demo branch: refusal auditing, provider, bake-off)
 **Project home:** `C:\Users\Charles\Downloads\maticdesk_bot\` (Obsidian vault + git, private)
 
 This file is an **index of pointers, not content**. If you find yourself explaining architecture
@@ -33,7 +33,10 @@ signed content distribution, central audit and ITSM integration.
 | Hub / server side | **Nothing built.** Spec written, several decisions open |
 | Named pipe, Windows Service, catalog signing | **Not built.** Phase 1 |
 | ITSM integration | **Not built.** Escalation payload is displayed, never sent |
-| Performance measurement | **NONE TAKEN.** Every figure in every document is a target |
+| Performance measurement | **First numbers measured 2026-09-02** — model bake-off only. Everything else is still a target |
+| Refusal auditing (`post-demo`) | **Done, unmerged.** `validate()` audits refusals with the gate that fired |
+| Local/OpenAI-compatible provider (`post-demo`) | **Done, unmerged.** Off by default; the demo build still uses Anthropic |
+| Model bake-off harness (`post-demo`) | **Done, unmerged.** 40 cases, three models measured |
 
 **Demo deadline: Sunday 2026-09-06.** Build is frozen; new work goes on a `post-demo` branch.
 
@@ -63,6 +66,9 @@ signed content distribution, central audit and ITSM integration.
 | `DEMO-RUNBOOK.md` | Sunday demo: pre-flight, three scenarios, failure playbook |
 | `BROKER-SURFACE.md` | Every native API the privileged half touches. The allowlisting document |
 | `PHASE1-TICKETING.md` | Ticketing design note |
+| `LOCAL-MODEL-PROVIDER.md` | **`post-demo`.** OpenAI-compatible provider: design, and why escalation enums are enforced client-side |
+| `BAKEOFF-2026-09-02.md` | **`post-demo`.** First measured model comparison. Read §1 before picking a model |
+| `../eval/README.md` | **`post-demo`.** The model eval harness — dataset shape, metrics, what it cannot score |
 | `HANDOVER-2026-09-02.md` | Day 1–3 build record |
 
 ### Planning artifacts (from Claude sessions, in `Downloads\` or chat outputs)
@@ -71,7 +77,7 @@ signed content distribution, central audit and ITSM integration.
 |---|---|
 | `2026-09-02-hub-server-side-spec-handover.md` | **Hub specification. Self-contained.** Start any hub thread here |
 | `2026-09-02-claude-code-proceed-handover.md` | Current Claude Code work queue + build-freeze rule |
-| `2026-09-02-ollama-provider-brief.md` | Local model provider; model shortlist |
+| ~~`2026-09-02-ollama-provider-brief.md`~~ | **NOT ON THIS MACHINE** (searched 2026-09-02; only the proceed handover references it). Its provider content is superseded by hub spec §12 and `LOCAL-MODEL-PROVIDER.md` |
 | `2026-09-02-tts-runtime-decision-handover.md` | Piper footprint, Python dependency, positioning language |
 | `2026-08-27-designer-note-v4.md` | **Current designer brief.** Supersedes v3 and v2 |
 | `2026-09-02-sunday-demo-build-plan.md` | Demo scope and cut lines |
@@ -130,6 +136,16 @@ ServiceNow at the design partner · macOS eventually required.
 | Data retention policy | Cannot file a first ticket without it | Founder |
 | Client host / port target (Electron vs WebView2 vs Tauri) | Component lift; binds the macOS port | Founder + measurement |
 | Scenario 2 timing · five clean runs · video backup | Sunday demo | Charles, this week |
+
+**Resolved 2026-09-02:** `C:` was down to **0.4 GB free of 930 GB** — no room to record the video
+backup, and it had already failed a model download. `OLLAMA_MODELS` had never been set, so Ollama
+had put 188 GB in `C:\Users\Charles\.ollama\models`. Moved to `G:\AI\ollama\models` (copy, verified
+byte-identical, inference confirmed, source deleted). **C: now has 198 GB free.**
+
+**Note the mechanism:** `OLLAMA_MODELS` is set at user level *and* there is a directory junction at
+`C:\Users\Charles\.ollama\models` pointing at G:. The junction is the one that matters — the tray
+app ignores the environment variable and would otherwise recreate an empty store at the old path on
+next login. Do not delete the junction.
 
 **No performance number has ever been measured.** The idle soak (`runIdleSoak()` in
 `avatar-instrumentation.js`) has been built and unrun since it was written. It is the oldest open
