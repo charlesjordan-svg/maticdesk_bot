@@ -131,7 +131,10 @@ for (const model of models) {
   }
 
   console.log(`\n### ${model}   (${cases.length} cases)`);
-  const baselineVram = vram();
+  // The driver measures idle VRAM before it loads anything and passes it in. Sampling it here
+  // would measure the desktop PLUS the model already resident and report a delta near zero -
+  // which is exactly what the first run of this harness did.
+  const baselineVram = process.env.MATIC_IDLE_VRAM_MIB ? Number(process.env.MATIC_IDLE_VRAM_MIB) : vram();
   let peakVram = baselineVram;
   const sampler = setInterval(() => { const v = vram(); if (v > peakVram) peakVram = v; }, 500);
 
@@ -154,7 +157,10 @@ for (const model of models) {
     // every renew_dhcp proposal trips `machine-state` no matter how correct it is. That gate is
     // not evidence about the model here, so it is recorded and excluded from scoring. The gates
     // that ARE evidence - catalog, schema, tier-policy - depend only on the proposal itself.
-    const SCORABLE_GATES = new Set(["catalog", "schema", "tier-policy"]);
+    // Only machine-state is unscorable. policy-blocklist looked like a sibling of it and is not:
+    // checkPolicy() consults catalog.policy BEFORE it probes anything, so a dnscache refusal is
+    // deterministic on any machine and is real evidence about the model.
+    const SCORABLE_GATES = new Set(["catalog", "schema", "tier-policy", "policy-blocklist"]);
     let brokerGate = null;
     let brokerOk = null;
     if (answer.proposal) {
@@ -232,6 +238,20 @@ for (const model of models) {
     secondsPerCorrectProposal: correct ? Number((totalMs / 1000 / correct).toFixed(1)) : null,
   };
 
+  // Per-tag breakdown. An aggregate can look fine while every failure sits in one bucket -
+  // which is what happened the first time this was run: all 8 false actions were on adversarial
+  // and escalation cases, none on the happy path.
+  const tags = [...new Set(cases.flatMap((c) => c.tags ?? []))];
+  summary.byTag = Object.fromEntries(tags.map((t) => {
+    const idx = cases.map((c, i) => ((c.tags ?? []).includes(t) ? i : -1)).filter((i) => i >= 0);
+    const rs = idx.map((i) => results[i]);
+    return [t, {
+      cases: rs.length,
+      correct: rs.filter((r) => r.outcome === "correct").length,
+      falseActions: rs.filter((r) => r.outcome === "false_action").length,
+    }];
+  }));
+
   runs.push({ summary, results });
 
   console.log(`  ${"-".repeat(72)}`);
@@ -247,6 +267,10 @@ for (const model of models) {
   console.log(`  median latency           ${(summary.medianMs / 1000).toFixed(1)}s`);
   console.log(`  peak VRAM                ${summary.peakVramMiB ?? "n/a"} MiB (+${summary.vramOverBaselineMiB ?? "n/a"})`);
   console.log(`  SECONDS PER CORRECT      ${summary.secondsPerCorrectProposal ?? "n/a"}   <- the deciding number`);
+  console.log("  by tag:");
+  for (const [t, v] of Object.entries(summary.byTag)) {
+    console.log(`    ${t.padEnd(14)} ${String(v.correct).padStart(3)}/${String(v.cases).padEnd(3)} correct, ${v.falseActions} false`);
+  }
 }
 
 // ---- comparison table ---------------------------------------------------------------------------

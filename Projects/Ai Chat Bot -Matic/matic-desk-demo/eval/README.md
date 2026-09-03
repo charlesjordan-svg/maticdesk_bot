@@ -1,7 +1,13 @@
 # The model bake-off
 
-Which model should propose actions on a customer's machine, and what does a trustworthy proposal
-from it cost?
+Which model should back the proposal step, and what does a trustworthy proposal from it cost?
+
+> **This is not choosing what runs on a customer endpoint.** The design partner has confirmed
+> **no discrete GPUs and no local LLM on endpoints** (hub spec §2). The OpenAI-compatible adapter
+> under test serves the deployments that are off the endpoint: hub-side inference, and hub spec
+> §12's **customer-hosted tier 3** — *"that single adapter **is** the customer-hosted tier"*. It is
+> also what makes eval iteration over hundreds of tickets cheap, which is the cost the local path
+> exists to avoid. Do not read a winner here as a recommendation to put a model on an endpoint.
 
 Built as the Phase 3 model eval, not a throwaway. Hand-written cases now; a customer's real ticket
 export drops into `cases.json` later with the same shape and **nothing else changes**.
@@ -39,7 +45,12 @@ broker validation as a real turn.
 The system prompt lives in `src/agent/prompt.js`, shared by both providers, for the same reason: a
 bake-off comparing models must not accidentally compare prompt wordings.
 
-## The dataset
+## The dataset is interim, and that is the plan
+
+The real golden set is **blocked on the design partner** — top-30 L1 ticket categories with
+volumes, outstanding three weeks (hub spec §15). The 40 cases here are the stand-in the brief
+asked for. When the export lands it replaces `cases.json` and no code changes; that constraint is
+the reason the dataset is a data file with a documented shape rather than a list inside a script.
 
 40 cases. `state` names an entry in `states.json`, because the same sentence has different right
 answers on different machines — *"I have no internet"* should renew a DHCP lease on an APIPA
@@ -92,7 +103,13 @@ path, price per correct proposal is the same idea with a different denominator.
 adapter index 12 is real in `states.json` and absent from whatever box the eval runs on, and every
 `renew_dhcp` proposal trips the `machine-state` gate no matter how correct it is. That gate is
 recorded and **excluded from scoring**. The gates that depend only on the proposal itself —
-`catalog`, `schema`, `tier-policy` — are scored normally.
+`catalog`, `schema`, `tier-policy` and `policy-blocklist` — are scored normally. `policy-blocklist`
+looked like a sibling of `machine-state` and is not: `checkPolicy()` consults `catalog.policy`
+before it probes anything, so a `dnscache` refusal is deterministic on any machine.
+
+## Results
+
+First run: **[`../docs/BAKEOFF-2026-09-02.md`](../docs/BAKEOFF-2026-09-02.md)**.
 
 ## Honesty
 

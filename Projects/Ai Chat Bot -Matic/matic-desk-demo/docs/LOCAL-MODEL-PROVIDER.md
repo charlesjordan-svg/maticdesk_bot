@@ -40,8 +40,20 @@ for one run, with `MATIC_LOCAL_BASE_URL` and `MATIC_LOCAL_API_KEY` if needed.
 
 **This swaps the provider; it does not add a routing tier.** Where a local model should sit
 relative to tier-0 and the cloud — cost, latency, what to do when both are reachable — is a real
-decision and it is not made here. §3 of the handover calls the adapter "provider Tier 3"; without
-the brief, that ordering is not something to invent.
+decision and it is not made here.
+
+§3 of the proceed handover calls the adapter "provider Tier 3", which was ambiguous without the
+brief. **The hub spec §12 settles it: the tiers are commercial, not routing** — 1. Managed (we
+provide inference; Bedrock per §11), 2. Bring your own key, 3. Customer-hosted — and *"that single
+adapter **is** the customer-hosted tier"*.
+
+§12 also requires the provider interface to **return a structured proposal, not a tool call**,
+because depending on a vendor's tool-calling dialect welds you to that vendor. This satisfies it:
+`propose()` returns a `Proposal` or an escalation, and the dialect stays an implementation detail
+inside each adapter — Anthropic's in `cloud-client.js`, OpenAI's here.
+
+**Endpoint deployment is out of scope.** The design partner has confirmed no discrete GPUs and no
+local LLM on endpoints (hub spec §2). This adapter is for hub-side and customer-hosted inference.
 
 ---
 
@@ -105,6 +117,11 @@ for `gpt-oss:20b` goes from 3/5 to 5/5 at the cost of one extra round trip.
 
 ## 3. Measurements
 
+> **Superseded by the 40-case bake-off:** **[`BAKEOFF-2026-09-02.md`](BAKEOFF-2026-09-02.md)**.
+> The five-case figures below are kept only because they are what the design decisions above were
+> made against, and they were badly over-optimistic: `gpt-oss:20b` scored 5/5 here and **31/40 with
+> eight false actions** on the full set. `mistral-small:24b` is the pick.
+
 RTX 3090 Ti 24 GB, Ryzen 9 3900X, 32 GB RAM. Quiet GPU, 1.4–1.6 GB desktop baseline. Five
 hand-written cases. **These are single-machine observations recorded for engineering purposes,
 not benchmarks, and no performance claim rests on them.**
@@ -152,6 +169,10 @@ the model may still be loading rather than reporting a generic failure.
 ---
 
 ## 5. Honesty ledger — additions
+
+- **Hub spec §16 lists "Ollama's current structured-output API" as NOT verified. That is now
+  closed.** Tool calling on `/v1/chat/completions` works, arguments return as a JSON string, and
+  the server does **not** enforce the schema — see §2.
 
 - **The local provider is off by default and the demo build does not use it.** Nothing on
   `add-matic-desk-demo` changes at all; this is `post-demo` only.

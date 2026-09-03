@@ -52,8 +52,24 @@ function resident() {
   return sh(["ps"]).split("\n").slice(1).map((l) => l.trim().split(/\s+/)[0]).filter(Boolean);
 }
 
+/**
+ * Unload everything, then WAIT FOR VRAM TO ACTUALLY COME BACK.
+ *
+ * nvidia-smi does not report the memory freed the instant ollama stop returns, and an unload this
+ * process did not issue (a keep_alive expiring, or a stop run by hand a moment earlier) is still
+ * settling too. Sampling early records the outgoing model as the idle baseline and makes every
+ * VRAM delta wrong - which is the second time this measurement has been broken, so poll rather
+ * than guess a sleep.
+ */
 async function unloadAll() {
   for (const m of resident()) sh(["stop", m]);
+  let prev = vram();
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const now = vram();
+    if (Number.isFinite(now) && Number.isFinite(prev) && Math.abs(now - prev) < 100 && resident().length === 0) return;
+    prev = now;
+  }
 }
 
 /**
@@ -110,7 +126,7 @@ for (const model of models) {
 
   const r = spawnSync(process.execPath, [join(HERE, "run-bakeoff.mjs"), ...passthrough, "--out", outFor, model], {
     stdio: "inherit",
-    env: { ...process.env, MATIC_COLD_LOAD_MS: String(loaded.ms) },
+    env: { ...process.env, MATIC_COLD_LOAD_MS: String(loaded.ms), MATIC_IDLE_VRAM_MIB: String(idle) },
   });
   if (r.status !== 0) console.log(`  runner exited ${r.status}`);
 
