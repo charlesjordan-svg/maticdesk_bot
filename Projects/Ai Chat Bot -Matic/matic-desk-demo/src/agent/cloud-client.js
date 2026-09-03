@@ -79,10 +79,16 @@ function toolsFromCatalog(capabilities) {
 
 
 export class CloudClient {
-  constructor({ model, capabilities, onLog = () => {} }) {
+  /**
+   * @param temperature Left undefined in the app, so the API default applies and nothing about the
+   *   demo build changes. The bake-off passes 0: comparing a sampling cloud model against local
+   *   models pinned at 0 measures sampling noise and reports it as a difference between models.
+   */
+  constructor({ model, capabilities, temperature, onLog = () => {} }) {
     this.model = model;
     this.capabilities = capabilities;
     this.onLog = onLog;
+    this.temperature = temperature;
     this.tools = [...toolsFromCatalog(capabilities), ESCALATE_TOOL];
     this.available = Boolean(process.env.ANTHROPIC_API_KEY);
     this.client = this.available ? new Anthropic() : null;
@@ -103,6 +109,7 @@ export class CloudClient {
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 2048,
+        ...(this.temperature === undefined ? {} : { temperature: this.temperature }),
         system: systemPrompt(this.capabilities),
         tools: this.tools,
         // Force a tool call so the reply is always schema-shaped. This is the whole reason

@@ -33,6 +33,12 @@ import { InProcessBroker } from "../src/broker/in-process-broker.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 
+// Load the gitignored .env for --cloud runs, the same way main.js does. Deliberately NOT passed
+// on the command line: a key in argv shows up in the process list for every user on the box.
+if (!process.env.ANTHROPIC_API_KEY) {
+  try { process.loadEnvFile(join(ROOT, ".env")); } catch { /* no .env; --cloud will report itself unavailable */ }
+}
+
 // ---- arguments -------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -122,7 +128,8 @@ const runs = [];
 
 for (const model of models) {
   const client = useCloud
-    ? new CloudClient({ model, capabilities, onLog: () => {} })
+    // temperature 0 so the cloud path is measured the same way the local ones are.
+    ? new CloudClient({ model, capabilities, temperature: 0, onLog: () => {} })
     : new OpenAICompatibleClient({ model, baseUrl, capabilities, onLog: () => {}, timeoutMs: 300000 });
 
   if (!client.available) {
@@ -175,6 +182,12 @@ for (const model of models) {
       text: c.text,
       state: c.state,
       ms,
+      // What it actually proposed, structured. A false flush_dns and a false reset_adapter are
+      // both "false actions" and are not remotely the same thing to a user.
+      proposed: answer.escalate ? "escalate" : (answer.proposal?.capabilityId ?? null),
+      proposedTier: answer.proposal
+        ? (capabilities.find((x) => x.id === answer.proposal.capabilityId)?.tier ?? null)
+        : null,
       outcome: scored.outcome,
       routingOk: scored.routingOk ?? null,
       note: scored.note,
@@ -212,6 +225,18 @@ for (const model of models) {
     cases: n,
     correct,
     falseActions: count("false_action"),
+    // Weighted view. R2 is the one that drops every connection on the machine; R1 is reversible or
+    // idempotent. Counting them together hides the difference that actually matters to a user.
+    falseActionsR2: results.filter((r) => r.outcome === "false_action" && r.proposedTier === "R2").length,
+    falseActionsR1: results.filter((r) => r.outcome === "false_action" && r.proposedTier === "R1").length,
+    falseActionsByCapability: Object.fromEntries(
+      Object.entries(
+        results.filter((r) => r.outcome === "false_action").reduce((a, r) => {
+          a[r.proposed ?? "unknown"] = (a[r.proposed ?? "unknown"] ?? 0) + 1;
+          return a;
+        }, {})
+      ).sort((a, b) => b[1] - a[1])
+    ),
     overEscalations: count("over_escalation"),
     wrongParameters: count("wrong_parameters"),
     noAnswer: count("no_answer"),
@@ -257,6 +282,11 @@ for (const model of models) {
   console.log(`  ${"-".repeat(72)}`);
   console.log(`  correct                  ${String(correct).padStart(3)}/${n}  ${pct(correct, n)}`);
   console.log(`  FALSE ACTIONS            ${String(summary.falseActions).padStart(3)}/${n}  ${pct(summary.falseActions, n)}   <- weighted hardest`);
+  console.log(`    of which R2 (disruptive) ${String(summary.falseActionsR2).padStart(3)}      <- the ones a user would notice`);
+  console.log(`    of which R1 (reversible) ${String(summary.falseActionsR1).padStart(3)}`);
+  if (Object.keys(summary.falseActionsByCapability).length) {
+    console.log(`    by capability            ${Object.entries(summary.falseActionsByCapability).map(([k, v]) => `${k}×${v}`).join(", ")}`);
+  }
   console.log(`  over-escalations         ${String(summary.overEscalations).padStart(3)}/${n}  ${pct(summary.overEscalations, n)}   (safe, unhelpful)`);
   console.log(`  wrong parameters         ${String(summary.wrongParameters).padStart(3)}/${n}`);
   console.log(`  no answer                ${String(summary.noAnswer).padStart(3)}/${n}`);
