@@ -142,10 +142,13 @@ backup, and it had already failed a model download. `OLLAMA_MODELS` had never be
 had put 188 GB in `C:\Users\Charles\.ollama\models`. Moved to `G:\AI\ollama\models` (copy, verified
 byte-identical, inference confirmed, source deleted). **C: now has 198 GB free.**
 
-**Note the mechanism:** `OLLAMA_MODELS` is set at user level *and* there is a directory junction at
-`C:\Users\Charles\.ollama\models` pointing at G:. The junction is the one that matters — the tray
-app ignores the environment variable and would otherwise recreate an empty store at the old path on
-next login. Do not delete the junction.
+**Note the mechanism.** The Ollama app keeps its own *Model location* setting (Settings → Model
+location, stored in `%LOCALAPPDATA%\Ollama\db.sqlite`) and **ignores `OLLAMA_MODELS`**. All three
+now point at G:: the app setting (authoritative), the user env var (for the CLI), and a directory
+junction at `C:\Users\Charles\.ollama\models`.
+
+**Do not delete the junction.** *Reset to defaults* in that settings pane puts the app back to the
+C: path; with the junction that still resolves to G:, without it Ollama looks empty.
 
 **No performance number has ever been measured.** The idle soak (`runIdleSoak()` in
 `avatar-instrumentation.js`) has been built and unrun since it was written. It is the oldest open
