@@ -5,5 +5,11 @@
   "pythonArgs": ["-3"],
   "_pythonNote": "`python` is not on PATH on this machine; `py -3` is (handover §4).",
   "model": "claude-haiku-4-5",
+  "localModel": {
+    "enabled": false,
+    "baseUrl": "http://127.0.0.1:11434/v1",
+    "model": "gpt-oss:20b"
+  },
+  "_localModelNote": "Any OpenAI-compatible endpoint - Ollama, LM Studio, vLLM, or the customer’s own. Setting enabled:true SWAPS the cloud provider for this one; it does not add a routing tier. MATIC_LOCAL_MODEL / MATIC_LOCAL_BASE_URL override, and setting MATIC_LOCAL_MODEL alone is enough to turn it on for one run.",
   "voiceEnabled": true
 }

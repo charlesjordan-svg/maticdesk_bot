@@ -138,6 +138,22 @@ Everything from §7 of the previous handover still stands. Three things learned 
   claim on stage that the message came from observed state.
 - **`reset-demo.ps1` deletes the audit log.** Show the trail after a run, before the next reset.
 
+Added on branch `post-demo` (not merged) — see
+**[`LOCAL-MODEL-PROVIDER.md`](LOCAL-MODEL-PROVIDER.md)** for the detail and the measurements:
+
+- **A local model provider exists, is off by default, and the demo build does not use it.**
+- **Ollama does not enforce tool schemas.** "The schema constrains the model" is true of the
+  Anthropic path (`strict: true`) and **not** of an OpenAI-compatible endpoint. On the local path
+  enforcement is the client’s own validator plus the broker’s. Measured, reproducibly:
+  `gpt-oss:20b` returned `suggestedOwner: "Adobe Support"`, which is not in the enum.
+- **Escalations are the exposed surface, not capability proposals.** A capability proposal is
+  re-validated by the broker and a bad one is refused and audited. An escalation is not — it goes
+  straight to the inspector and the transcript speaks the owner aloud. The client enforces those
+  enums itself and never repeats an invented owner.
+- **`2026-09-02-ollama-provider-brief.md` is missing.** Not on this machine; the only file that
+  references it is the proceed handover. §4’s bake-off harness design lived in its §5 and is
+  therefore unrecovered — the harness is **not built**.
+
 ---
 
 ## 7. Phase 1 — planning

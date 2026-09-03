@@ -39,8 +39,11 @@ export interface Proposal {
    * "tier0-state" = local fallback that matched nothing the user said and proposed from observed
    *                 machine state alone, because the cloud was not reachable either.
    * "cloud"       = Anthropic API.
+   * "local"       = a model on an OpenAI-compatible endpoint - Ollama, LM Studio, vLLM, or the
+   *                 customer’s own. Distinct from "cloud" because it says something different
+   *                 about where the sentence went, which is the question a security review asks.
    */
-  source: "tier0" | "tier0-state" | "cloud";
+  source: "tier0" | "tier0-state" | "cloud" | "local";
 }
 
 /** Which check refused a proposal. Ordered as they run; the first to fire is the reason. */

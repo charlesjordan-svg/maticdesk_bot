@@ -16,27 +16,18 @@
  * @typedef {import("../broker/broker.d.ts").Proposal} Proposal
  */
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  systemPrompt,
+  machineStateBlock,
+  escalationSchema,
+  capabilityToolSchema,
+  ESCALATION_DESCRIPTION,
+} from "./prompt.js";
 
 const ESCALATE_TOOL = {
   name: "escalate",
-  description:
-    "Use this when nothing in your capability list can fix the problem, or when the problem is " +
-    "outside this machine (hardware failure, account/licensing, server-side outage, physical issue). " +
-    "Do not guess at a capability that does not fit.",
-  input_schema: {
-    type: "object",
-    properties: {
-      summary: { type: "string", description: "One or two sentences on what the user is reporting." },
-      category: {
-        type: "string",
-        enum: ["hardware", "account_or_licensing", "server_side_outage", "physical", "needs_human_judgement", "other"],
-      },
-      whatWasChecked: { type: "string", description: "What was already established from the machine state provided." },
-      suggestedOwner: { type: "string", enum: ["desktop_support", "network_team", "identity_team", "vendor", "facilities"] },
-    },
-    required: ["summary", "category", "whatWasChecked", "suggestedOwner"],
-    additionalProperties: false,
-  },
+  description: ESCALATION_DESCRIPTION,
+  input_schema: escalationSchema(),
   strict: true,
 };
 
@@ -75,59 +66,17 @@ function toolsFromCatalog(capabilities) {
   return capabilities.map((c) => ({
     name: c.id,
     description: `${c.title}. ${c.description} Risk tier ${c.tier}.`,
-    input_schema: strictSafeSchema({
-      type: "object",
-      properties: {
-        ...c.parameters.properties,
-        reasoning: { type: "string", description: "Why this is the right fix, in one sentence, for the user to read." },
-        confidence: { type: "number", description: "0 to 1. Be honest - a low number is better than a wrong fix." },
-      },
-      required: [...(c.parameters.required ?? []), "reasoning", "confidence"],
-      additionalProperties: false,
-    }),
+    // Shared shape, then sanitized for what strict mode on THIS API will accept.
+    input_schema: strictSafeSchema(capabilityToolSchema(c)),
     // Verified working on claude-haiku-4-5 once the schema is sanitized above. This guarantees
-    // the model's tool arguments validate against the schema, on top of - never instead of - the
-    // broker's own validation.
+    // the model’s tool arguments validate against the schema, on top of - never instead of - the
+    // broker’s own validation. An OpenAI-compatible server offers no such guarantee, which is why
+    // OpenAICompatibleClient validates its own output.
     strict: true,
   }));
 }
 
-function systemPrompt(capabilities) {
-  return [
-    "You are Matic Desk, an IT support assistant running as software ON the user's Windows machine.",
-    "",
-    "You do not execute anything yourself. You choose one capability from your tool list and propose it.",
-    "A separate privileged broker then validates your proposal, asks the user to consent, and only then acts.",
-    "",
-    "Rules:",
-    "- Use the live machine state you are given. Prefer what it actually shows over what is usually true.",
-    "- Choose exactly one tool.",
-    "- If nothing in your tool list fits the problem, call escalate. Never bend an unrelated capability to fit.",
-    "- Be honest in `confidence`. A low confidence is useful; a confident wrong fix is not.",
-    "- `reasoning` is shown to the user. Write it in plain language, no jargon, one sentence.",
-    "",
-    "Your capabilities are limited to exactly these:",
-    ...capabilities.map((c) => `- ${c.id} (tier ${c.tier}): ${c.description}`),
-  ].join("\n");
-}
 
-function machineStateBlock(summary, probe) {
-  const adapters = probe.adapters
-    .filter((a) => a.dhcpEnabled || a.hasIp)
-    .map((a) => `  - [index ${a.index}] ${a.description}: ip=${a.ip || "none"} gateway=${a.gateway || "none"} dhcp=${a.dhcpEnabled} guid=${a.guid}`)
-    .join("\n");
-  const services = Object.values(probe.services)
-    .map((s) => `  - ${s.name}: ${s.stateName ?? "unreadable"}${s.stateName === "RUNNING" && s.canStop === false ? " (cannot be stopped)" : ""}`)
-    .join("\n");
-  return [
-    "Live state of this machine, read just now:",
-    `  online: ${probe.online ? "yes" : "no"}`,
-    "Services:",
-    services,
-    "Network adapters:",
-    adapters || "  (none reported)",
-  ].join("\n");
-}
 
 export class CloudClient {
   constructor({ model, capabilities, onLog = () => {} }) {
@@ -162,7 +111,7 @@ export class CloudClient {
         messages: [
           {
             role: "user",
-            content: `${machineStateBlock(summary, probe)}\n\nThe user says: ${text}`,
+            content: `${machineStateBlock(probe)}\n\nThe user says: ${text}`,
           },
         ],
       });

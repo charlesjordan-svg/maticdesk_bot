@@ -301,6 +301,8 @@ async function handleTurn(text) {
   const SOURCE_NOTE = {
     tier0: "  (no cloud call made)",
     "tier0-state": "  (from machine state alone - nothing matched what was typed, and the cloud was unreachable)",
+    local: "  (a model running on this machine - the sentence did not leave it)",
+    cloud: "  (sent to the Anthropic API)",
   };
   bubble(`source: ${proposal.source}${SOURCE_NOTE[proposal.source] ?? ""}`, "sys");
 
