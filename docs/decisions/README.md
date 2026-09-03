@@ -9,6 +9,6 @@
 
 ## Rules
 
-- Reference this file from every handover and every review prompt **by relative path** (from the repo root: `docs/decisions/DECISION-REGISTER.md`; from the vault root: `Projects/Ai Chat Bot -Matic/matic-desk-demo/docs/decisions/DECISION-REGISTER.md`). A document that names a decision file without a path is how two files went "missing" on 2026-09-02 while sitting on disk.
+- Reference this file from every handover and every review prompt **by relative path**: `docs/decisions/DECISION-REGISTER.md` from the repo root, `../docs/decisions/DECISION-REGISTER.md` from `client/` or `server/`. A document that names a decision file without a path is how two files went "missing" on 2026-09-02 while sitting on disk.
 - New decisions take the next free ID and are appended. Nobody renumbers. See the register's §11.
 - D1–D41 are reserved for the workbook (`ASK-IT-questionnaire.xlsx`), which has never been downloaded. Recovering it into the register is the top housekeeping item.

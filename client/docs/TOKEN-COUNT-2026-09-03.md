@@ -1,6 +1,6 @@
 # Shipped prompt prefix vs. the prompt-caching floor — measured
 
-**Date:** 2026-09-03 · **Branch:** `post-demo` · **Decision:** D140 in [`decisions/DECISION-REGISTER.md`](decisions/DECISION-REGISTER.md)
+**Date:** 2026-09-03 · **Branch:** `post-demo` · **Decision:** D140 in [`docs/decisions/DECISION-REGISTER.md`](../../docs/decisions/DECISION-REGISTER.md)
 **Script:** `eval/count-tokens.mjs` (`npm run count-tokens [model]`) · **Endpoint:** `messages.count_tokens`, `@anthropic-ai/sdk` 0.123.0
 
 The 2026-09-02 review estimated the shipped system prompt plus tool catalog at ~1,500 tokens (4 characters per token) plus 496 of tool-use overhead, against Haiku 4.5's 4,096-token minimum cacheable prefix, and asked for the estimate to be confirmed with `count_tokens` before the cost model relied on it. Confirmed.

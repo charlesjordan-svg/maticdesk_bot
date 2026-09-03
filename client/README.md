@@ -1,4 +1,7 @@
-# Matic Desk — demo build
+# Matic Desk — the endpoint (`client/`)
+
+> Part of the `maticdesk_bot` monorepo: `client/` (this), `server/` (the hub, not built), and
+> `docs/decisions/` (the decision register). Repo-wide index: [`../PROJECT_START_HERE.md`](../PROJECT_START_HERE.md).
 
 Electron desktop app demonstrating the Matic Desk IT support assistant **actually fixing a
 Windows machine through conversation**. Built against `2026-09-02-claude-code-demo-brief.md`.
@@ -50,7 +53,7 @@ If `npm run ...` fails with *"npm.ps1 cannot be loaded because running scripts i
 use `npm.cmd` instead — it skips the PowerShell shim and needs no policy change:
 
 ```powershell
-cd C:\Users\Charles\Downloads\matic-desk-demo
+cd C:\Users\Charles\Downloads\maticdesk_bot\client
 npm.cmd start
 ```
 

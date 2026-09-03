@@ -1,6 +1,6 @@
 # The consent surface lives in the unprivileged process — demonstrated
 
-**Date:** 2026-09-03 · **Branch:** `post-demo` · **Decision:** D130 in [`decisions/DECISION-REGISTER.md`](decisions/DECISION-REGISTER.md)
+**Date:** 2026-09-03 · **Branch:** `post-demo` · **Decision:** D130 in [`docs/decisions/DECISION-REGISTER.md`](../../docs/decisions/DECISION-REGISTER.md)
 **Test:** `test/consent-surface.test.mjs` (in `npm test`) · **Stub:** `test/helpers/pipe-broker-service.mjs`
 
 The 2026-09-02 design review's largest finding (§1.1, B1/H3e scenario 2) was reasoned from `main.js` and `broker.d.ts`, not demonstrated. Its own verification register said so: *"It would take an afternoon to demonstrate against a stub `NamedPipeBroker`."* This is that afternoon.

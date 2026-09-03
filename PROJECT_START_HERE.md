@@ -2,8 +2,8 @@
 
 **Read this first, every session. Then read the documents it points to — fresh, not from memory.**
 
-**Last updated:** 2026-09-03 (post-demo branch: decision register consolidated, consent-surface finding demonstrated, prompt prefix measured, C9 corrected)
-**Project home:** `C:\Users\Charles\Downloads\maticdesk_bot\` (Obsidian vault + git, private)
+**Last updated:** 2026-09-03 (repo restructured: `client/`, `server/`, `docs/decisions/`; `post-demo` merged to `main`; register consolidated; consent-surface finding demonstrated; prompt prefix measured; C9 corrected)
+**Project home:** `C:\Users\Charles\Downloads\maticdesk_bot\` — git repo `charlesjordan-svg/maticdesk_bot` (private) and Obsidian vault in one. Product code is `client/` and `server/`; notes are `Projects/`.
 
 This file is an **index of pointers, not content**. If you find yourself explaining architecture
 here, it belongs in one of the documents below instead. Update the "Last updated" date and the
@@ -38,11 +38,11 @@ signed content distribution, central audit and ITSM integration.
 | Local/OpenAI-compatible provider (`post-demo`) | **Done, unmerged.** Off by default; the demo build still uses Anthropic |
 | Model bake-off harness (`post-demo`) | **Done, unmerged.** 40 cases; five models measured incl. a cloud baseline. After hardening `claude-haiku-4-5` leads on accuracy (36/40) and `mistral-small:24b` on speed (35/40, 0.3 s faster), both at zero false actions reaching a user. Managed tier: Haiku (D97). Customer-hosted: mistral. *(Corrected 2026-09-03 — C9/D139; this row previously said mistral beats Haiku.)* |
 | Wrong-action rate (`post-demo`) | **Zero false actions reach the user** on mistral, gemma and Haiku; zero R2 on all five. Catalog preconditions + tool-description hardening. See `BAKEOFF-2026-09-02.md` §2b |
-| **Decision register** | **One file, checked in, owns the numbering (2026-09-03).** D1–D150, H1–H6, C1–C12, X-1–X-7. [`Projects/Ai Chat Bot -Matic/matic-desk-demo/docs/decisions/DECISION-REGISTER.md`](Projects/Ai Chat Bot -Matic/matic-desk-demo/docs/decisions/DECISION-REGISTER.md). D1–D41 still only in the workbook (never downloaded) |
+| **Decision register** | **One file, checked in, owns the numbering (2026-09-03).** D1–D150, H1–H6, C1–C12, X-1–X-7. [`docs/decisions/DECISION-REGISTER.md`](docs/decisions/DECISION-REGISTER.md). D1–D41 still only in the workbook (never downloaded) |
 | Consent-surface finding (review §1.1, **D130**) | **Demonstrated 2026-09-03, open.** Agent shows `flush_dns`, sends `reset_adapter`; stub NamedPipeBroker mints, executes, audits as consented. Regression test in `npm test` (3 expected failures until D130 lands). `docs/CONSENT-SURFACE-2026-09-03.md` |
 | Prompt caching on Haiku 4.5 (**D140**) | **Measured 2026-09-03.** Shipped prefix 2,104 tokens vs 4,096 floor — caching cannot work as shipped, and is not attempted in code. `docs/TOKEN-COUNT-2026-09-03.md`, `npm run count-tokens` |
 
-**Demo deadline: Sunday 2026-09-06.** Build is frozen; new work goes on a `post-demo` branch.
+**Demo deadline: Sunday 2026-09-06.** The frozen demo build is branch `add-matic-desk-demo` — **rehearse from that branch**, not from `main`. `post-demo` was merged into `main` on 2026-09-03 (after the restructure below); new work goes on `main` or feature branches off it.
 
 ---
 
@@ -50,8 +50,10 @@ signed content distribution, central audit and ITSM integration.
 
 | | Path |
 |---|---|
-| **Canonical repo** | `charlesjordan-svg/maticdesk_bot` @ `add-matic-desk-demo` (**private — keep it that way**) |
-| **Working copy** | `Downloads\maticdesk_bot\Projects\Ai Chat Bot -Matic\matic-desk-demo` |
+| **Canonical repo** | `charlesjordan-svg/maticdesk_bot` (**private — keep it that way**). Default branch `main` = current code. `add-matic-desk-demo` = the frozen Sunday demo. |
+| **Endpoint (client)** | `client/` — `Downloads\maticdesk_bot\client` on this machine. Was `Projects\Ai Chat Bot -Matic\matic-desk-demo` until 2026-09-03 |
+| **Hub (server)** | `server/` — spec and phase-one scope only; nothing built |
+| **Decision register** | `docs/decisions/DECISION-REGISTER.md` |
 | Avatar component source | `Downloads\matic-avatar-v2\` |
 | ~~`Downloads\matic-desk-demo`~~ | Superseded copy — **renamed to `matic-desk-delete` on 2026-09-02.** Safe to remove once the push is confirmed good |
 
@@ -62,11 +64,12 @@ signed content distribution, central audit and ITSM integration.
 
 ## 4. Live documents — read the relevant ones each session
 
-### In the demo repo, under `matic-desk-demo\docs\`
+### In `client\docs\` (and `docs\decisions\` at the repo root)
 
 | File | What it is |
 |---|---|
-| `decisions/DECISION-REGISTER.md` | **THE decision register.** D1–D150, invariants H1–H6, conflicts, open items, verification. Read before any design or hub thread. Sources under `decisions/sources/` are superseded and use old numbering |
+| `..\..\docs\decisions\DECISION-REGISTER.md` (repo root `docs\decisions\`) | **THE decision register.** D1–D150, invariants H1–H6, conflicts, open items, verification. Read before any design or hub thread. Sources under `docs\decisions\sources\` are superseded and use old numbering |
+| `..\..\server\SPEC-2026-09-02-hub-server-side.md` | The hub spec, copied into the repo 2026-09-03 with `server\README.md` giving the phase-one scope (D149) |
 | `CONSENT-SURFACE-2026-09-03.md` | **`post-demo`.** The review's largest finding, demonstrated against a stub NamedPipeBroker; what D130 must do; acceptance test |
 | `TOKEN-COUNT-2026-09-03.md` | **`post-demo`.** `count_tokens` on the shipped prompt: 2,104 vs the 4,096 Haiku cache floor; the pad-or-write-off choice |
 | `HANDOVER-2026-09-02-post-demo.md` | **Most current engineering state.** Read this first for code. Post-demo branch: refusal auditing, provider, bake-off, hardening |
@@ -76,17 +79,17 @@ signed content distribution, central audit and ITSM integration.
 | `PHASE1-TICKETING.md` | Ticketing design note |
 | `LOCAL-MODEL-PROVIDER.md` | **`post-demo`.** OpenAI-compatible provider: design, and why escalation enums are enforced client-side |
 | `BAKEOFF-2026-09-02.md` | **`post-demo`.** First measured model comparison. Read §1 (corrected 2026-09-03) **and §2b** before picking a model — §2b is the post-hardening result |
-| `../eval/README.md` | **`post-demo`.** The model eval harness — dataset shape, metrics, what it cannot score |
+| `../eval/README.md` | The model eval harness — dataset shape, metrics, what it cannot score |
 | `HANDOVER-2026-09-02.md` | Day 1–3 build record |
 
 ### Planning artifacts (from Claude sessions, in `Downloads\` or chat outputs)
 
 | File | What it is |
 |---|---|
-| `2026-09-02-hub-server-side-spec-handover.md` | **Hub specification. Self-contained.** Start any hub thread here |
+| `2026-09-02-hub-server-side-spec-handover.md` | **Hub specification, v1.** Now also in the repo as `server\SPEC-2026-09-02-hub-server-side.md`. Partially stale — read with the register's §3–§4 deltas |
 | `2026-09-02-claude-code-proceed-handover.md` | Current Claude Code work queue + build-freeze rule |
 | `Claude Handover Files\2026-09-02-ollama-provider-brief.md` | **Exists** — found 2026-09-03 (this row and the post-demo handover §7 said it was missing; the search on 2026-09-02 missed the subfolder). Its §5 harness design was **met and exceeded** by `eval/` (40 cases vs ~30 asked, false actions split by tier, s/correct deciding). Provider content superseded by hub spec §12 and `LOCAL-MODEL-PROVIDER.md` |
-| `2026-09-02-fable-design-review.md` | **Independent design review (Fable, 2026-09-02/03).** Parts A (verified research), B, C. Source of D130–D150. Copy in `matic-desk-demo\docs\decisions\sources\` |
+| `2026-09-02-fable-design-review.md` | **Independent design review (Fable, 2026-09-02/03).** Parts A (verified research), B, C. Source of D130–D150. Copy in `docs\decisions\sources\` |
 | `2026-09-02-matic-desk-decision-register-consolidated.md`, `...decisions-D35-D46...`, `...D53-D67...`, `...D91-D124...` | **Superseded 2026-09-03** by the register above. Old numbering (D35–D83 → D42–D90). Copies in `docs\decisions\sources\` |
 | `2026-09-02-tts-runtime-decision-handover.md` | Piper footprint, Python dependency, positioning language |
 | `2026-08-27-designer-note-v4.md` | **Current designer brief.** Supersedes v3 and v2 |
@@ -112,7 +115,7 @@ anything specifying real-time 3D or pre-rendered frame sequences.
 ## 5. The invariants — H1–H6
 
 Changing any one requires redesigning the safety model. **Authoritative text and status in
-[`Projects/Ai Chat Bot -Matic/matic-desk-demo/docs/decisions/DECISION-REGISTER.md`](Projects/Ai Chat Bot -Matic/matic-desk-demo/docs/decisions/DECISION-REGISTER.md) §2.** H1–H3e are locked (workbook, `Hub scope` tab); H4, H5, H6 are
+[`docs/decisions/DECISION-REGISTER.md`](docs/decisions/DECISION-REGISTER.md) §2.** H1–H3e are locked (workbook, `Hub scope` tab); H4, H5, H6 are
 proposed and not yet ratified (see D134–D136 for the amendments the review asks for). H3e holds and
 is insufficient on its own — D130.
 

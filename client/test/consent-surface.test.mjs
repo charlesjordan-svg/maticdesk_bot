@@ -203,7 +203,7 @@ rmSync(scratch, { recursive: true, force: true });
 
 console.log(`\n${pass} passed, ${fail} failed, ${xfail} known open (D130), ${xpass} unexpectedly passing`);
 if (xpass > 0) {
-  console.log("D130 appears to be implemented. Promote the XFAIL lines in test/consent-surface.test.mjs to check() and update docs/decisions/DECISION-REGISTER.md D130.");
+  console.log("D130 appears to be implemented. Promote the XFAIL lines in client/test/consent-surface.test.mjs to check() and update docs/decisions/DECISION-REGISTER.md D130 (repo root).");
   process.exit(1);
 }
 process.exit(fail ? 1 : 0);

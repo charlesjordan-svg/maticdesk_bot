@@ -1,0 +1,7 @@
+# Obsidian per-user window state: churns on every open, carries nothing anyone else needs.
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# Never anywhere in this repo
+.env
+*.onnx
