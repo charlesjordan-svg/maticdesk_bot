@@ -13,11 +13,18 @@
         "properties": {
           "serviceName": {
             "type": "string",
-            "enum": ["spooler", "audiosrv", "dnscache", "dhcp"],
+            "enum": [
+              "spooler",
+              "audiosrv",
+              "dnscache",
+              "dhcp"
+            ],
             "description": "Service to restart. Closed enum - no model-supplied string ever reaches the Service Control Manager."
           }
         },
-        "required": ["serviceName"],
+        "required": [
+          "serviceName"
+        ],
         "additionalProperties": false
       },
       "rollback": "restart_service",
@@ -28,16 +35,35 @@
         "advapi32!ControlService",
         "advapi32!StartServiceW",
         "advapi32!CloseServiceHandle"
-      ]
+      ],
+      "plain": {
+        "what": "Stops one background Windows program and starts it again. Only that one - nothing else on the machine is touched, and nothing you have open is closed.",
+        "why": "Background services get stuck. Starting one again clears the stuck state, without restarting the whole machine.",
+        "notice": "Whatever that service does pauses for a second or two. For the print spooler, anything waiting to print stays waiting until it is back.",
+        "undo": "Yes - it can simply be restarted again."
+      }
     },
     {
       "id": "flush_dns",
       "tier": "R1",
       "title": "Flush the DNS resolver cache",
       "description": "Clears cached DNS lookups so name resolution is retried fresh. Idempotent - no rollback needed.",
-      "parameters": { "type": "object", "properties": {}, "required": [], "additionalProperties": false },
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
       "rollback": null,
-      "apis": ["dnsapi!DnsFlushResolverCache"]
+      "apis": [
+        "dnsapi!DnsFlushResolverCache"
+      ],
+      "plain": {
+        "what": "Empties this machine's memory of recent website-name lookups. It does not touch your files, settings, passwords, bookmarks or browsing history.",
+        "why": "Windows remembers the address behind a name for a while. If that address has changed, or was saved while the network was broken, the stale entry keeps failing. Clearing it forces a fresh look-up.",
+        "notice": "The next few pages may take a fraction longer to load while the list fills up again. That is all.",
+        "undo": "Nothing to undo - the list rebuilds itself automatically as you browse."
+      }
     },
     {
       "id": "renew_dhcp",
@@ -53,7 +79,9 @@
             "description": "Index from the local adapter enumeration. Resolved by the broker, not supplied freeform by the model."
           }
         },
-        "required": ["adapterIndex"],
+        "required": [
+          "adapterIndex"
+        ],
         "additionalProperties": false
       },
       "rollback": "renew_dhcp",
@@ -61,7 +89,13 @@
         "iphlpapi!GetInterfaceInfo",
         "iphlpapi!IpReleaseAddress",
         "iphlpapi!IpRenewAddress"
-      ]
+      ],
+      "plain": {
+        "what": "Hands back this machine's network address and asks the network for a new one.",
+        "why": "If the machine never got a proper address, or is holding one that no longer works, asking again is usually all that is needed.",
+        "notice": "The network drops for a few seconds while the new address arrives. Anything downloading or any call in progress may be interrupted.",
+        "undo": "It can be run again, but the address you get back may not be the one you had before."
+      }
     },
     {
       "id": "reset_adapter",
@@ -76,19 +110,38 @@
             "description": "Adapter GUID from the broker's own enumeration. Validated against the live adapter list before execution."
           }
         },
-        "required": ["adapterId"],
+        "required": [
+          "adapterId"
+        ],
         "additionalProperties": false
       },
       "rollback": "reset_adapter",
       "apis": [
         "iphlpapi!GetAdaptersAddresses",
         "TODO(phase1): WMI Win32_NetworkAdapter.Disable/Enable via IWbemServices"
-      ]
+      ],
+      "plain": {
+        "what": "Switches the network adapter off and straight back on - the software equivalent of unplugging the network cable and plugging it back in.",
+        "why": "When an adapter has an address but nothing is getting through, the adapter itself is often stuck. Turning it off and on clears that.",
+        "notice": "EVERY network connection on this machine drops for several seconds, including any remote session, call or download. It can take 10 to 30 seconds to come back, and it may have no address at first while the network gives it a new one.",
+        "undo": "The adapter is switched back on automatically. If it does not come back, it can be re-enabled from Network Connections (ncpa.cpl)."
+      }
     }
   ],
   "policy": {
     "serviceStopBlocklist": {
       "dnscache": "The DNS Client service does not accept stop requests on Windows 10/11 (SERVICE_ACCEPT_STOP is not set in its controls-accepted mask - verified on this machine: 0x58). Restarting it is not possible through the Service Control Manager. Use flush_dns instead."
     }
-  }
+  },
+  "tiers": {
+    "R1": {
+      "label": "Low risk",
+      "summary": "Affects one thing, and can be undone."
+    },
+    "R2": {
+      "label": "Disruptive",
+      "summary": "You will notice this happen. Read what it does before approving."
+    }
+  },
+  "_plainNote": "plain/* and tiers/* are what the CONSENT PROMPT shows. They are catalog data on purpose: the text a user consents to must not be written by the model that is asking for the consent. Reviewable, signable with the rest of the catalog, and identical whether or not the cloud is reachable."
 }

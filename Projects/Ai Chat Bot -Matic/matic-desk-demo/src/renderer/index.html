@@ -74,6 +74,15 @@
   .consent .row button { flex: 1; padding: 11px; font-weight: 600; }
   .consent.resolved { border-color: var(--line); opacity: .75; }
   .consent .outcome { font: 12px var(--mono); color: var(--dim); }
+  .consent .explain-btn { align-self: flex-start; padding: 7px 12px; font-size: 13px;
+        background: transparent; border: 1px solid var(--line); color: var(--fg); border-radius: 8px; }
+  .consent .explain-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .explain { display: flex; flex-direction: column; gap: 10px; border-left: 2px solid var(--accent);
+        padding: 2px 0 2px 12px; }
+  .explain h4 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+        color: var(--dim); font-weight: 600; }
+  .explain p { margin: 3px 0 0; font-size: 13.5px; line-height: 1.5; }
+  .explain .danger-note p { color: var(--warn); }
   /* Guidance the USER has to act on. Deliberately shaped like the consent card, because that
      is already the visual language for "this needs you", and deliberately NOT .msg.sys, which
      reads as logging - a user missed the checks entirely when they were styled that way. */

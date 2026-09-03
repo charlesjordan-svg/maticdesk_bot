@@ -327,6 +327,42 @@ is unaffected — `-Fault dhcp` leaves the link up — and a regression test pin
 
 ---
 
+## 4b. The consent prompt explains itself
+
+Added 2026-09-02, after a tester approved an action and said: *"I feel like I approved that with
+not enough information."*
+
+The card had shown the catalog's engineering description — *"Idempotent - no rollback needed"* —
+and the label *"tier R1"*. Both accurate, neither useful to the person whose machine it is.
+
+The card now reads **"Permission needed — Low risk"**, describes the action in plain language, and
+carries a **"What is this, and why?"** button. Collapsed by default, so the card stays short.
+Expanded, it answers four questions, in this order:
+
+| | |
+|---|---|
+| **Why this, here** | The proposal's own reasoning — the only part specific to *this* problem |
+| **What you will notice** | The cost. Amber for the disruptive one. |
+| **Can it be undone** | Plainly, including when the answer is "not exactly" |
+| **Why it usually helps** | The general case |
+| **Risk level** | "Low risk. Affects one thing, and can be undone." |
+
+### The part worth saying out loud on stage
+
+**That text lives in `catalog.json`, not in anything the model generates.**
+
+The explanation a user consents to must not be written by the thing asking for the consent.
+Keeping it in the catalog means it is reviewable, it gets signed with the rest of the catalog when
+signing is built, and it reads identically whether or not the cloud is reachable — the offline
+scenarios get the same explanations as the online ones.
+
+> **"The model can ask for permission. It doesn't get to write the permission slip."**
+
+Tests pin it: every capability must supply all four fields, a jargon list is rejected outright, and
+`reset_adapter` must spell out that **every** connection drops and how long it may take to return.
+
+---
+
 ## 5. The `dnscache` refusal — the best beat in the demo
 
 Get the model to propose restarting the DNS Client service. The broker refuses it, and explains

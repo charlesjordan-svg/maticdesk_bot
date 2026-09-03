@@ -40,6 +40,10 @@ export class InProcessBroker {
     this.onLog = onLog;
     this.catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
     this.verifyCatalogSignature();
+    // Attach the plain-language risk label to each capability so the consent prompt can show it
+    // without shipping the whole catalog to the renderer. Presentation only - nothing here is
+    // consulted by validate() or execute().
+    for (const c of this.catalog.capabilities) c.tierInfo = this.catalog.tiers?.[c.tier] ?? null;
     this.audit = new AuditLog(auditPath, { onLog });
     /** @type {Map<string, {proposalHash:string, expiresAt:number, used:boolean}>} */
     this.tokens = new Map();

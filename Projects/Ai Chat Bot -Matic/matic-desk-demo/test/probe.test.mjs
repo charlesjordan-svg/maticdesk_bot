@@ -92,5 +92,51 @@ console.log("=== describeServiceRestart: a real restart must not read as a no-op
   const r = describeServiceRestart('spooler', { stateBefore: 'RUNNING', stateAfter: 'RUNNING', steps: [] });
   check("a no-op is reported as a no-op, not as a restart", /not actually stopped and started/.test(r), r);
 }
+
+// -------------------------------------------------------------------------------------------
+// The consent prompt's plain-language text.
+//
+// A user approved an action and then said "I feel like I approved that with not enough
+// information". The catalog description they were shown read "Idempotent - no rollback needed".
+// These assertions exist so that never regresses into engineer-speak.
+// -------------------------------------------------------------------------------------------
+console.log("=== consent prompt: plain language, present and actually plain ===");
+{
+  let complete = true;
+  for (const c of cat.capabilities) {
+    const pl = c.plain;
+    if (!pl || !pl.what || !pl.why || !pl.notice || !pl.undo) { complete = false; console.log(`        MISSING on ${c.id}`); }
+  }
+  check("every capability explains what/why/notice/undo", complete);
+
+  // Words the person whose machine it is should never have to decode.
+  // Terms distinctive enough not to need word boundaries.
+  const JARGON = /idempotent|rollback|invariant|daemon|stdout|schema|mutex|deserialise|payload|marshalling/i;
+  const offenders = [];
+  for (const c of cat.capabilities) {
+    for (const [k, v] of Object.entries(c.plain ?? {})) {
+      if (JARGON.test(v)) offenders.push(`${c.id}.${k}: ${v.match(JARGON)[0]}`);
+    }
+  }
+  check("no engineer jargon survives in the consent text", offenders.length === 0, offenders.join("; "));
+
+  // The R2 action is the one that costs the user something. It must say so, unmissably.
+  const reset = cat.capabilities.find((c) => c.id === "reset_adapter");
+  check("the disruptive action spells out that EVERY connection drops",
+    /every network connection/i.test(reset.plain.notice), reset.plain.notice);
+  check("and says how long it may take to come back",
+    /[0-9]+ to [0-9]+ seconds/i.test(reset.plain.notice), reset.plain.notice);
+
+  check("flush_dns reassures that personal data is untouched",
+    /does not touch/i.test(cat.capabilities.find((c) => c.id === "flush_dns").plain.what));
+
+  // "tier R1" means nothing to someone being asked to approve something.
+  check("the catalog carries a plain risk label for every tier used",
+    cat.capabilities.every((c) => cat.tiers?.[c.tier]?.label && cat.tiers[c.tier].summary),
+    JSON.stringify(cat.tiers));
+
+  for (const c of cat.capabilities) console.log(`        ${c.id.padEnd(16)} ${cat.tiers[c.tier].label.padEnd(11)} ${c.plain.what.slice(0, 74)}...`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

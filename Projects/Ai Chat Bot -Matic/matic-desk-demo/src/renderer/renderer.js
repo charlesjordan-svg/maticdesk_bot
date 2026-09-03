@@ -139,11 +139,17 @@ function askConsent(capability, proposal) {
 
   const title = document.createElement("div");
   title.className = "title";
-  title.textContent = `Permission needed — tier ${capability.tier}`;
+  // "tier R1" means nothing to the person being asked to approve. Say what the risk IS.
+  const tierInfo = capability.tierInfo;
+  title.textContent = tierInfo
+    ? `Permission needed — ${tierInfo.label}`
+    : `Permission needed — tier ${capability.tier}`;
 
   const what = document.createElement("div");
   what.className = "what";
-  what.textContent = capability.description;
+  // The catalog's `description` is written for an engineer - "Idempotent - no rollback needed".
+  // `plain.what` is the same fact for the person whose machine it is.
+  what.textContent = capability.plain?.what ?? capability.description;
 
   const detail = document.createElement("div");
   detail.className = "outcome";
@@ -156,6 +162,49 @@ function askConsent(capability, proposal) {
     warn.className = "warn-box";
     warn.textContent = `This is disruptive. If it goes wrong, the rollback is: ${capability.rollback ?? "none"}.`;
     box.append(warn);
+  }
+
+  // A user approved an action and then said: "I feel like I approved that with not enough
+  // information." Everything needed to answer "what is this and why?" was known at that moment,
+  // and none of it was on screen. It is one click away now, and collapsed by default so the card
+  // does not become another wall of text.
+  if (capability.plain) {
+    const explainBtn = document.createElement("button");
+    explainBtn.className = "explain-btn";
+    explainBtn.textContent = "What is this, and why?";
+
+    const explain = document.createElement("div");
+    explain.className = "explain";
+    explain.hidden = true;
+
+    // `proposal.reasoning` is the only part that is specific to THIS problem, so it goes first.
+    const sections = [
+      ["Why this, here", proposal.reasoning, false],
+      ["What you will notice", capability.plain.notice, capability.tier === "R2"],
+      ["Can it be undone", capability.plain.undo, false],
+      ["Why it usually helps", capability.plain.why, false],
+    ];
+    if (tierInfo) sections.push(["Risk level", `${tierInfo.label}. ${tierInfo.summary}`, capability.tier === "R2"]);
+
+    for (const [heading, body, emphasise] of sections) {
+      if (!body) continue;
+      const wrap = document.createElement("div");
+      if (emphasise) wrap.className = "danger-note";
+      const h = document.createElement("h4");
+      h.textContent = heading;
+      const para = document.createElement("p");
+      para.textContent = body;
+      wrap.append(h, para);
+      explain.append(wrap);
+    }
+
+    explainBtn.addEventListener("click", () => {
+      explain.hidden = !explain.hidden;
+      explainBtn.textContent = explain.hidden ? "What is this, and why?" : "Hide the details";
+      if (!explain.hidden) explain.scrollIntoView({ block: "nearest" });
+    });
+
+    box.append(explainBtn, explain);
   }
 
   const row = document.createElement("div");
