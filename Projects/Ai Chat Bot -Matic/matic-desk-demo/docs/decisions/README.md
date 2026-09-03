@@ -1,0 +1,14 @@
+# docs/decisions/
+
+**Read [`DECISION-REGISTER.md`](DECISION-REGISTER.md). Nothing else in this directory is citable.**
+
+| Path | What it is |
+|---|---|
+| `DECISION-REGISTER.md` | **The register.** D1–D150, H1–H6, C1–C12, X-1–X-7, R-1–R-14, OPEN-1–OPEN-7, values unset, verification. Owns the numbering. Created 2026-09-03 by merging the three sources below and folding in the independent review (D150). |
+| `sources/` | Verbatim copies of the documents the register was built from, kept for provenance. **They use the old numbering** (the consolidated register runs D35–D83; the register has it as D42–D90). Do not cite them; cite the register. |
+
+## Rules
+
+- Reference this file from every handover and every review prompt **by relative path** (from the repo root: `docs/decisions/DECISION-REGISTER.md`; from the vault root: `Projects/Ai Chat Bot -Matic/matic-desk-demo/docs/decisions/DECISION-REGISTER.md`). A document that names a decision file without a path is how two files went "missing" on 2026-09-02 while sitting on disk.
+- New decisions take the next free ID and are appended. Nobody renumbers. See the register's §11.
+- D1–D41 are reserved for the workbook (`ASK-IT-questionnaire.xlsx`), which has never been downloaded. Recovering it into the register is the top housekeeping item.

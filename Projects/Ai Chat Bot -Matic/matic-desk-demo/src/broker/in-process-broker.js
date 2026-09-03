@@ -41,10 +41,15 @@ export class InProcessBroker {
    *   and measured against known machines - the eval describes fictional ones, and a gate that can
    *   only be exercised against whatever box happens to be running is a gate nobody has checked.
    *   Production passes nothing and gets probeMachine().
+   * @param executors The capability implementations. Injectable for the same reason as `probe`,
+   *   and for one more: test/consent-surface.test.mjs has to drive a consented `reset_adapter`
+   *   all the way through mint -> execute -> audit WITHOUT resetting an adapter on the box running
+   *   the test. Production passes nothing and gets the real Win32 primitives.
    */
-  constructor({ catalogPath, auditPath, probe = probeMachine, onLog = () => {} }) {
+  constructor({ catalogPath, auditPath, probe = probeMachine, executors = EXECUTORS, onLog = () => {} }) {
     this.onLog = onLog;
     this.probe = probe;
+    this.executors = executors;
     this.catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
     this.verifyCatalogSignature();
     // Attach the plain-language risk label to each capability so the consent prompt can show it
@@ -138,7 +143,7 @@ export class InProcessBroker {
         failures: [{ gate: "catalog", message: `capability "${proposal.capabilityId}" is not in the catalog` }],
       };
     }
-    if (!EXECUTORS[capability.id]) {
+    if (!this.executors[capability.id]) {
       return {
         failures: [{ gate: "catalog", message: `capability "${capability.id}" has no implementation in this build` }],
         capability,
@@ -327,7 +332,7 @@ export class InProcessBroker {
 
     const startedAt = Date.now();
     try {
-      const { message, detail } = await EXECUTORS[capability.id](proposal.parameters ?? {});
+      const { message, detail } = await this.executors[capability.id](proposal.parameters ?? {});
       const auditId = await this.audit.record({
         capabilityId: capability.id,
         parameters: proposal.parameters ?? {},

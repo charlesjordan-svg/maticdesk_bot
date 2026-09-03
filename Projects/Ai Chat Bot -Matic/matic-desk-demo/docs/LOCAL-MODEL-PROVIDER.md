@@ -4,9 +4,11 @@ Branch `post-demo`. **Off by default** — the demo build talks to Anthropic and
 that unless `config.localModel.enabled` is set or `MATIC_LOCAL_MODEL` is in the environment.
 
 This note exists because the brief it was meant to follow — `2026-09-02-ollama-provider-brief.md` —
-is not on this machine. Searched the whole user profile; the only file that mentions it is the
-proceed handover itself. What follows is what §3 of that handover specified, plus what measurement
-added.
+was believed not to be on this machine. **Corrected 2026-09-03:** it is at
+`Downloads\Claude Handover Files\2026-09-02-ollama-provider-brief.md`. Read against it, this note
+and the adapter satisfy the brief's §2 (one OpenAI-compatible adapter), §3 (structured output
+verified empirically) and §7 (honesty requirements); the bake-off in `eval/` met and exceeded its
+§5. What follows is what §3 of the proceed handover specified, plus what measurement added.
 
 ---
 
@@ -118,12 +120,16 @@ for `gpt-oss:20b` goes from 3/5 to 5/5 at the cost of one extra round trip.
 ## 3. Measurements
 
 > **Superseded by the 40-case bake-off:** **[`BAKEOFF-2026-09-02.md`](BAKEOFF-2026-09-02.md)**,
-> now five models including a cloud baseline. Headline: **`mistral-small:24b`** at 1.8 s per correct
-> proposal with four false actions, against `claude-haiku-4-5` at 2.4 s and eight — the self-hosted
-> model beats the cloud model it would replace on this task, rather than merely undercutting it.
-> The five-case figures below are kept only because they are what the design decisions above were
-> made against, and they were badly over-optimistic: `gpt-oss:20b` scored 5/5 here and **31/40 with
-> eight false actions** on the full set. `mistral-small:24b` is the pick.
+> now five models including a cloud baseline. **Corrected 2026-09-03 (C9, D139):** this note used to
+> say the self-hosted model "beats the cloud model it would replace". That was the pre-hardening
+> result (mistral 34/40 and four false actions vs Haiku 32/40 and eight). After the §2b hardening,
+> which is model-independent catalog data, `claude-haiku-4-5` scores **36/40** and
+> `mistral-small:24b` **35/40**, both with zero false actions reaching a user; mistral is 0.3 s
+> faster per correct proposal. The managed tier stays on Haiku 4.5 (D97); **`mistral-small:24b` is
+> the customer-hosted pick**, where 16 GB of VRAM is available. The five-case figures below are kept
+> only because they are what the design decisions above were made against, and they were badly
+> over-optimistic: `gpt-oss:20b` scored 5/5 here and **31/40 with eight false actions** on the
+> full set.
 
 RTX 3090 Ti 24 GB, Ryzen 9 3900X, 32 GB RAM. Quiet GPU, 1.4–1.6 GB desktop baseline. Five
 hand-written cases. **These are single-machine observations recorded for engineering purposes,
@@ -160,11 +166,12 @@ the model may still be loading rather than reporting a generic failure.
 
 ## 4. What is NOT built
 
-- **The §4 bake-off harness.** Its design lives in the missing brief's §5. What exists is a probe
-  in a scratch directory with 5 hand-written cases — not the ~30 labelled ones, not ≥8 escalation
-  cases, not the 16 pinned tier-0 phrasings, and it measures nothing about cost per correct
-  proposal. Deliberately not folded into the repo: §4 wants the harness built as the real Phase 3
-  eval, not grown from a throwaway.
+- ~~**The §4 bake-off harness.**~~ **Built since this was written** — `eval/`, see
+  `HANDOVER-2026-09-02-post-demo.md` §3 and `BAKEOFF-2026-09-02.md`. The brief's §5 (found
+  2026-09-03) asked for ~30 labelled cases, ≥8 escalations, the 16 pinned tier-0 phrasings,
+  false-action rate weighted hardest and cost per correct proposal deciding; the harness delivers 40
+  cases with that structure, false actions split by risk tier, and seconds per correct proposal.
+  Met and exceeded. The five-case probe described below was the pre-harness state.
 - **Any routing decision.** See §1.
 - **Any claim that local models are production-ready.** §4 has to produce numbers first, and the
   numbers above are five cases on one machine.

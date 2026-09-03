@@ -78,9 +78,15 @@ proposal as the deciding number.
 **`071cb5e`, `506333e`, `cb5bf41`, `961c2c4`, `e464d01`.** Full detail in
 **[`BAKEOFF-2026-09-02.md`](BAKEOFF-2026-09-02.md)**. Headlines:
 
-**`mistral-small:24b` is the recommendation** — 35/40, 1.7 s per correct proposal, zero repair turns,
-16 GB. It beats `claude-haiku-4-5`, which the demo ships and hub spec §11 certifies, on accuracy
-*and* safety *and* cost. Not merely cheaper: better.
+**`mistral-small:24b` is the customer-hosted recommendation** — 35/40, 1.7 s per correct proposal,
+zero repair turns, 16 GB.
+
+> **Corrected 2026-09-03 (C9, D139).** This paragraph originally said mistral beats
+> `claude-haiku-4-5` "on accuracy *and* safety *and* cost. Not merely cheaper: better." That was
+> true of the pre-hardening table only. After §2b hardening Haiku scores **36/40** to mistral's
+> **35/40**, both at zero false actions reaching a user; mistral is 0.3 s faster. The managed tier
+> stays on Haiku 4.5 (D97); mistral is the pick for a customer hosting their own inference with 16 GB
+> of VRAM. See `BAKEOFF-2026-09-02.md` §1 (corrected) and §2b.
 
 **False actions reaching the user are now zero** on mistral, gemma and Haiku; **zero R2 on all five
 models**. Two interventions did it:
@@ -125,9 +131,13 @@ Unchanged from the proceed handover:
 
 - **The golden set.** Top-30 L1 ticket categories with volumes, outstanding three weeks. The 40
   hand-written cases are a stand-in; `cases.json` is a data file so the export drops straight in.
-- **`2026-09-02-ollama-provider-brief.md` is still missing.** Not on this machine. Its provider
-  content is superseded by hub spec §12; its §5 (harness design) was never recovered, so the harness
-  is built to my design, not the brief's.
+- ~~**`2026-09-02-ollama-provider-brief.md` is still missing.**~~ **Corrected 2026-09-03:** it was on
+  this machine the whole time, at `Downloads\Claude Handover Files\2026-09-02-ollama-provider-brief.md`.
+  Its §5 harness design asked for ~30 labelled cases including ≥8 escalations and the 16 pinned
+  tier-0 phrasings, false-action rate weighted hardest, cost per correct proposal deciding. The
+  harness in `eval/` delivers 40 cases with exactly that structure, false actions split by risk
+  tier, and seconds per correct proposal as the deciding number — **met and exceeded**, not lost.
+  The divergence concern is closed. Its provider content is superseded by hub spec §12.
 
 **Known-imperfect, deliberately left**
 
