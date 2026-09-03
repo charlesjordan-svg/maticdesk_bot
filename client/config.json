@@ -1,6 +1,6 @@
 {
-  "voiceModelPath": "C:/Users/Charles/Downloads/matic-avatar-v2/piper-voices/en_US-amy-low.onnx",
-  "_voiceModelNote": "Referenced from disk, never committed - the model is 63 MB (handover §3).",
+  "voiceModelPath": "voices/en_US-amy-low.onnx",
+  "_voiceModelNote": "Relative to the app root. The model is 63 MB and never committed: run 'npm run fetch-voice' to download it and its .onnx.json sidecar into voices/. MATIC_VOICE_MODEL overrides this path for one machine without editing this file.",
   "pythonCommand": "py",
   "pythonArgs": ["-3"],
   "_pythonNote": "`python` is not on PATH on this machine; `py -3` is (handover §4).",

@@ -78,7 +78,10 @@ if (-not $config) {
     Report 'piper imports' 'FAIL' 'the voice worker will not start'
   }
 
-  $model = $config.voiceModelPath
+  # Same rule as src/main/tts-service.js: MATIC_VOICE_MODEL wins, else config.json, resolved
+  # against the app root when relative.
+  $model = if ($env:MATIC_VOICE_MODEL) { $env:MATIC_VOICE_MODEL } else { $config.voiceModelPath }
+  if (-not [System.IO.Path]::IsPathRooted($model)) { $model = Join-Path $root $model }
   if (Test-Path $model) {
     $mb = [math]::Round((Get-Item $model).Length / 1MB, 1)
     Report 'voice model present' 'PASS' "$mb MB  $model"
@@ -88,7 +91,7 @@ if (-not $config) {
       Report 'voice model sidecar present' 'FAIL' "$model.json is missing - piper needs it"
     }
   } else {
-    Report 'voice model present' 'FAIL' "$model not found - copy it, do not re-download it live"
+    Report 'voice model present' 'FAIL' "$model not found - run: npm.cmd run fetch-voice   (before the demo, not during it)"
   }
 }
 

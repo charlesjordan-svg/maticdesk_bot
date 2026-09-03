@@ -10,12 +10,18 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { readFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, isAbsolute } from "node:path";
 
 export class TtsService {
-  constructor(config, { onLog = () => {} } = {}) {
+  /**
+   * @param rootDir Directory a relative `voiceModelPath` is resolved against - the app root, so
+   *   `voices/en_US-amy-low.onnx` in config.json means the same file on every machine. Without it
+   *   a relative path would resolve against whatever the current directory happened to be.
+   */
+  constructor(config, { onLog = () => {}, rootDir = process.cwd() } = {}) {
     this.config = config;
     this.onLog = onLog;
+    this.rootDir = rootDir;
     this.proc = null;
     this.ready = false;
     this.readyError = null;
@@ -32,7 +38,11 @@ export class TtsService {
     }
     this._tmpDir = await mkdtemp(join(tmpdir(), "matic-tts-"));
 
-    const args = [...(this.config.pythonArgs ?? []), workerScript, this.config.voiceModelPath];
+    // MATIC_VOICE_MODEL overrides config.json, the same way MATIC_LOCAL_MODEL does for the model
+    // provider - so a machine with the model somewhere else does not edit a committed file.
+    const modelPath = resolveVoiceModelPath(this.config, this.rootDir);
+    this.onLog(`[piper] voice model: ${modelPath}${process.env.MATIC_VOICE_MODEL ? " (from MATIC_VOICE_MODEL)" : ""}`);
+    const args = [...(this.config.pythonArgs ?? []), workerScript, modelPath];
     this.proc = spawn(this.config.pythonCommand ?? "py", args, { stdio: ["pipe", "pipe", "pipe"] });
 
     createInterface({ input: this.proc.stderr }).on("line", (l) => this.onLog(`[piper] ${l}`));
@@ -116,4 +126,15 @@ export class TtsService {
     this.proc.kill();
     this.proc = null;
   }
+}
+
+/**
+ * The voice model path the worker is given: MATIC_VOICE_MODEL if set, else config.voiceModelPath,
+ * resolved against `rootDir` when relative. Exported so preflight-style checks use the same rule.
+ * @param {{voiceModelPath?: string}} config
+ * @param {string} rootDir
+ */
+export function resolveVoiceModelPath(config, rootDir) {
+  const p = process.env.MATIC_VOICE_MODEL || config.voiceModelPath || "voices/en_US-amy-low.onnx";
+  return isAbsolute(p) ? p : resolve(rootDir, p);
 }

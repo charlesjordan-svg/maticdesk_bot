@@ -114,7 +114,7 @@ app.whenReady().then(async () => {
   }
   agent = new Agent({ broker, cloud, onLog: log });
 
-  tts = new TtsService(config, { onLog: log });
+  tts = new TtsService(config, { onLog: log, rootDir: ROOT });
 
   // ---- IPC: registered BEFORE the window exists, so the renderer cannot ask for a handler
   // that is not there yet. ----
