@@ -117,7 +117,10 @@ for `gpt-oss:20b` goes from 3/5 to 5/5 at the cost of one extra round trip.
 
 ## 3. Measurements
 
-> **Superseded by the 40-case bake-off:** **[`BAKEOFF-2026-09-02.md`](BAKEOFF-2026-09-02.md)**.
+> **Superseded by the 40-case bake-off:** **[`BAKEOFF-2026-09-02.md`](BAKEOFF-2026-09-02.md)**,
+> now five models including a cloud baseline. Headline: **`mistral-small:24b`** at 1.8 s per correct
+> proposal with four false actions, against `claude-haiku-4-5` at 2.4 s and eight — the self-hosted
+> model beats the cloud model it would replace on this task, rather than merely undercutting it.
 > The five-case figures below are kept only because they are what the design decisions above were
 > made against, and they were badly over-optimistic: `gpt-oss:20b` scored 5/5 here and **31/40 with
 > eight false actions** on the full set. `mistral-small:24b` is the pick.
