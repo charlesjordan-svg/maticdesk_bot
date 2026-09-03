@@ -1,0 +1,33 @@
+# Development database for B1. Not a deployment artifact.
+#
+# Pinned to PostgreSQL 17 to match the RDS major we intend to run: pgvector 0.8.2 covers PG 15-18
+# (register 10.1), and 17 is the current RDS default track. The pin is the point - a schema
+# developed on one major and deployed on another is how "works on my machine" reaches production.
+#
+# pgvector/pgvector is the extension's own image. See src/db/README or docs/B1-CONTROL-PLANE.md 5
+# for why the extension is installed ONCE into a shared schema rather than per tenant.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: matic-desk-db
+    environment:
+      POSTGRES_DB: matic
+      POSTGRES_USER: matic
+      # Development only. The real credential comes from Secrets Manager and is never in a file.
+      POSTGRES_PASSWORD: matic
+    ports:
+      # 5433, not 5432: if a real Postgres is ever installed on this machine, a port collision
+      # should fail loudly rather than silently connect the tests to the wrong database.
+      - "127.0.0.1:5433:5432"
+    command:
+      # 80 usable connections is what a db.t4g.micro gives, and it is the number that killed
+      # per-tenant pollers (D143). Cap the dev database at the same figure so connection
+      # exhaustion shows up here rather than in the pilot.
+      - "postgres"
+      - "-c"
+      - "max_connections=80"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matic -d matic"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
