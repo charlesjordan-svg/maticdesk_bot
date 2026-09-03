@@ -1,0 +1,21 @@
+# Line endings, decided 2026-09-03 (follow-ups handover A2). Source and docs are LF in the repo
+# regardless of the editor that wrote them; PowerShell scripts are CRLF because everything in
+# client/scripts/ is Windows-only and CRLF is the safer default there. Binaries are named so a
+# stray `git add` on one (the Piper voice model is gitignored, but still) is never treated as text.
+* text=auto
+
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.ts    text eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf
+
+*.ps1   text eol=crlf
+
+*.onnx  binary
+*.png   binary
+*.webp  binary
+*.wav   binary
