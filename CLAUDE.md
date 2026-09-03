@@ -9,7 +9,7 @@ and blockers, and it is kept current. This file only tells you how to work here.
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
 | `server/` | The hub. Spec and phase-one scope only; **nothing built**. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register. D1–D150, invariants H1–H6, conflicts, open items. Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register. D1–D161, invariants H1–H6, conflicts, open items OPEN-1–OPEN-8. Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it. |
 | `Projects/`, `.obsidian/` | The founder's Obsidian notes. Not product code. |
 
 The client used to live at `Projects/Ai Chat Bot -Matic/matic-desk-demo`. Handovers dated 2026-09-02
@@ -24,8 +24,10 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (D151 onward), with a status
+- New decisions are **appended** to the register with the next free ID (D162 onward), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
+- Two chat documents dated 2026-09-03 numbered their own content D130–D168 in parallel with the
+  register. Those IDs are **void**; the register's §0 and §5.6 map them. Do not cite them.
 - D130–D150 were assigned on 2026-09-03 from the independent design review; most are *proposed*,
   meaning the founder has not ratified them. Do not treat a proposed decision as settled.
 - D1–D41 live only in `ASK-IT-questionnaire.xlsx`, which has never been downloaded. If it turns up,
@@ -42,6 +44,7 @@ npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored);
 npm.cmd test               # headless, no key, no admin: 211 assertions + 3 expected failures
 npm.cmd run start:elevated # the app; needs .env with ANTHROPIC_API_KEY (see .env.example)
 npm.cmd run count-tokens   # measures the shipped prompt prefix against the cache floor
+npm.cmd run verify-cache   # TWO REAL CALLS to claude-sonnet-5: proves the cache_control breakpoint works (D161)
 ```
 
 - `py -3`, not `python` — `python` is not on PATH. For scripted file edits use `node`, not Python.
@@ -59,9 +62,9 @@ suite exits 1 on purpose: promote them to hard checks and update D130 in the reg
 ## Never
 
 - Commit `.env`, an API key, or any `.onnx` file. Both are gitignored at two levels; keep it so.
-- Claim a performance number. Only two things in this project have been measured: the model
-  bake-off (one machine, 40 hand-written cases) and the prompt prefix token count. Everything else
-  is a target and the docs say so.
+- Claim a performance number. Only three things in this project have been measured: the model
+  bake-off (one machine, 40 hand-written cases), the prompt prefix token count, and one live
+  prompt-cache check on Sonnet 5 (two calls). Everything else is a target and the docs say so.
 - Put broker logic in the renderer, or import `client/src/broker/win32/*` or `capabilities/*` from
   anywhere but a `Broker` implementation. `client/src/broker/broker.d.ts` explains why.
 - Let the model author consent text. Consent wording is catalog data (`plain/*` in `catalog.json`).

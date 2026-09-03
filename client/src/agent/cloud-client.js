@@ -76,26 +76,58 @@ function toolsFromCatalog(capabilities) {
   }));
 }
 
+/**
+ * Prompt caching - on by default only where it can work.
+ *
+ * Caching is a prefix match with a per-model minimum. Below that floor a `cache_control` marker is
+ * accepted and silently does nothing: `cache_creation_input_tokens: 0`, every token billed in full.
+ * `docs/TOKEN-COUNT-2026-09-03.md` measured the shipped prefix (system + tools) at 2,104 tokens on
+ * claude-haiku-4-5 against a 4,096 floor, and 2,600 on claude-sonnet-5 against 1,024. So the
+ * escalation-class model caches and the routine model cannot (register D140; the decision is D161
+ * in ../../../docs/decisions/DECISION-REGISTER.md).
+ *
+ * The Haiku prefix is deliberately NOT padded to reach 4,096. prompt.js is shared across providers
+ * as a correctness requirement of the bake-off, so padding would have to be Anthropic-path-only and
+ * inert, and the `whenNotToUse` result showed prefix text moves model behaviour - padding would
+ * need a Haiku bake-off re-run to prove the score did not move. Real work against $0.0023 per turn.
+ * Revisit when volume justifies it.
+ *
+ * Re-measure with `npm run count-tokens` when prompt.js, catalog.json or the model changes, and
+ * update MEASURED_PREFIX. `npm run verify-cache -- <model>` confirms against the live usage fields.
+ */
+const CACHE_FLOOR = { "claude-haiku-4-5": 4096, "claude-sonnet-5": 1024, "claude-opus-5": 512 };
+/** Cacheable prefix per model as measured 2026-09-03 by eval/count-tokens.mjs. Tokenizers differ. */
+const MEASURED_PREFIX = { "claude-haiku-4-5": 2104, "claude-sonnet-5": 2600 };
 
+/** True when the measured prefix reaches the model's floor. Unknown models: a marker below the floor is inert, so cache. */
+export function promptCacheByDefault(model) {
+  const floor = CACHE_FLOOR[model];
+  const prefix = MEASURED_PREFIX[model];
+  if (floor === undefined || prefix === undefined) return true;
+  return prefix >= floor;
+}
 
 export class CloudClient {
   /**
    * @param temperature Left undefined in the app, so the API default applies and nothing about the
    *   demo build changes. The bake-off passes 0: comparing a sampling cloud model against local
    *   models pinned at 0 measures sampling noise and reports it as a difference between models.
+   * @param promptCache Set a `cache_control` breakpoint on the stable prefix. Defaults per model -
+   *   see promptCacheByDefault(); false on claude-haiku-4-5, so the shipped build is unchanged.
    */
-  constructor({ model, capabilities, temperature, onLog = () => {} }) {
+  constructor({ model, capabilities, temperature, promptCache, onLog = () => {} }) {
     this.model = model;
     this.capabilities = capabilities;
     this.onLog = onLog;
     this.temperature = temperature;
+    this.promptCache = promptCache ?? promptCacheByDefault(model);
     this.tools = [...toolsFromCatalog(capabilities), ESCALATE_TOOL];
     this.available = Boolean(process.env.ANTHROPIC_API_KEY);
     this.client = this.available ? new Anthropic() : null;
   }
 
   /**
-   * @returns {Promise<{ok:boolean, proposal?:Proposal, reply?:string, escalate?:boolean, escalation?:object, error?:string}>}
+   * @returns {Promise<{ok:boolean, proposal?:Proposal, reply?:string, escalate?:boolean, escalation?:object, usage?:object, error?:string}>}
    * Never throws - an unreachable model must degrade to tier-0, not crash a turn.
    */
   async propose(text, { probe, summary }) {
@@ -106,11 +138,17 @@ export class CloudClient {
       };
     }
     try {
+      const system = systemPrompt(this.capabilities);
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 2048,
         ...(this.temperature === undefined ? {} : { temperature: this.temperature }),
-        system: systemPrompt(this.capabilities),
+        // Render order is tools -> system -> messages, so one breakpoint on the last system block
+        // caches tools + system together. The machine-state block and the user's sentence are in
+        // `messages`, after the breakpoint, so their per-turn variation never touches the cache.
+        system: this.promptCache
+          ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+          : system,
         tools: this.tools,
         // Force a tool call so the reply is always schema-shaped. This is the whole reason
         // tool use is here - it is an output-schema mechanism, not an execution mechanism (§5).
@@ -127,7 +165,18 @@ export class CloudClient {
       if (!call) {
         return { ok: false, error: `the model returned no tool call (stop_reason ${response.stop_reason}).` };
       }
-      this.onLog(`[cloud] ${this.model} chose ${call.name} (in ${response.usage.input_tokens}/out ${response.usage.output_tokens} tokens)`);
+      // The usage fields are the only ground truth that caching is working; keep them in the log
+      // and hand them back so eval/verify-cache.mjs can assert on them.
+      const usage = {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+        cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
+      };
+      this.onLog(
+        `[cloud] ${this.model} chose ${call.name} (in ${usage.input_tokens}/out ${usage.output_tokens} tokens` +
+        `${this.promptCache ? `; cache write ${usage.cache_creation_input_tokens} / read ${usage.cache_read_input_tokens}` : ""})`,
+      );
 
       if (call.name === "escalate") {
         const e = call.input;
@@ -135,6 +184,7 @@ export class CloudClient {
           ok: true,
           escalate: true,
           escalation: e,
+          usage,
           reply:
             `This one I can't fix from here. ${e.summary} ` +
             `I would hand this to ${String(e.suggestedOwner).replace(/_/g, " ")}.`,
@@ -162,7 +212,7 @@ export class CloudClient {
         confidence: Number(confidence ?? 0),
         source: "cloud",
       };
-      return { ok: true, proposal, reply: proposal.reasoning };
+      return { ok: true, proposal, reply: proposal.reasoning, usage };
     } catch (err) {
       // Typed SDK errors, most specific first.
       if (err instanceof Anthropic.AuthenticationError) return { ok: false, error: "The API key was rejected." };

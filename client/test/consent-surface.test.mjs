@@ -24,6 +24,22 @@
  * the same `consentAndExecute(proposal)` handler main.js uses, with an injected OFFLINE machine
  * state and executors that record instead of act - nothing here resets an adapter.
  *
+ * ACCEPTANCE SET FOR D130 (docs/2026-09-03-consent-protocol-design.md §6, recorded 2026-09-03).
+ * D130 is designed, not implemented, so nothing below is promoted yet. When the two-step protocol
+ * (prepareConsent(proposal, {locale}) -> ConsentRequest; execute(nonce)) lands in the stub service
+ * and in InProcessBroker, the three XFAIL lines in section 3 become hard checks AND these five are
+ * added as hard checks:
+ *   1. the consent-gate refusal is audited with `gate: "consent"` and carries `consentRendered`
+ *      (what the BROKER rendered for the card the user actually saw);
+ *   2. execute() with an expired nonce is refused and audited;
+ *   3. execute() with a replayed (already-burned) nonce is refused and audited;
+ *   4. a machine that comes online between prepareConsent and execute produces a `machine-state`
+ *      refusal on re-validation, not an execution;
+ *   5. the positive control in section 1 still passes end to end: shown reset_adapter, ran
+ *      reset_adapter, succeeded, audited with consentNonce + consentRendered.
+ * The exit-1-on-XPASS mechanism at the bottom of this file is the trigger for that promotion and
+ * stays as it is. Do not weaken the XFAIL lines to make them pass.
+ *
  * Run: node test/consent-surface.test.mjs
  */
 import { join, dirname } from "node:path";

@@ -2,7 +2,7 @@
 
 **Read this first, every session. Then read the documents it points to — fresh, not from memory.**
 
-**Last updated:** 2026-09-03 (repo restructured: `client/`, `server/`, `docs/decisions/`; `post-demo` merged to `main`; register consolidated; consent-surface finding demonstrated; prompt prefix measured; C9 corrected)
+**Last updated:** 2026-09-03 (repo restructured: `client/`, `server/`, `docs/decisions/`; `post-demo` merged to `main`; register consolidated; consent-surface finding demonstrated; prompt prefix measured; C9 corrected. Evening: register-merge handover applied — D151–D161 and OPEN-8 appended, consent protocol design filed, prompt caching verified live on Sonnet 5)
 **Project home:** `C:\Users\Charles\Downloads\maticdesk_bot\` — git repo `charlesjordan-svg/maticdesk_bot` (private) and Obsidian vault in one. Product code is `client/` and `server/`; notes are `Projects/`.
 
 This file is an **index of pointers, not content**. If you find yourself explaining architecture
@@ -38,9 +38,9 @@ signed content distribution, central audit and ITSM integration.
 | Local/OpenAI-compatible provider (`post-demo`) | **Done, unmerged.** Off by default; the demo build still uses Anthropic |
 | Model bake-off harness (`post-demo`) | **Done, unmerged.** 40 cases; five models measured incl. a cloud baseline. After hardening `claude-haiku-4-5` leads on accuracy (36/40) and `mistral-small:24b` on speed (35/40, 0.3 s faster), both at zero false actions reaching a user. Managed tier: Haiku (D97). Customer-hosted: mistral. *(Corrected 2026-09-03 — C9/D139; this row previously said mistral beats Haiku.)* |
 | Wrong-action rate (`post-demo`) | **Zero false actions reach the user** on mistral, gemma and Haiku; zero R2 on all five. Catalog preconditions + tool-description hardening. See `BAKEOFF-2026-09-02.md` §2b |
-| **Decision register** | **One file, checked in, owns the numbering (2026-09-03).** D1–D150, H1–H6, C1–C12, X-1–X-7. [`docs/decisions/DECISION-REGISTER.md`](docs/decisions/DECISION-REGISTER.md). D1–D41 still only in the workbook (never downloaded) |
-| Consent-surface finding (review §1.1, **D130**) | **Demonstrated 2026-09-03, open.** Agent shows `flush_dns`, sends `reset_adapter`; stub NamedPipeBroker mints, executes, audits as consented. Regression test in `npm test` (3 expected failures until D130 lands). `docs/CONSENT-SURFACE-2026-09-03.md` |
-| Prompt caching on Haiku 4.5 (**D140**) | **Measured 2026-09-03.** Shipped prefix 2,104 tokens vs 4,096 floor — caching cannot work as shipped, and is not attempted in code. `docs/TOKEN-COUNT-2026-09-03.md`, `npm run count-tokens` |
+| **Decision register** | **One file, checked in, owns the numbering (2026-09-03).** D1–D161, H1–H6, C1–C12, X-1–X-7, OPEN-1–OPEN-8. [`docs/decisions/DECISION-REGISTER.md`](docs/decisions/DECISION-REGISTER.md). D1–D41 still only in the workbook (never downloaded). Two parallel chat documents of 2026-09-03 numbered themselves D130–D168 — **those IDs are void** (register §0, §5.6); the documents themselves were not on disk and were merged from the founder's handover summary |
+| Consent-surface finding (review §1.1, **D130**) | **Demonstrated 2026-09-03, open.** Agent shows `flush_dns`, sends `reset_adapter`; stub NamedPipeBroker mints, executes, audits as consented. Regression test in `npm test` (3 expected failures until D130 lands). `docs/CONSENT-SURFACE-2026-09-03.md`. **Design filed 2026-09-03:** `docs/2026-09-03-consent-protocol-design.md` — two-step consent (`prepareConsent` → nonce + broker-rendered text; `execute(nonce)`), changes `broker.d.ts`, **must be settled before the pipe protocol is written**. Not implemented; its §8 wants a second opinion on the retain-the-proposal variant |
+| Prompt caching (**D140**, **D161**) | **Measured and decided 2026-09-03.** Haiku 4.5: shipped prefix 2,104 tokens vs 4,096 floor — cannot cache; deliberately **not padded** (revisit on volume). Sonnet-class: `cache_control` now set in `src/agent/cloud-client.js` by per-model default, **verified live on Sonnet 5** — 2,412 of 2,801 prompt tokens read from cache on the second call. Shipped Haiku request unchanged. `docs/TOKEN-COUNT-2026-09-03.md` §6, `npm run verify-cache` (two real calls) |
 
 **Demo deadline: Sunday 2026-09-06.** The frozen demo build is branch `add-matic-desk-demo` — **rehearse from that branch**, not from `main`. `post-demo` was merged into `main` on 2026-09-03 (after the restructure below); new work goes on `main` or feature branches off it.
 
@@ -71,6 +71,7 @@ signed content distribution, central audit and ITSM integration.
 | `..\..\docs\decisions\DECISION-REGISTER.md` (repo root `docs\decisions\`) | **THE decision register.** D1–D150, invariants H1–H6, conflicts, open items, verification. Read before any design or hub thread. Sources under `docs\decisions\sources\` are superseded and use old numbering |
 | `..\..\server\SPEC-2026-09-02-hub-server-side.md` | The hub spec, copied into the repo 2026-09-03 with `server\README.md` giving the phase-one scope (D149) |
 | `CONSENT-SURFACE-2026-09-03.md` | **`post-demo`.** The review's largest finding, demonstrated against a stub NamedPipeBroker; what D130 must do; acceptance test |
+| `2026-09-03-consent-protocol-design.md` | **Filed 2026-09-03.** The D130 design: two-step consent (`prepareConsent(proposal, {locale})` → nonce + broker-rendered text; `execute(nonce)` runs the proposal the broker retained), the `broker.d.ts` changes, the eight-check acceptance set (§6). Settle before the `NamedPipeBroker` pipe protocol. §8: the retain-the-proposal variant has had no second opinion |
 | `TOKEN-COUNT-2026-09-03.md` | **`post-demo`.** `count_tokens` on the shipped prompt: 2,104 vs the 4,096 Haiku cache floor; the pad-or-write-off choice |
 | `HANDOVER-2026-09-02-post-demo.md` | **Most current engineering state.** Read this first for code. Post-demo branch: refusal auditing, provider, bake-off, hardening |
 | `HANDOVER-2026-09-02-day4.md` | Day 4 build record. Current for the FROZEN demo build |
@@ -90,6 +91,7 @@ signed content distribution, central audit and ITSM integration.
 | `2026-09-02-claude-code-proceed-handover.md` | Current Claude Code work queue + build-freeze rule |
 | `Claude Handover Files\2026-09-02-ollama-provider-brief.md` | **Exists** — found 2026-09-03 (this row and the post-demo handover §7 said it was missing; the search on 2026-09-02 missed the subfolder). Its §5 harness design was **met and exceeded** by `eval/` (40 cases vs ~30 asked, false actions split by tier, s/correct deciding). Provider content superseded by hub spec §12 and `LOCAL-MODEL-PROVIDER.md` |
 | `2026-09-02-fable-design-review.md` | **Independent design review (Fable, 2026-09-02/03).** Parts A (verified research), B, C. Source of D130–D150. Copy in `docs\decisions\sources\` |
+| `2026-09-03-claude-code-handover-register-merge.md` | **Founder handover, applied 2026-09-03.** Merge the parallel D130–D168 chat documents into the register (now §0, §5.6–§5.9, D151–D161, OPEN-8), caching on the Sonnet-class path (D161), keep the XFAIL mechanism, file the consent design. **The two chat documents it names — `2026-09-03-phase0-decisions-D130-D150.md` and `2026-09-03-kb-architecture-authoring-ux.md` — were not on disk anywhere under the user profile**; the merge used the handover's own summary. If they turn up: `docs\decisions\sources\`, IDs void |
 | `2026-09-02-matic-desk-decision-register-consolidated.md`, `...decisions-D35-D46...`, `...D53-D67...`, `...D91-D124...` | **Superseded 2026-09-03** by the register above. Old numbering (D35–D83 → D42–D90). Copies in `docs\decisions\sources\` |
 | `2026-09-02-tts-runtime-decision-handover.md` | Piper footprint, Python dependency, positioning language |
 | `2026-08-27-designer-note-v4.md` | **Current designer brief.** Supersedes v3 and v2 |
@@ -153,6 +155,7 @@ ServiceNow at the design partner · macOS eventually required.
 | ~~Device authentication mechanism (mTLS vs signed token)~~ **Decided:** signed assertion, mTLS rejected (D60–D65, confirmed by review A5 → D146) | — | Ratify D130–D150 (register §5) |
 | Data residency (customer question 18) — **reframed** (D141): no US pin on Haiku 4.5, no EU on the first-party API | Model and provider choice, not region | Design partner, with the two sentences in OPEN-3 |
 | Data retention policy | Cannot file a first ticket without it | Founder |
+| **Build-pipeline integrity (OPEN-8, new 2026-09-03)** — signing-key custody, attested builds, two-person release | **Shipping standalone** (D151: standalone endpoints self-update from a vendor-signed installer at a pinned URL) | Founder; belongs in the threat model (OPEN-5) |
 | Client host / port target (Electron vs WebView2 vs Tauri) | Component lift; binds the macOS port | Founder + measurement |
 | Scenario 2 timing · five clean runs · video backup | Sunday demo | Charles, this week |
 

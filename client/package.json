@@ -11,6 +11,7 @@
     "test": "node test/broker.test.mjs && node test/router.test.mjs && node test/agent.test.mjs && node test/probe.test.mjs && node test/audit.test.mjs && node test/local-provider.test.mjs && node test/preconditions.test.mjs && node test/consent-surface.test.mjs",
     "probe": "node test/probe.test.mjs",
     "count-tokens": "node eval/count-tokens.mjs",
+    "verify-cache": "node eval/verify-cache.mjs",
     "fetch-voice": "node scripts/fetch-voice.mjs",
     "inject-fault": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/inject-fault.ps1",
     "reset-demo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/reset-demo.ps1",

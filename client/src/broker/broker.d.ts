@@ -141,6 +141,23 @@ export interface ExecutionResult {
   auditId: string;
 }
 
+/**
+ * PENDING CONTRACT CHANGE - D130, designed 2026-09-03, not yet implemented.
+ *
+ * `client/docs/2026-09-03-consent-protocol-design.md` replaces `mintConsentToken(proposal)` and
+ * `execute(proposal, consentToken)` with a two-step exchange: `prepareConsent(proposal, {locale})`
+ * returns a `ConsentRequest` (nonce + broker-rendered text) and `execute(nonce)` runs the proposal
+ * the broker RETAINED against that nonce. `ConsentToken` stops crossing this boundary; `Gate` gains
+ * `"consent"`; `AuditRecord` gains `consentNonce` and `consentRendered`. The demonstration this
+ * answers is `client/docs/CONSENT-SURFACE-2026-09-03.md` (an agent can show one card and send a
+ * different proposal down the pipe).
+ *
+ * The change must land here BEFORE the NamedPipeBroker pipe protocol is written - consent becomes a
+ * two-step exchange, and retrofitting that into a one-call protocol is the expensive version. Both
+ * InProcessBroker and NamedPipeBroker implement the new shape. The interface below is the shipped
+ * one and is what InProcessBroker implements today; do not edit it piecemeal - land the design as a
+ * unit with the tests in `client/test/consent-surface.test.mjs` (see its header for the acceptance set).
+ */
 export interface Broker {
   listCapabilities(): Capability[];
   /**
