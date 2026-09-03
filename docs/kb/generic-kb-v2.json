@@ -1,0 +1,310 @@
+{
+  "schemaVersion": "generic-kb/1",
+  "bundleId": "generic-kb-v2",
+  "generatedOn": "2026-09-03",
+  "supersedes": "generic-kb-v1",
+  "classification": "generic",
+  "note": "Vendor-authored. No entitlement rules, no customer data. Ships in the signed catalog bundle (D45); safe at rest on the endpoint; available offline (D40). No article references a catalog capability. No article contains credential, account or security-control guidance.",
+  "changelog": [
+    "REMOVED vpn-cannot-reach-internal-resources - org-specific by nature (client, gateway, SSO/MFA and split-tunnel config all differ per organisation) and the only article touching credentials and security products. Belongs in a customer KB, authored by the customer, not in a vendor-signed generic bundle.",
+    "REMOVED keyboard-shortcuts-macos - macOS is post-v1 and out of scope, so no client can display it, and two of its rows could not be verified this session. Re-author when macOS is in scope, with verification.",
+    "CORRECTED keyboard-shortcuts-windows - Redo now states both bindings explicitly rather than asserting one. Show-desktop and screenshot rows retained; both are stable and unambiguous on Windows.",
+    "RETAINED home-network-slow-or-dropping with a scope note - see article scopeNote field.",
+    "CORRECTED keyboard-shortcuts-windows Redo row on 2026-09-03 after primary-source verification (handover Task 5): Microsoft documents Ctrl + Y as the Windows redo shortcut and does not document Ctrl + Shift + Z outside Visual Studio; the earlier wording \"Ctrl + Shift + Z in most other applications\" was memory, not research. Other rows still unverified."
+  ],
+  "articles": [
+    {
+      "id": "home-network-slow-or-dropping",
+      "type": "troubleshooting",
+      "title": "Applications are slow or connections drop at home",
+      "category": "network",
+      "platform": "any",
+      "environment": "remote",
+      "lifecycle": "unvalidated",
+      "scopeNote": "The home connection is the user's own equipment and outside company scope. This article is retained because every step produces information IT needs in order to act, and none of it touches a company-managed system or a security control. If the judgement is that home networking should not appear at all, this is the article to cut.",
+      "problem": "Severe lag, stalling or dropped connections while working from home, across more than one application.",
+      "symptoms": [
+        "everything is really slow at home",
+        "my calls keep dropping",
+        "wifi keeps cutting out",
+        "it's fine in the office but not at home",
+        "pages take forever to load"
+      ],
+      "keywords": [
+        "bandwidth",
+        "latency",
+        "ISP",
+        "Wi-Fi",
+        "Ethernet",
+        "router",
+        "speed test"
+      ],
+      "guidance": [
+        "Run a speed test and note the download, upload and latency figures - these tell IT whether the home line is the limit.",
+        "Move closer to the Wi-Fi access point, or connect by Ethernet cable if one is available. A wired connection removes Wi-Fi from the question entirely.",
+        "Pause large downloads, backups or streaming on other household devices and retest.",
+        "Note whether the problem affects one application or all of them."
+      ],
+      "escalateWhen": [
+        "Speed and latency are good but applications remain slow - the problem is not the home connection.",
+        "The problem follows the machine to another network.",
+        "Speed test results are far below what the household pays for, which is a conversation with the ISP rather than with IT."
+      ],
+      "doNotAttempt": [
+        "Do not change router configuration, DNS servers or firmware. Home network equipment is the user's own and outside company scope.",
+        "Do not suggest connecting to a public or unknown Wi-Fi network as a workaround."
+      ],
+      "cause": null,
+      "body": null,
+      "provenance": {
+        "source": "vendor-authored",
+        "authoredOn": "2026-09-03",
+        "reviewedBy": null
+      }
+    },
+    {
+      "id": "meeting-audio-video-poor-quality",
+      "type": "troubleshooting",
+      "title": "Meeting audio or video is stuttering, dropping or distorted",
+      "category": "software",
+      "platform": "any",
+      "environment": "any",
+      "lifecycle": "unvalidated",
+      "problem": "In Teams, Zoom or a similar application, video stutters or freezes, audio breaks up, or the microphone produces static.",
+      "symptoms": [
+        "people say I sound robotic",
+        "my video keeps freezing in Teams",
+        "nobody can hear me",
+        "my microphone has static",
+        "the meeting is choppy",
+        "my laptop fan goes crazy during calls"
+      ],
+      "keywords": [
+        "Teams",
+        "Zoom",
+        "microphone",
+        "headset",
+        "camera",
+        "CPU",
+        "audio device"
+      ],
+      "guidance": [
+        "Check which microphone and speaker the meeting application has selected - a wrong device is the most common cause and the fastest to fix.",
+        "Close applications that are working hard in the background. Heavy CPU use starves the meeting application.",
+        "Try a wired headset if one is available. This separates a device problem from a network or machine problem.",
+        "Note whether the problem affects everyone in the meeting or only you - if others are also breaking up, the meeting service or their connection is involved."
+      ],
+      "escalateWhen": [
+        "The meeting application or graphics drivers need updating - installation requires rights the user does not have.",
+        "A wired headset behaves the same way, and background CPU use is normal.",
+        "The problem started immediately after a company-managed update."
+      ],
+      "doNotAttempt": [
+        "Do not install or update graphics or audio drivers. Driver installation needs administrator rights and a failed driver update can leave a machine without display or sound.",
+        "Do not uninstall the meeting application."
+      ],
+      "cause": null,
+      "body": null,
+      "provenance": {
+        "source": "vendor-authored",
+        "authoredOn": "2026-09-03",
+        "reviewedBy": null
+      }
+    },
+    {
+      "id": "dock-external-monitors-not-detected",
+      "type": "troubleshooting",
+      "title": "External monitors are not detected through a docking station",
+      "category": "hardware",
+      "platform": "any",
+      "environment": "any",
+      "lifecycle": "unvalidated",
+      "problem": "The laptop works normally but external displays stay blank, flicker, or only one of two monitors appears when connected to a dock.",
+      "symptoms": [
+        "my second monitor isn't working",
+        "the dock stopped working",
+        "only one screen comes on",
+        "monitors are blank when I plug in",
+        "my screens flicker on the dock"
+      ],
+      "keywords": [
+        "dock",
+        "docking station",
+        "DisplayLink",
+        "HDMI",
+        "DisplayPort",
+        "USB-C",
+        "Thunderbolt",
+        "external monitor"
+      ],
+      "guidance": [
+        "Unplug the docking station from power for thirty seconds, then reconnect. This is a genuine hard reset and resolves a large share of dock faults.",
+        "Reseat the cable between the laptop and the dock at both ends.",
+        "Connect one monitor directly to the laptop, bypassing the dock. If it works, the dock or its cable is at fault rather than the laptop or the monitor.",
+        "Note the dock model and how many displays it is meant to support - some docks support fewer displays than the number of ports suggests."
+      ],
+      "escalateWhen": [
+        "Dock firmware or display driver software needs updating.",
+        "The monitor works directly but not through the dock, after a power cycle and a cable reseat - this is a hardware replacement.",
+        "The dock is unusually warm, smells burnt, or its indicator lights are wrong."
+      ],
+      "doNotAttempt": [
+        "Do not install dock firmware or OEM driver packages. A failed firmware update can render a dock permanently unusable, and installation needs administrator rights.",
+        "Do not open or disassemble the dock."
+      ],
+      "cause": null,
+      "body": null,
+      "provenance": {
+        "source": "vendor-authored",
+        "authoredOn": "2026-09-03",
+        "reviewedBy": null
+      }
+    },
+    {
+      "id": "cloud-file-sync-not-updating",
+      "type": "troubleshooting",
+      "title": "Files are not syncing to cloud storage",
+      "category": "software",
+      "platform": "any",
+      "environment": "any",
+      "lifecycle": "unvalidated",
+      "problem": "Local files are not appearing in cloud storage, or colleagues are seeing an older version than the one on this machine.",
+      "symptoms": [
+        "my files aren't syncing",
+        "OneDrive is stuck",
+        "my colleague can't see my changes",
+        "there's a red X on my folder",
+        "it says sync pending forever",
+        "I have two copies of the same file"
+      ],
+      "keywords": [
+        "OneDrive",
+        "SharePoint",
+        "Dropbox",
+        "Google Drive",
+        "sync",
+        "conflict",
+        "pending",
+        "version"
+      ],
+      "guidance": [
+        "Open the sync client and read the exact error or warning text, including any file it names. Sync clients are usually specific about what is blocking them.",
+        "Look for filename conflicts - characters the service will not accept, names that are too long, or two files claiming to be the same version.",
+        "Pause syncing, wait a moment, and resume. If that does nothing, quit the sync application and reopen it.",
+        "Check the cloud provider's website to see whether the files are already there. This tells you whether the problem is uploading or only the local display."
+      ],
+      "escalateWhen": [
+        "The files are not present in the web interface and pausing, resuming and restarting have not helped.",
+        "The sync client reports an account, licence or permission error.",
+        "Unsynced local changes exist and the situation appears to need the account unlinking - this must be handled with IT, because unlinking can discard changes that were never uploaded."
+      ],
+      "doNotAttempt": [
+        "Do not unlink or sign out of the sync client while changes are pending. Local-only edits can be lost, and this is the most common way sync trouble becomes data loss.",
+        "Do not delete the local folder to force a fresh sync.",
+        "Do not clear the sync cache manually."
+      ],
+      "cause": null,
+      "body": null,
+      "provenance": {
+        "source": "vendor-authored",
+        "authoredOn": "2026-09-03",
+        "reviewedBy": null
+      }
+    },
+    {
+      "id": "bluetooth-peripheral-disconnects",
+      "type": "troubleshooting",
+      "title": "Wireless mouse or keyboard keeps disconnecting",
+      "category": "peripherals",
+      "platform": "any",
+      "environment": "any",
+      "lifecycle": "unvalidated",
+      "problem": "A Bluetooth or wireless-receiver mouse or keyboard drops out intermittently, lags, or stops responding until it is moved.",
+      "symptoms": [
+        "my mouse keeps cutting out",
+        "keyboard stops typing randomly",
+        "bluetooth mouse is laggy",
+        "my mouse only works sometimes",
+        "I have to click twice to wake my mouse"
+      ],
+      "keywords": [
+        "Bluetooth",
+        "wireless",
+        "USB receiver",
+        "dongle",
+        "pairing",
+        "battery",
+        "interference",
+        "2.4GHz"
+      ],
+      "guidance": [
+        "Replace the batteries or charge the device fully. Low battery is by far the most common cause and produces exactly this intermittent behaviour.",
+        "Remove the device in Bluetooth settings and pair it again from scratch.",
+        "If the device uses a USB receiver, move the receiver to a different port, ideally away from other USB devices.",
+        "Note whether the dropouts happen at a particular distance or near a specific object - 2.4 GHz peripherals are affected by microwaves, cordless phones and dense Wi-Fi."
+      ],
+      "escalateWhen": [
+        "Fresh batteries and a fresh pairing do not resolve it.",
+        "The device is not discoverable at all after re-pairing.",
+        "The same behaviour follows the device to another machine, or several devices fail on this machine at once."
+      ],
+      "doNotAttempt": [
+        "Do not remove or reinstall Bluetooth adapter drivers. This needs administrator rights and can leave the machine with no Bluetooth at all.",
+        "Do not disable Wi-Fi to reduce interference on a machine that needs the network."
+      ],
+      "cause": null,
+      "body": null,
+      "provenance": {
+        "source": "vendor-authored",
+        "authoredOn": "2026-09-03",
+        "reviewedBy": null
+      }
+    },
+    {
+      "id": "keyboard-shortcuts-windows",
+      "type": "reference",
+      "title": "Common keyboard shortcuts (Windows)",
+      "category": "productivity",
+      "platform": "windows",
+      "environment": "any",
+      "lifecycle": "unvalidated",
+      "problem": "Looking up a keyboard shortcut for a common task on Windows.",
+      "symptoms": [
+        "how do I take a screenshot",
+        "what's the shortcut for",
+        "how do I lock my screen",
+        "how do I get a closed tab back",
+        "how do I open task manager",
+        "keyboard shortcut"
+      ],
+      "keywords": [
+        "shortcut",
+        "hotkey",
+        "keyboard",
+        "Ctrl",
+        "Alt",
+        "Windows key",
+        "Task Manager",
+        "screenshot",
+        "snip"
+      ],
+      "guidance": [],
+      "escalateWhen": [],
+      "doNotAttempt": [],
+      "cause": null,
+      "body": "| Task | Shortcut |\n|---|---|\n| Copy | `Ctrl + C` |\n| Paste | `Ctrl + V` |\n| Cut | `Ctrl + X` |\n| Undo | `Ctrl + Z` |\n| Redo | `Ctrl + Y`. Some applications also accept `Ctrl + Shift + Z` |\n| Select all | `Ctrl + A` |\n| Find on page | `Ctrl + F` |\n| Switch between apps | `Alt + Tab` |\n| Lock the screen | `Win + L` |\n| Screenshot a region | `Win + Shift + S` |\n| Reopen the last closed browser tab | `Ctrl + Shift + T` |\n| Open Task Manager | `Ctrl + Shift + Esc` |\n| Show the desktop | `Win + D` |\n\nRedo: Ctrl + Y is the shortcut Microsoft documents for Windows. Ctrl + Shift + Z is accepted by some applications (Microsoft documents it for Visual Studio) but is not the Windows-wide binding.",
+      "provenance": {
+        "source": "vendor-authored",
+        "authoredOn": "2026-09-03",
+        "reviewedBy": null,
+        "verification": {
+          "verifiedOn": "2026-09-03",
+          "rows": {
+            "Redo": "https://support.microsoft.com/en-us/windows/keyboard-shortcuts-in-windows-dcc61a57-8ff0-cffe-9796-cb9706c75eec (Ctrl+Y listed; Ctrl+Shift+Z absent) and https://learn.microsoft.com/en-us/visualstudio/ide/default-keyboard-shortcuts-in-visual-studio (Ctrl+Shift+Z for Edit.Redo)"
+          },
+          "note": "Every other row remains unverified against a primary source. See docs/kb/README.md."
+        }
+      }
+    }
+  ]
+}
