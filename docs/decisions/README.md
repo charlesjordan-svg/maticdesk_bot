@@ -4,7 +4,7 @@
 
 | Path | What it is |
 |---|---|
-| `DECISION-REGISTER.md` | **The register.** D1–D161, H1–H6, C1–C12, X-1–X-7, R-1–R-14, OPEN-1–OPEN-8, values unset, verification. Owns the numbering. Created 2026-09-03 by merging the three sources below and folding in the independent review (D150); amended the same evening with D151–D161 and OPEN-8 from the founder's register-merge handover (register §0, §5.6–§5.9). |
+| `DECISION-REGISTER.md` | **The register.** D1–D165, H1–H6, C1–C12, X-1–X-7, R-1–R-14, OPEN-1–OPEN-9, values unset, verification (§10.4 added 2026-09-03 night: five primary-source lookups). Owns the numbering. Created 2026-09-03 by merging the three sources below and folding in the independent review (D150); amended the same evening with D151–D161 and OPEN-8 from the founder's register-merge handover (register §0, §5.6–§5.9). |
 | `sources/` | Verbatim copies of the documents the register was built from, kept for provenance. **They use the old numbering** (the consolidated register runs D35–D83; the register has it as D42–D90). Do not cite them; cite the register. |
 
 ## Rules
