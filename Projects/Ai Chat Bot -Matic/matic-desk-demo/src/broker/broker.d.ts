@@ -43,12 +43,73 @@ export interface Proposal {
   source: "tier0" | "tier0-state" | "cloud";
 }
 
+/** Which check refused a proposal. Ordered as they run; the first to fire is the reason. */
+export type Gate =
+  /** Not a capability this build has loaded and implemented. */
+  | "catalog"
+  /** Parameters failed the catalog JSON Schema - the gate that stops string injection. */
+  | "schema"
+  /** A tier rule was violated (R2 with no rollback is a catalog bug). */
+  | "tier-policy"
+  /** An explicit refusal string in catalog.policy - e.g. dnscache cannot be stopped. */
+  | "policy-blocklist"
+  /** Derived from a live read of this machine, not from the catalog. */
+  | "machine-state";
+
+export interface ValidationFailure {
+  gate: Gate;
+  message: string;
+}
+
 export interface ValidationResult {
   ok: boolean;
   /** Populated only when ok === false. User-facing, honest about the real reason. */
   errors: string[];
   /** Resolved capability, present only when ok === true. */
   capability?: Capability;
+  /** The gate that decided the refusal. Present only when ok === false. */
+  gate?: Gate;
+  /** Every failure, each attributed to its gate. Present only when ok === false. */
+  reasons?: ValidationFailure[];
+  /**
+   * Audit record written for this refusal. Present only when ok === false and the caller did not
+   * opt out. A refusal is audited even though nothing was attempted and no token exists: a trail
+   * that records only what ran is one-sided, and denied attempts are where attacks and
+   * misconfigurations surface first.
+   */
+  auditId?: string;
+}
+
+/**
+ * One line of audit/audit.jsonl. Append-only JSONL; readers must tolerate unknown fields.
+ *
+ * `outcome` is the discriminator:
+ *   "refused" - nothing was attempted. Written by validate() (pre-consent, `gate` set,
+ *               `consentTokenId` null) and by execute() when consent itself did not check out.
+ *   "success" - the capability ran and returned.
+ *   "failed"  - it ran and threw.
+ *   "denied"  - it threw ERROR_ACCESS_DENIED, i.e. this needs the privileged broker (§12).
+ */
+export interface AuditRecord {
+  auditId: string;
+  /** ISO 8601. */
+  at: string;
+  capabilityId: string | null;
+  parameters: Record<string, unknown> | null;
+  /** Null whenever the decision was made before a token existed. */
+  consentTokenId: string | null;
+  outcome: "success" | "failed" | "denied" | "refused";
+  /** Pre-consent refusals only: which gate fired. Absent on execute-path records. */
+  gate?: Gate;
+  /** Pre-consent refusals only: every failure, attributed. */
+  reasons?: ValidationFailure[];
+  /** Pre-consent refusals only: where the proposal came from. */
+  source?: Proposal["source"] | null;
+  tier?: Tier | null;
+  message?: string;
+  durationMs?: number;
+  detail?: Record<string, unknown>;
+  error?: { message: string; code: number | null; call: string | null };
 }
 
 /**
@@ -79,8 +140,12 @@ export interface ExecutionResult {
 
 export interface Broker {
   listCapabilities(): Capability[];
-  /** Schema + policy + tier. Runs BEFORE any consent prompt is shown. */
-  validate(proposal: Proposal): ValidationResult;
+  /**
+   * Schema + policy + tier. Runs BEFORE any consent prompt is shown.
+   * A refusal is audited. `audit: false` is for an implementation re-checking its own work,
+   * so one user-visible refusal does not produce two records.
+   */
+  validate(proposal: Proposal, opts?: { audit?: boolean }): ValidationResult;
   mintConsentToken(proposal: Proposal): ConsentToken;
   /** Re-validates and verifies the token before touching the machine. */
   execute(proposal: Proposal, consentToken: ConsentToken): Promise<ExecutionResult>;

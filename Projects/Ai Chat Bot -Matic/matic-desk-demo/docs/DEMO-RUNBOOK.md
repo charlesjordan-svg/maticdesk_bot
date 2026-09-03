@@ -424,6 +424,11 @@ lead who may well ask.
 
 ### And if you are asked "is that refusal logged?"
 
+> **Which build are you presenting?** This answer changed on branch `post-demo`, which is **not
+> merged** and must not be before the demo. If you are running `add-matic-desk-demo` — the frozen
+> demo build, which is what you should be running — the answer below is the correct one. The
+> post-demo answer is at the end of this section; do not give it from the frozen build.
+
 **No — not this one, and you should say so.** Verified on 2026-09-02: after the refusal rendered in
 the UI, `audit/audit.jsonl` was still empty.
 
@@ -440,6 +445,21 @@ That is a Phase 1 item, not a Sunday item. Do not describe the audit trail as co
 without qualifying it — §7 of the handover claims audit coverage "across successes, refusals and
 denials", and that is true of `execute()`, which is where those tests drove it from. It is not
 true of the pre-consent path this beat uses.
+
+#### On branch `post-demo` only — after this merges, the answer becomes yes
+
+`validate()` writes an audit record on every refusal, with no consent token involved. The record
+names the capability, the parameters as proposed, `proposal.source`, the reason, and the **gate**
+that fired — for this beat, `policy-blocklist`. Verified by reading `audit/audit.jsonl` after a
+real refusal.
+
+The phrasing then becomes: **"Yes. It is logged as refused, with no consent token, and the record
+names which check refused it — in this case the catalog policy blocklist. A component that records
+what it did but not what it declined to do has a one-sided audit trail."**
+
+Note the gate name is still `policy-blocklist`, not the state-derived rule. The caveat above about
+not claiming the message came from observed state is unchanged — and the log now makes that
+explicit rather than leaving it to be inferred.
 
 ### The phrasing — verified, use it verbatim
 

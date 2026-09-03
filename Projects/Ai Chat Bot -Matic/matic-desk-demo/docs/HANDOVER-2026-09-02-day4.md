@@ -125,10 +125,14 @@ test pins that.
 
 Everything from §7 of the previous handover still stands. Three things learned today:
 
-- **The `dnscache` refusal is not audited.** Audit records are written by `execute()` only, tied to
-  a consent token. That refusal happens at `validate()`, before a token exists. Verified: the audit
-  log was empty afterwards. Previous handover §7 claims audit coverage "across successes, refusals
-  and denials" — true of `execute()`, **not** of the pre-consent path the demo beat uses.
+- ~~**The `dnscache` refusal is not audited.**~~ **CLOSED on branch `post-demo`** (not merged —
+  see the freeze rule). `validate()` now writes an audit record on every refusal: no consent token
+  is required, `consentTokenId` is `null`, and the record names the `gate` that fired
+  (`catalog` / `schema` / `tier-policy` / `policy-blocklist` / `machine-state`) alongside the
+  capability, the parameters as proposed, and `proposal.source`. Verified by reading
+  `audit/audit.jsonl` after a real refusal, not only in tests. Execute-path records are byte-shape
+  unchanged. **Still true of the frozen `add-matic-desk-demo` build** — if you are presenting that
+  build, the gap is real and the runbook answer stands.
 - **The `dnscache` refusal message is the catalog blocklist string, not the state-derived one.**
   Both gates exist and it trips both, but the blocklist is checked first and short-circuits. Do not
   claim on stage that the message came from observed state.
