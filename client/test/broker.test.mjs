@@ -87,6 +87,12 @@ check("the broker rendered the card", request.rendered.detail === "flush_dns()" 
 // a card that said flush_dns (attack notes F1).
 flush.capabilityId = "restart_service";
 flush.parameters = { serviceName: "spooler" };
+// And the other direction (F1, second half): the ConsentRequest handed back must be a copy too. If
+// the broker returned its own object, the agent could rewrite `rendered` after the fact and the
+// audit record would say whatever the agent wanted the user to have seen.
+const renderedAsIssued = JSON.stringify(request.rendered);
+request.rendered.detail = "reset_adapter(adapterId=forged)";
+request.rendered.title = "Permission needed — nothing at all";
 
 console.log("=== 7. REAL EXECUTION: flush_dns with valid consent (works unelevated) ===");
 const realExec = await broker.execute(request.nonce);
@@ -95,6 +101,12 @@ console.log("      detail: ", JSON.stringify(realExec.detail));
 check("executed for real", realExec.ok === true, realExec.message);
 check("executed the RETAINED proposal, not the mutated one", realExec.capabilityId === "flush_dns", realExec.capabilityId);
 check("wrote an audit record", Boolean(realExec.auditId));
+await broker.audit.flush();
+const realRecord = (await import("node:fs/promises")).readFile(join(ROOT, "audit/audit.jsonl"), "utf8")
+  .then((t) => t.trim().split("\n").map((l) => JSON.parse(l)).find((r) => r.auditId === realExec.auditId));
+const rec = await realRecord;
+check("the audit record carries what the BROKER rendered, not the agent's rewritten copy",
+  rec && JSON.stringify(rec.consentRendered) === renderedAsIssued && rec.consentRendered.detail === "flush_dns()", JSON.stringify(rec?.consentRendered));
 
 const reuse = await broker.execute(request.nonce);
 check("the same nonce cannot be used twice", reuse.ok === false);

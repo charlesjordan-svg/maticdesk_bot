@@ -35,6 +35,11 @@ and earlier use that path; do not "fix" them, they are records.
   it goes into the register verbatim.
 - Every document you write names other files **by path**, never by name alone. Two documents were
   declared missing in one day while sitting on disk.
+- **A chat-produced document must be confirmed present on disk before any task depends on it.**
+  Check the path with `ls` (or `Test-Path`) at the start of the session and say what you found. Six
+  documents have now gone missing between a chat session and the repo (the last four on
+  2026-09-03: the threat model, the Phase 1 plan, the B0 spec, the KB schema document), and two of
+  those cost partial reviews. Never reconstruct a missing one from memory or from the register.
 
 ## Commands (Windows)
 
@@ -42,7 +47,7 @@ and earlier use that path; do not "fix" them, they are records.
 cd client
 npm.cmd install            # npm.cmd, not npm — PowerShell execution policy blocks npm.ps1
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
-npm.cmd test               # headless, no key, no admin, no hub: 277 assertions, 0 expected failures
+npm.cmd test               # headless, no key, no admin, no hub: 278 assertions, 0 expected failures
 npm.cmd run start:elevated # the app; needs .env with ANTHROPIC_API_KEY (see .env.example)
 npm.cmd run count-tokens   # measures the shipped prompt prefix against the cache floor
 npm.cmd run verify-cache   # TWO REAL CALLS to claude-sonnet-5: proves the cache_control breakpoint works (D161)
@@ -51,12 +56,14 @@ cd ../server
 npm.cmd test               # the B0 hub, headless with a stub provider: 33 assertions
 npm.cmd start              # http://127.0.0.1:8787 - needs Ollama with mistral-small:24b resident
 # then, from client/:  MATIC_HUB_URL=http://127.0.0.1:8787 node test/hub-client.test.mjs   (adds one live turn)
+#                      MATIC_HUB_URL=http://127.0.0.1:8787 node eval/e2e-hub-consent.mjs    (three demo scenarios, hub + two-step consent, headless)
 #                      node eval/run-bakeoff.mjs --hub http://127.0.0.1:8787 mistral-small:24b
 ```
 
 - `py -3`, not `python` — `python` is not on PATH. For scripted file edits use `node`, not Python.
 - Bash heredocs in this environment mangle backslashes; put multi-line scripts in a file and run it.
-- Many files are CRLF. Match the file's existing line endings when editing.
+- Line endings are governed by `.gitattributes` since 2026-09-03 (LF for source and docs, CRLF for
+  `.ps1`). Write whatever your tool writes; Git normalises on add. Do not hand-convert.
 
 ## Tests: consent is two-step (D130, landed 2026-09-03)
 

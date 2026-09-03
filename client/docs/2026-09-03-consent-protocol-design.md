@@ -229,4 +229,25 @@ way to author it.
   has not been reviewed by anyone else and it is the one part of this document that has had no
   second opinion.
 - Session-0 isolation and `CreateProcessAsUser` in §5 are cited from memory as the reason the strong
-  form is expensive. `[VERIFY]` before using that reasoning to justify the deferral to a customer.
+  form is expensive. ~~`[VERIFY]` before using that reasoning to justify the deferral to a customer.~~
+  **Verified 2026-09-03 against learn.microsoft.com** (register `docs/decisions/DECISION-REGISTER.md`
+  §10.4, row 1): since Windows Vista "only system processes and services run in Session 0" and it is
+  non-interactive; Microsoft's documented remedy for a service that needs UI in the user's session is
+  `CreateProcessAsUser` with the token from `WTSQueryUserToken` (caller must be LocalSystem holding
+  `SE_TCB_NAME`; `CreateProcessAsUser` needs `SE_INCREASE_QUOTA_NAME` and may need
+  `SE_ASSIGNPRIMARYTOKEN_NAME`; `lpDesktop` must be `winsta0\default`; it loads no profile and builds
+  no environment block). So the strong form means the privileged service spawning and owning a
+  process inside the interactive session with a UI framework of its own — the growth of the
+  privileged surface §5 says it is. The deferral is now evidenced, not reasoned. Its cost is real;
+  whether a buyer's security review requires paying it remains the open question §5 states.
+
+---
+
+**Addendum, 2026-09-03 (night) — implemented.** The two-step protocol above is implemented in
+`client/src/broker/in-process-broker.js` after the attack pass in
+`client/docs/2026-09-03-consent-protocol-attack-notes.md`. Two things this document left implicit
+are now decided: the broker retains a `structuredClone` of the proposal and returns a clone of the
+`ConsentRequest` (attack notes F1); and rule 3's "one outstanding request" means *a new request
+supersedes the outstanding one and the supersession is audited* (F2; register D166). `rendered` gained
+`locale`, `notice`, `undo`, `why` and `risk` so the agent reads nothing from the catalog to draw the
+card; `Gate` also gained the long-missing `"precondition"`. The acceptance set in §6 passes in full.

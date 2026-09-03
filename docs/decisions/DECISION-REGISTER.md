@@ -1,8 +1,8 @@
 # Matic Desk — Decision Register
 
-**Version:** 2.2 — the single register. **This file owns the numbering.** (2.2, night of 2026-09-03: D162–D165 and OPEN-9 appended in §5.10; D130 implemented; §10.4 verification of the handover's Task 5 lookups; the hub bake-off added to §10.3. 2.1, evening of 2026-09-03: D151–D161 and OPEN-8 appended; D132 parameter values; D133 conflict resolved; D130 design filed; D140 decided; §0 records the D130–D168 double assignment.)
+**Version:** 2.2 — the single register. **This file owns the numbering.** (2.2, night of 2026-09-03: D162–D166 and OPEN-9 appended in §5.10 (D166 added from the follow-ups handover A4); D130 implemented; §10.4 verification of the handover's Task 5 lookups; the hub bake-off added to §10.3. 2.1, evening of 2026-09-03: D151–D161 and OPEN-8 appended; D132 parameter values; D133 conflict resolved; D130 design filed; D140 decided; §0 records the D130–D168 double assignment.)
 **Date:** 2026-09-03
-**Covers:** D1–D165, invariants H1–H6, conflicts C1–C12 and X-1–X-7, reviewer tensions R-1–R-14, open items OPEN-1 to OPEN-9, values left unset, verification register.
+**Covers:** D1–D166, invariants H1–H6, conflicts C1–C12 and X-1–X-7, reviewer tensions R-1–R-14, open items OPEN-1 to OPEN-9, values left unset, verification register.
 **Location:** `docs/decisions/DECISION-REGISTER.md` at the repo root, beside `client/` and `server/`. Every handover and every review prompt references this file **by relative path**, never by name alone (D150).
 
 **Supersedes** (verbatim copies kept in `sources/` for provenance; they carry the OLD numbering and must not be cited):
@@ -580,7 +580,7 @@ When the document is found: verbatim into `sources/`, then merge its decisions h
 
 ---
 
-### 5.10 D162–D165 — from the first-build-steps handover (2026-09-03, night)
+### 5.10 D162–D166 — from the first-build-steps handover and its follow-ups (2026-09-03, night)
 
 Four things decided in chat and recorded here from `Downloads\2026-09-03-claude-code-handover-first-build-steps.md` Task 4. D164 is implemented; the other three are decided (founder) and not yet built.
 
@@ -590,6 +590,7 @@ Four things decided in chat and recorded here from `Downloads\2026-09-03-claude-
 | **D163** | **`doNotAttempt` on articles is a hypothesis, not a measured result.** Added by analogy with the `whenNotToUse` tool-description result that took R2 false actions to zero (§2b of `../../client/docs/BAKEOFF-2026-09-02.md`). It must be tested the same way — the same 40 cases (or the real ticket export), with and without the field in the retrieved context — before anyone cites it as a safety mechanism. | Proposed (hypothesis) | Handover Task 4 §2. A field that looks like a measured guard but is not one is worse than no field. |
 | **D164** | **`Proposal.source` gains `"hub"`, with `hubProvider?: "local" \| "cloud" \| null` — the hub's claim, not the endpoint's knowledge.** The endpoint can attest that the sentence went to the hub; every statement past that hop is hearsay from the hub, recorded as a claim and never as a fact about the network. The renderer says so on screen; the bake-off records it per case. Implemented in `client/src/broker/broker.d.ts`, `client/src/agent/hub-client.js` (the third provider beside `CloudClient` and `OpenAICompatibleClient`, same `propose()` contract, selected by `config.provider: "hub"`), and the B0 hub in `server/`. Default provider unchanged: the demo build sends the same request it always sent. **Tier-0 never routes through the hub (D46b)** — pinned by `client/test/hub-client.test.mjs` against a hub that is not running. | **Done** (2026-09-03) | Handover Task 3/4 §3. The distinction a security review asks for is where the sentence went; a hub in the path must not blur it. |
 | **D165** | **The social / tier-0 conversational layer is deterministic, not model-authored.** Greetings, capability questions and off-topic redirects are answered by templates. **Capability answers are generated from the catalog**, because a warm bot that claims a capability it lacks is worse than a curt one. Templates ship in the client or in the signed bundle — **never hub-authored (H5)**. Not yet built; recorded before anyone writes response strings, so there are not fifty inconsistent ones. | Decided, not built | Handover Task 4 §4. Same family as H3e: constrain what text the model is allowed to influence. |
+| **D166** | **A new consent request supersedes the outstanding one; the supersession is audited.** The D130 design's rule 3 ("one outstanding `ConsentRequest` per session") did not say what a second `prepareConsent` does while one is outstanding. Two candidates: *refuse the second call*, or *supersede* — burn the outstanding nonce and write an audit record for it (`outcome: "refused"`, `gate: "consent"`, `consentRendered` = the superseded card, message says superseded). **Supersede is the decision.** Refusing would break the honest path: a user who clicks *Deny* and types another complaint inside the 120 s window would be refused, because the denied request is still outstanding and the contract has no cancel. Neither choice stops a compromised agent from painting one card and approving another (design §5 — only the broker-owned window does); supersede is the only one that keeps the honest path working *and* leaves the forensic signature of that attack in the trail: X rendered, X superseded, Y rendered, Y run, within milliseconds. Implemented in `client/src/broker/in-process-broker.js` `supersedeOutstanding()`; pinned by `client/test/consent-surface.test.mjs` §5. | **Done** (2026-09-03) | `../../client/docs/2026-09-03-consent-protocol-attack-notes.md` F2, promoted from attack notes to the register by the follow-ups handover A4: it is a decision, not an implementation detail. Amends D130's design rule 3 by specifying it. |
 
 **OPEN-9 (code-signing certificate)** is added to §7. It blocks A6 (signed MSI), D151 (standalone self-updater) and OPEN-8 (build-pipeline integrity).
 
@@ -778,7 +779,7 @@ Still unverified after this pass: everything else in §10.2, and every remaining
 
 ## 11. How to add to this register
 
-1. Take the next free ID (D166 onward, as of the night of 2026-09-03). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void.
+1. Take the next free ID (D167 onward, as of the night of 2026-09-03). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void.
 2. One row: decision, status (*done* / *decided* / *proposed* / *rejected*), source and forcing reason. A decision without a forcing reason is an opinion.
 3. If it amends an earlier decision, say so in both rows.
 4. If it depends on an unverified claim, tag `[VERIFY]` inline and add it to §10.2.

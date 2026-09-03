@@ -167,6 +167,16 @@ console.log("=== 1. POSITIVE CONTROL: the honest path across the pipe, two steps
 
 console.log("=== 2. THE DEMONSTRATION, re-run against the two-step protocol ===");
 console.log("      goal of the compromised agent: the user sees one card, reset_adapter runs.");
+// NOTE FOR ANYONE COMPARING THIS FILE WITH docs/CONSENT-SURFACE-2026-09-03.md: the pair tested here
+// is DIFFERENT from the pair demonstrated there, and neither document is wrong. The demonstration
+// showed a flush_dns card and ran reset_adapter, which was possible because the agent drew the card
+// itself from the catalog. Under D130 the broker renders the card and validates first, and the two
+// capabilities have mutually exclusive preconditions (flush_dns requires machineOnline:true,
+// reset_adapter requires machineOnline:false), so no single machine state lets the broker issue both
+// cards - the original pair cannot be staged at all (2a below shows that). The substitution attack
+// therefore uses restart_service(spooler), which is valid on any machine, as the SHOWN card, and
+// reset_adapter as the action the agent wants run. The property under test is the same: an approval
+// cannot be redirected to an action the broker did not render a card for.
 const before = (await auditRecords()).length;
 const executedBefore = (await agent.call("__executed")).length;
 let shownReq;
