@@ -37,6 +37,7 @@ signed content distribution, central audit and ITSM integration.
 | Refusal auditing (`post-demo`) | **Done, unmerged.** `validate()` audits refusals with the gate that fired |
 | Local/OpenAI-compatible provider (`post-demo`) | **Done, unmerged.** Off by default; the demo build still uses Anthropic |
 | Model bake-off harness (`post-demo`) | **Done, unmerged.** 40 cases; five models measured incl. a cloud baseline. `mistral-small:24b` beats `claude-haiku-4-5` on this task |
+| Wrong-action rate (`post-demo`) | **Zero false actions reach the user** on mistral, gemma and Haiku; zero R2 on all five. Catalog preconditions + tool-description hardening. See `BAKEOFF-2026-09-02.md` §2b |
 
 **Demo deadline: Sunday 2026-09-06.** Build is frozen; new work goes on a `post-demo` branch.
 
