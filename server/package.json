@@ -1,0 +1,14 @@
+{
+  "name": "matic-desk-hub",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Matic Desk hub - B0 walking skeleton. One route, one provider, no authentication, loopback only.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/turn.test.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -50,8 +50,15 @@ import {
   ESCALATION_OWNERS,
 } from "./prompt.js";
 
-/** One tool per capability plus escalate, in OpenAI shape, generated from the catalog. */
-function toolsFromCatalog(capabilities) {
+/**
+ * One tool per capability plus escalate, in OpenAI shape, generated from the catalog.
+ *
+ * Exported since 2026-09-03 so the hub's OpenAI-compatible provider (server/src/providers/) builds
+ * the SAME tool surface from the schemas the endpoint sends it. One definition of the dialect
+ * wrapper, for the same reason prompt.js is one definition of the prompt: a bake-off through the
+ * hub must measure the hop, not a second copy of this function.
+ */
+export function toolsFromCatalog(capabilities) {
   const tools = capabilities.map((c) => ({
     type: "function",
     function: {
