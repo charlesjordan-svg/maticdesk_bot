@@ -36,7 +36,7 @@ signed content distribution, central audit and ITSM integration.
 | Performance measurement | **First numbers measured 2026-09-02** — model bake-off only. Everything else is still a target |
 | Refusal auditing (`post-demo`) | **Done, unmerged.** `validate()` audits refusals with the gate that fired |
 | Local/OpenAI-compatible provider (`post-demo`) | **Done, unmerged.** Off by default; the demo build still uses Anthropic |
-| Model bake-off harness (`post-demo`) | **Done, unmerged.** 40 cases, three models measured |
+| Model bake-off harness (`post-demo`) | **Done, unmerged.** 40 cases; five models measured incl. a cloud baseline. `mistral-small:24b` beats `claude-haiku-4-5` on this task |
 
 **Demo deadline: Sunday 2026-09-06.** Build is frozen; new work goes on a `post-demo` branch.
 
