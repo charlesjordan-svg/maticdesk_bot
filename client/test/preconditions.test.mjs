@@ -80,14 +80,14 @@ console.log("=== 3. the refusal is audited, like every other refusal ===");
   check("gate recorded for the auditor", v.reasons?.[0]?.gate === "precondition");
 }
 
-console.log("=== 4. execute() re-checks it, so a token minted earlier cannot outrun a recovery ===");
+console.log("=== 4. execute() re-checks it, so a card rendered earlier cannot outrun a recovery ===");
 {
-  // Consent given while the machine was broken; by execution time it is healthy again.
+  // Consent card rendered while the machine was broken; by the time the user clicks, it is healthy
+  // again. Same broker, same nonce - the machine under it changed (D130 acceptance item 4).
   const b = brokerFor(BROKEN);
-  const token = b.mintConsentToken(resetProposal);
-  const healed = brokerFor(HEALTHY);
-  healed.tokens = b.tokens;                       // same token, machine has since recovered
-  const res = await healed.execute(resetProposal, token);
+  const request = b.prepareConsent(resetProposal, { locale: "en" });
+  b.probe = () => HEALTHY;                        // the network came back inside the 120 s window
+  const res = await b.execute(request.nonce);
   check("refused at execution time", res.ok === false, res.message);
   check("nothing was attempted", /refused at execution time/.test(res.message), res.message);
 }

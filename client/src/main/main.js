@@ -142,30 +142,27 @@ app.whenReady().then(async () => {
   ipcMain.handle("broker:validate", (_e, proposal) => broker.validate(proposal));
 
   /**
-   * The user's Approve click is the consent gesture. The token is minted HERE, in the
-   * privileged half, immediately before execution - the renderer never holds a token it
-   * could replay, and never mints one for itself.
+   * Consent, step 1 (D130). The broker validates, renders the consent text ITSELF from the signed
+   * catalog, and keeps the proposal. The renderer gets back a nonce and the text to paint - it
+   * never holds a token, and after this call it never sends a proposal again.
    */
-  ipcMain.handle("broker:consentAndExecute", async (_e, proposal) => {
+  ipcMain.handle("broker:prepareConsent", (_e, proposal, opts) => {
     try {
-      const token = broker.mintConsentToken(proposal);
-      log(`[broker] consent token ${token.id} minted for ${proposal.capabilityId}`);
-      const result = await broker.execute(proposal, token);
-      // Surfaced for the inspector so the audit trail is visible, not just claimed.
-      return { ...result, consentTokenId: token.id };
+      const request = broker.prepareConsent(proposal, { locale: opts?.locale || app.getLocale() || "en" });
+      log(`[broker] consent request ${request.nonce} rendered for ${request.capabilityId} (${request.locale})`);
+      return { ok: true, request };
     } catch (err) {
       log(`[broker] ${err.message}`);
-      return {
-        ok: false,
-        capabilityId: proposal?.capabilityId ?? "unknown",
-        message: `Refused before doing anything: ${err.message}`,
-        detail: {},
-        needsBroker: false,
-        rollbackWith: null,
-        auditId: null,
-      };
+      return { ok: false, error: err.message };
     }
   });
+
+  /**
+   * Consent, step 2 (D130). The user's Approve click is the consent gesture. The renderer sends the
+   * nonce and nothing else; the broker runs the proposal it retained for that nonce. The token is
+   * minted inside the broker immediately before execution and never crosses this boundary.
+   */
+  ipcMain.handle("broker:execute", (_e, nonce) => broker.execute(typeof nonce === "string" ? nonce : ""));
 
   await createWindow();
 

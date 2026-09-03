@@ -35,8 +35,8 @@ async function runFullPath(text) {
   const res = await agent.propose(text);
   if (!res.ok) return { res, exec: null };
   if (!res.validation.ok) return { res, exec: null };
-  const token = broker.mintConsentToken(res.proposal);
-  const exec = await broker.execute(res.proposal, token);
+  const request = broker.prepareConsent(res.proposal, { locale: "en" });
+  const exec = await broker.execute(request.nonce);
   return { res, exec };
 }
 
@@ -80,7 +80,7 @@ if (!primary) {
     log(`refused: ${validation.errors.join("; ")}`);
     check("renew_dhcp refusal is explained", true);
   } else {
-    const exec = await broker.execute(proposal, broker.mintConsentToken(proposal));
+    const exec = await broker.execute(broker.prepareConsent(proposal, { locale: "en" }).nonce);
     log(`result: ${exec.message}`);
     log(`detail: ${JSON.stringify(exec.detail)}`);
     check("renew_dhcp executed", exec.ok === true, exec.message);
@@ -111,7 +111,7 @@ if (process.env.MATIC_TEST_NETWORK !== "1") {
       log(`refused: ${validation.errors.join("; ")}`);
       check("reset_adapter refusal is explained", true);
     } else {
-      const exec = await broker.execute(proposal, broker.mintConsentToken(proposal));
+      const exec = await broker.execute(broker.prepareConsent(proposal, { locale: "en" }).nonce);
       log(`result: ${exec.message}`);
       log(`detail: ${JSON.stringify(exec.detail)}`);
       check("reset_adapter executed", exec.ok === true, exec.message);

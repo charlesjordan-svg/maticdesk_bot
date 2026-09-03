@@ -69,30 +69,35 @@ const unknown = broker.validate({ capabilityId: "format_disk", parameters: {}, r
 check("rejected", unknown.ok === false);
 console.log("      reason:", unknown.errors[0]);
 
-console.log("=== 5. execution without a consent token does nothing ===");
-const noConsent = await broker.execute({ capabilityId: "flush_dns", parameters: {}, reasoning: "x", confidence: 1, source: "tier0" }, null);
+console.log("=== 5. execution without a consent nonce does nothing ===");
+const noConsent = await broker.execute(null);
 check("refused", noConsent.ok === false);
 check("audited anyway", Boolean(noConsent.auditId));
 console.log("      message:", noConsent.message);
+const forged = await broker.execute("00000000-0000-4000-8000-000000000000");
+check("a nonce the broker never issued is refused", forged.ok === false, forged.message);
 
-console.log("=== 6. a consent token cannot be reused, and cannot cover a changed proposal ===");
+console.log("=== 6. the broker runs what IT retained - the agent's copy of the proposal is not consulted (D130) ===");
 const flush = { capabilityId: "flush_dns", parameters: {}, reasoning: "clear stale DNS", confidence: 0.9, source: "tier0" };
-const token = broker.mintConsentToken(flush);
-
-const swapped = { ...flush, capabilityId: "restart_service", parameters: { serviceName: "spooler" } };
-const swapResult = await broker.execute(swapped, token);
-check("token minted for flush_dns will not execute restart_service", swapResult.ok === false);
-console.log("      message:", swapResult.message);
+const request = broker.prepareConsent(flush, { locale: "en" });
+check("a nonce came back, not a token", typeof request.nonce === "string" && request.nonce.length > 20 && !("proposalHash" in request));
+check("the broker rendered the card", request.rendered.detail === "flush_dns()" && /Permission needed/.test(request.rendered.title), JSON.stringify(request.rendered));
+// The old attack, in-process form: change the proposal AFTER the card was rendered. If the broker
+// had kept a reference to this object rather than a copy, restart_service(spooler) would run under
+// a card that said flush_dns (attack notes F1).
+flush.capabilityId = "restart_service";
+flush.parameters = { serviceName: "spooler" };
 
 console.log("=== 7. REAL EXECUTION: flush_dns with valid consent (works unelevated) ===");
-const realExec = await broker.execute(flush, token);
+const realExec = await broker.execute(request.nonce);
 console.log("      message:", realExec.message);
 console.log("      detail: ", JSON.stringify(realExec.detail));
 check("executed for real", realExec.ok === true, realExec.message);
+check("executed the RETAINED proposal, not the mutated one", realExec.capabilityId === "flush_dns", realExec.capabilityId);
 check("wrote an audit record", Boolean(realExec.auditId));
 
-const reuse = await broker.execute(flush, token);
-check("the same token cannot be used twice", reuse.ok === false);
+const reuse = await broker.execute(request.nonce);
+check("the same nonce cannot be used twice", reuse.ok === false);
 console.log("      message:", reuse.message);
 
 console.log("=== 8. privileged action unelevated surfaces as 'needs the broker', not a user error ===");
@@ -101,8 +106,8 @@ const spoolerValidation = broker.validate(spooler);
 if (!spoolerValidation.ok) {
   console.log("      (skipped - spooler is not currently restartable:", spoolerValidation.errors[0], ")");
 } else {
-  const spoolerToken = broker.mintConsentToken(spooler);
-  const spoolerExec = await broker.execute(spooler, spoolerToken);
+  const spoolerRequest = broker.prepareConsent(spooler, { locale: "en" });
+  const spoolerExec = await broker.execute(spoolerRequest.nonce);
   console.log("      ok:", spoolerExec.ok, " needsBroker:", spoolerExec.needsBroker);
   console.log("      message:", spoolerExec.message);
   if (process.env.MATIC_ELEVATED === "1") {

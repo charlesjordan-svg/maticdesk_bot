@@ -132,43 +132,45 @@ function renderFacts(facts) {
  * Inline consent. Rendered into the conversation so it is always the thing in front of the
  * user, and it scrolls itself into view. Resolves true only on an explicit Approve click -
  * there is no default and no timeout that proceeds.
+ *
+ * Since D130 (2026-09-03) THE BROKER RENDERS AND THIS FUNCTION DISPLAYS. Every string on the card
+ * comes from `request.rendered`, built by the privileged half from the signed catalog and kept by
+ * it for the audit record. Nothing here reads the capability or the catalog: if this code could
+ * construct consent text, someone would (design rule 2). The one exception is `proposal.reasoning`,
+ * which is the model's own sentence and is labelled as such.
  */
-function askConsent(capability, proposal) {
+function askConsent(request, proposal) {
+  const r = request.rendered;
   const box = document.createElement("div");
   box.className = "msg consent";
 
   const title = document.createElement("div");
   title.className = "title";
-  // "tier R1" means nothing to the person being asked to approve. Say what the risk IS.
-  const tierInfo = capability.tierInfo;
-  title.textContent = tierInfo
-    ? `Permission needed — ${tierInfo.label}`
-    : `Permission needed — tier ${capability.tier}`;
+  title.textContent = r.title;
 
   const what = document.createElement("div");
   what.className = "what";
-  // The catalog's `description` is written for an engineer - "Idempotent - no rollback needed".
-  // `plain.what` is the same fact for the person whose machine it is.
-  what.textContent = capability.plain?.what ?? capability.description;
+  what.textContent = r.what;
 
   const detail = document.createElement("div");
   detail.className = "outcome";
-  detail.textContent = `${capability.id}(${Object.entries(proposal.parameters ?? {}).map(([k, v]) => `${k}=${v}`).join(", ")})`;
+  detail.textContent = r.detail;
 
   box.append(title, what, detail);
 
-  if (capability.tier === "R2") {
-    const warn = document.createElement("div");
-    warn.className = "warn-box";
-    warn.textContent = `This is disruptive. If it goes wrong, the rollback is: ${capability.rollback ?? "none"}.`;
-    box.append(warn);
+  if (r.rollbackNote) {
+    const note = document.createElement("div");
+    // The broker phrases R2's note as a warning; R1's is a quiet reassurance. Same field, styled by tier.
+    note.className = request.tier === "R2" ? "warn-box" : "outcome";
+    note.textContent = r.rollbackNote;
+    box.append(note);
   }
 
   // A user approved an action and then said: "I feel like I approved that with not enough
   // information." Everything needed to answer "what is this and why?" was known at that moment,
   // and none of it was on screen. It is one click away now, and collapsed by default so the card
   // does not become another wall of text.
-  if (capability.plain) {
+  if (r.notice || r.undo || r.why || r.risk) {
     const explainBtn = document.createElement("button");
     explainBtn.className = "explain-btn";
     explainBtn.textContent = "What is this, and why?";
@@ -178,13 +180,14 @@ function askConsent(capability, proposal) {
     explain.hidden = true;
 
     // `proposal.reasoning` is the only part that is specific to THIS problem, so it goes first.
+    const disruptive = request.tier === "R2";
     const sections = [
       ["Why this, here", proposal.reasoning, false],
-      ["What you will notice", capability.plain.notice, capability.tier === "R2"],
-      ["Can it be undone", capability.plain.undo, false],
-      ["Why it usually helps", capability.plain.why, false],
+      ["What you will notice", r.notice, disruptive],
+      ["Can it be undone", r.undo, false],
+      ["Why it usually helps", r.why, false],
+      ["Risk level", r.risk, disruptive],
     ];
-    if (tierInfo) sections.push(["Risk level", `${tierInfo.label}. ${tierInfo.summary}`, capability.tier === "R2"]);
 
     for (const [heading, body, emphasise] of sections) {
       if (!body) continue;
@@ -317,21 +320,40 @@ async function handleTurn(text) {
 
   await say(reply ?? `I think this is the fix. ${validation.capability.title}.`, "listening");
 
-  const approved = await askConsent(validation.capability, proposal);
+  // Consent step 1 (D130): the BROKER renders the card and keeps the proposal. From here on the
+  // renderer holds a nonce and the text to paint, and never sends the proposal again.
+  const prepared = await window.matic.prepareConsent(proposal, navigator.language);
+  if (!prepared.ok) {
+    bubble(`broker refused to render a consent card: ${prepared.error}`, "sys bad");
+    setState("apologising");
+    await say(`I can't ask you to approve that one. ${prepared.error}`, "idle");
+    return;
+  }
+  const request = prepared.request;
+  show(consentJson, {
+    nonce: request.nonce,
+    renderedBy: "broker",
+    locale: request.locale,
+    expiresAt: new Date(request.expiresAt).toISOString(),
+    awaiting: "the user's decision",
+  });
+
+  const approved = await askConsent(request, proposal);
   if (!approved) {
-    consentJson.textContent = "denied — no token was minted, nothing was executed";
+    consentJson.textContent = "denied — the nonce was never presented back; nothing was executed";
     bubble("consent denied — nothing was executed", "sys");
     setState("idle");
     await say("Understood, I won't change anything.", "idle");
     return;
   }
 
+  // Consent step 2: the nonce and nothing else. The broker runs what IT rendered.
   setState("accept");
-  const exec = await window.matic.consentAndExecute(proposal);
+  const exec = await window.matic.execute(request.nonce);
   show(consentJson, {
-    consentTokenId: exec.consentTokenId ?? null,
+    nonce: request.nonce,
     singleUse: true,
-    boundToProposal: true,
+    brokerExecutedWhatItRendered: true,
     auditId: exec.auditId,
   });
   show(executionJson, exec);

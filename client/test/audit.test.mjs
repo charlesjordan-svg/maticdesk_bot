@@ -91,29 +91,32 @@ check("gates recorded distinctly",
 check("every refusal record is tokenless", log.every((r) => r.consentTokenId === null));
 
 console.log("=== 4. one refusal produces one record, not one per internal re-check ===");
-// execute() re-validates and mintConsentToken() validates again. Neither may log a second time
-// for the same user-visible refusal - refuse() below is the one record for the execute path.
+// execute() re-validates and prepareConsent() validates again. Neither may log a second time for
+// the same user-visible refusal - the consent-gate record below is the one record for this path.
 const before = (await readLog()).length;
-const exec = await broker.execute(dns, null);
+const exec = await broker.execute(null);
 check("execution refused", exec.ok === false);
 log = await readLog();
 check("execute added exactly one record", log.length === before + 1, `added ${log.length - before}`);
 const execRec = log[log.length - 1];
-check("execute-path refusal is not attributed to a gate", execRec.gate === undefined, JSON.stringify(execRec));
+check("execute-path consent refusal is attributed to the consent gate (D130)", execRec.gate === "consent", JSON.stringify(execRec));
+check("and is tokenless", execRec.consentTokenId === null);
 
-console.log("=== 5. the execute path still writes what it always wrote ===");
+console.log("=== 5. the execute path still writes what it always wrote, plus the D130 fields ===");
 const flush = proposal("flush_dns", {}, "tier0");
-const token = broker.mintConsentToken(flush);
-const ran = await broker.execute(flush, token);
+const request = broker.prepareConsent(flush, { locale: "en" });
+const ran = await broker.execute(request.nonce);
 check("flush_dns executed", ran.ok === true, ran.message);
 log = await readLog();
 const success = log[log.length - 1];
 console.log("      record:", JSON.stringify(success));
 check("outcome is success (unchanged)", success.outcome === "success", success.outcome);
-check("carries the consent token id", success.consentTokenId === token.id);
+check("carries an internally minted consent token id", typeof success.consentTokenId === "string" && success.consentTokenId.length > 20);
+check("carries the consent nonce (D130)", success.consentNonce === request.nonce);
+check("carries what the broker rendered (D130)", success.consentRendered?.detail === "flush_dns()" && success.consentRendered?.title === request.rendered.title);
 check("carries tier, duration and detail", success.tier === "R1" && typeof success.durationMs === "number" && success.detail !== undefined);
-check("execute records carry no gate", success.gate === undefined);
-check("minting consent did not add a record of its own", log.length === before + 2, `total ${log.length}`);
+check("success records carry no gate", success.gate === undefined);
+check("preparing consent did not add a record of its own", log.length === before + 2, `total ${log.length}`);
 
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

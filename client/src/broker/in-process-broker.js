@@ -3,14 +3,19 @@
  * InProcessBroker - the demo build's Broker implementation (see broker.d.ts).
  *
  * Runs inside the single elevated process. Phase 1 replaces this class with NamedPipeBroker,
- * which serialises the same Proposal / ConsentToken / ExecutionResult objects across a pipe to
+ * which serialises the same Proposal / ConsentRequest / ExecutionResult objects across a pipe to
  * a Windows Service. Because callers only ever touch the interface, that swap is a constructor
  * change at the wiring site - nothing else moves.
+ *
+ * Consent is the two-step exchange of D130 (2026-09-03): prepareConsent() renders and retains,
+ * execute(nonce) runs what was retained. See broker.d.ts and
+ * docs/2026-09-03-consent-protocol-attack-notes.md for why each line of that path is where it is.
  *
  * @typedef {import("./broker.d.ts").Proposal} Proposal
  * @typedef {import("./broker.d.ts").Capability} Capability
  * @typedef {import("./broker.d.ts").ValidationResult} ValidationResult
  * @typedef {import("./broker.d.ts").ConsentToken} ConsentToken
+ * @typedef {import("./broker.d.ts").ConsentRequest} ConsentRequest
  * @typedef {import("./broker.d.ts").ExecutionResult} ExecutionResult
  */
 import { createHash, randomUUID } from "node:crypto";
@@ -19,7 +24,17 @@ import { EXECUTORS, probeMachine } from "./capabilities/index.js";
 import { validateAgainstSchema } from "./schema.js";
 import { AuditLog } from "./audit.js";
 
+/** How long a rendered card stays approvable. Unchanged from the pre-D130 ConsentToken. */
 const CONSENT_TTL_MS = 120000;
+/**
+ * How long a burned, expired or superseded nonce stays KNOWN after it expires. A late or replayed
+ * click is then refused with the text it was rendered for, rather than as an unknown nonce (attack
+ * notes F6). Bounds memory: one outstanding request plus a ten-minute tail.
+ */
+const CONSENT_RETAIN_MS = 10 * 60 * 1000;
+/** The languages the signed catalog carries. One, today. Anything else falls back (attack notes F4). */
+const CATALOG_LOCALES = new Set(["en"]);
+const FALLBACK_LOCALE = "en";
 
 function sortKeys(obj) {
   if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return obj;
@@ -43,13 +58,16 @@ export class InProcessBroker {
    *   Production passes nothing and gets probeMachine().
    * @param executors The capability implementations. Injectable for the same reason as `probe`,
    *   and for one more: test/consent-surface.test.mjs has to drive a consented `reset_adapter`
-   *   all the way through mint -> execute -> audit WITHOUT resetting an adapter on the box running
-   *   the test. Production passes nothing and gets the real Win32 primitives.
+   *   all the way through prepare -> execute -> audit WITHOUT resetting an adapter on the box
+   *   running the test. Production passes nothing and gets the real Win32 primitives.
+   * @param clock Injectable ONLY so the 120 s consent window can be tested without waiting 120 s.
+   *   Production passes nothing and gets Date.now.
    */
-  constructor({ catalogPath, auditPath, probe = probeMachine, executors = EXECUTORS, onLog = () => {} }) {
+  constructor({ catalogPath, auditPath, probe = probeMachine, executors = EXECUTORS, clock = Date.now, onLog = () => {} }) {
     this.onLog = onLog;
     this.probe = probe;
     this.executors = executors;
+    this.clock = clock;
     this.catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
     this.verifyCatalogSignature();
     // Attach the plain-language risk label to each capability so the consent prompt can show it
@@ -57,8 +75,14 @@ export class InProcessBroker {
     // consulted by validate() or execute().
     for (const c of this.catalog.capabilities) c.tierInfo = this.catalog.tiers?.[c.tier] ?? null;
     this.audit = new AuditLog(auditPath, { onLog });
-    /** @type {Map<string, {proposalHash:string, expiresAt:number, used:boolean}>} */
-    this.tokens = new Map();
+    /**
+     * Every consent request this broker has rendered and still remembers, by nonce. The proposal
+     * stored here is a COPY - the agent's own object is never retained (attack notes F1).
+     * @type {Map<string, {proposal: Proposal, capability: Capability, rendered: ConsentRequest["rendered"], issuedAt: number, expiresAt: number, used: boolean, superseded: boolean}>}
+     */
+    this.consents = new Map();
+    /** The one request that may currently be approved. Null when none is outstanding. */
+    this.outstanding = null;
   }
 
   verifyCatalogSignature() {
@@ -85,7 +109,7 @@ export class InProcessBroker {
    *
    * @param {Proposal} proposal
    * @param {{audit?: boolean}} [opts] `audit:false` for the broker's own internal re-validation
-   *   (mintConsentToken, execute), so one refusal is not logged twice under two different gates.
+   *   (prepareConsent, execute), so one refusal is not logged twice under two different gates.
    * @returns {ValidationResult}
    */
   validate(proposal, { audit = true } = {}) {
@@ -269,42 +293,172 @@ export class InProcessBroker {
     return failures;
   }
 
-  /** @returns {ConsentToken} */
-  mintConsentToken(proposal) {
-    // audit:false - the broker re-checking its own work. The caller's validate() already logged
-    // any refusal; a second record here would double-count one user-visible event.
+  // ---- consent: the two-step exchange of D130 ----------------------------------------------------
+
+  /**
+   * Step 1. Validate, render, retain, hand back a nonce.
+   *
+   * Throws on an invalid proposal, exactly as mintConsentToken() did: the caller's own validate()
+   * already audited the refusal, so this re-check runs with audit:false.
+   *
+   * @param {Proposal} proposal
+   * @param {{locale: string}} opts
+   * @returns {ConsentRequest}
+   */
+  prepareConsent(proposal, opts) {
+    const locale = opts?.locale;
+    if (typeof locale !== "string" || locale.length === 0) {
+      throw new TypeError("prepareConsent requires opts.locale (design rule 5 - localisation is a catalog-signing event, and the parameter is taken now so the contract does not change later)");
+    }
     const validation = this.validate(proposal, { audit: false });
     if (!validation.ok) {
-      throw new Error(`refusing to mint consent for an invalid proposal: ${validation.errors.join("; ")}`);
+      throw new Error(`refusing to prepare consent for an invalid proposal: ${validation.errors.join("; ")}`);
     }
-    const now = Date.now();
-    const token = {
-      id: randomUUID(),
-      proposalHash: proposalHash(proposal),
-      issuedAt: now,
-      expiresAt: now + CONSENT_TTL_MS,
-    };
-    this.tokens.set(token.id, {
-      proposalHash: token.proposalHash,
-      expiresAt: token.expiresAt,
-      used: false,
-    });
-    return token;
+    const capability = /** @type {Capability} */ (validation.capability);
+
+    // A COPY. In this build the agent still holds a reference to the object it passed in; if the
+    // broker kept that object, the agent could change the parameters after the card was rendered
+    // and before the click (attack notes F1). The pipe build gets this for free; here it is the
+    // difference between a guarantee and a convention.
+    const retained = structuredClone(proposal);
+    // Validate THEN render: `detail` prints parameter values, and they are safe to print only
+    // because the schema, blocklist and live-state checks have already accepted them (F4).
+    const rendered = this.renderConsent(capability, retained, locale);
+
+    const now = this.clock();
+    // One outstanding request per session (design rule 3). A new request supersedes the old one
+    // and says so in the trail - see supersedeOutstanding() for why supersede rather than refuse.
+    this.supersedeOutstanding(`a new consent request for ${capability.id}`);
+    this.pruneConsents(now);
+
+    const nonce = randomUUID();
+    const expiresAt = now + CONSENT_TTL_MS;
+    this.consents.set(nonce, { proposal: retained, capability, rendered, issuedAt: now, expiresAt, used: false, superseded: false });
+    this.outstanding = nonce;
+
+    /** @type {ConsentRequest} */
+    const request = { nonce, rendered, expiresAt, capabilityId: capability.id, tier: capability.tier, locale: rendered.locale };
+    // Another copy on the way out: the agent may do what it likes with its copy of `rendered`;
+    // the one that goes into the audit record is the broker's.
+    return structuredClone(request);
   }
 
-  /** @returns {Promise<ExecutionResult>} */
-  async execute(proposal, consentToken) {
-    const refuse = async (message) => {
+  /**
+   * The consent text, built here and nowhere else (design rule 1). Everything user-facing comes
+   * from the signed catalog's `plain/*` and `tiers/*`; the tier label and the rollback sentence
+   * are broker-authored. The renderer paints this verbatim and reads nothing from the catalog.
+   *
+   * @param {Capability} capability
+   * @param {Proposal} proposal already validated
+   * @param {string} locale requested
+   * @returns {ConsentRequest["rendered"]}
+   */
+  renderConsent(capability, proposal, locale) {
+    // The catalog is signed in one language. An unknown locale cannot select different text, so
+    // it falls back, and the request records the locale actually used (attack notes F4).
+    const used = CATALOG_LOCALES.has(locale) ? locale : FALLBACK_LOCALE;
+    const tierInfo = this.catalog.tiers?.[capability.tier] ?? null;
+    const plain = capability.plain ?? {};
+    const params = Object.entries(proposal.parameters ?? {}).map(([k, v]) => `${k}=${v}`).join(", ");
+
+    let rollbackNote = null;
+    if (capability.rollback !== null && capability.rollback !== undefined) {
+      rollbackNote = capability.tier === "R2"
+        ? `This is disruptive. If it goes wrong, the rollback is: ${capability.rollback}.`
+        : `If needed, this can be undone with: ${capability.rollback}.`;
+    }
+
+    return {
+      locale: used,
+      // "tier R1" means nothing to the person being asked to approve. Say what the risk IS.
+      title: tierInfo ? `Permission needed — ${tierInfo.label}` : `Permission needed — tier ${capability.tier}`,
+      // The catalog's `description` is written for an engineer; `plain.what` is the same fact for
+      // the person whose machine it is.
+      what: plain.what ?? capability.description,
+      detail: `${capability.id}(${params})`,
+      rollbackNote,
+      notice: plain.notice ?? null,
+      undo: plain.undo ?? null,
+      why: plain.why ?? null,
+      risk: tierInfo ? `${tierInfo.label}. ${tierInfo.summary}` : null,
+    };
+  }
+
+  /**
+   * Burn the outstanding request, if any, and record that it was never decided.
+   *
+   * Why supersede rather than refuse the second call (attack notes F2): refusing would block the
+   * honest path - a user who clicks Deny and types another complaint inside two minutes would be
+   * refused, because there is no cancel in the contract. Neither choice stops a compromised agent
+   * from painting one card and approving another; that is design §5. Superseding at least leaves
+   * the forensic signature of it in the trail: X rendered, X superseded, Y rendered, Y run, all
+   * within a few hundred milliseconds.
+   *
+   * @param {string} because
+   */
+  supersedeOutstanding(because) {
+    const nonce = this.outstanding;
+    this.outstanding = null;
+    if (!nonce) return;
+    const record = this.consents.get(nonce);
+    if (!record || record.used) return;
+    record.used = true;
+    record.superseded = true;
+    this.audit.recordSync({
+      capabilityId: record.proposal.capabilityId,
+      parameters: record.proposal.parameters ?? {},
+      source: record.proposal.source ?? null,
+      tier: record.capability.tier,
+      consentTokenId: null,
+      consentNonce: nonce,
+      consentRendered: record.rendered,
+      outcome: "refused",
+      gate: "consent",
+      message: `consent request superseded by ${because} before any decision reached the broker - nothing was executed`,
+    });
+  }
+
+  /** Forget nonces that have been unapprovable for longer than CONSENT_RETAIN_MS. */
+  pruneConsents(now) {
+    for (const [nonce, record] of this.consents) {
+      if (now > record.expiresAt + CONSENT_RETAIN_MS && nonce !== this.outstanding) this.consents.delete(nonce);
+    }
+  }
+
+  /**
+   * Step 2. Look up -> BURN -> re-validate -> mint internally -> run THE RETAINED proposal.
+   *
+   * The order is the design (attack notes F3): burning before anything else means a duplicated
+   * approval cannot run twice even if re-validation or the executor is slow, and a concurrent
+   * second call sees `used` before this one has awaited anything.
+   *
+   * @param {string} nonce
+   * @returns {Promise<ExecutionResult>}
+   */
+  async execute(nonce) {
+    const now = this.clock();
+    const record = typeof nonce === "string" ? this.consents.get(nonce) : undefined;
+    // What the user is looking at, for the trail: the presented nonce's own rendering if the
+    // broker still knows it, otherwise the outstanding card (attack notes F6).
+    const shown = record ?? (this.outstanding ? this.consents.get(this.outstanding) : undefined) ?? null;
+
+    /** A consent-gate refusal: audited with the nonce and the text the user actually saw. */
+    const refuseConsent = async (message) => {
       const auditId = await this.audit.record({
-        capabilityId: proposal?.capabilityId ?? null,
-        parameters: proposal?.parameters ?? null,
-        consentTokenId: consentToken?.id ?? null,
+        capabilityId: shown?.proposal.capabilityId ?? null,
+        parameters: shown?.proposal.parameters ?? null,
+        source: shown?.proposal.source ?? null,
+        tier: shown?.capability.tier ?? null,
+        consentTokenId: null,
+        consentNonce: typeof nonce === "string" ? nonce : null,
+        consentRendered: shown?.rendered ?? null,
         outcome: "refused",
+        gate: "consent",
         message,
       });
       return {
         ok: false,
-        capabilityId: proposal?.capabilityId ?? "unknown",
+        capabilityId: shown?.proposal.capabilityId ?? "unknown",
         message,
         detail: {},
         needsBroker: false,
@@ -313,33 +467,66 @@ export class InProcessBroker {
       };
     };
 
-    // Re-validate at execution time. State can have changed since the consent prompt was shown.
-    // audit:false - refuse() below writes this path's record, with the consent token id on it.
-    const validation = this.validate(proposal, { audit: false });
-    if (!validation.ok) return refuse(`refused at execution time: ${validation.errors.join("; ")}`);
-    const capability = validation.capability;
-
-    // Consent verification. A token is single-use, time-limited, and bound to the exact proposal
-    // it was minted for - so a validated-then-mutated proposal cannot ride an old token.
-    const record = consentToken && this.tokens.get(consentToken.id);
-    if (!record) return refuse("no valid consent token - nothing was executed");
-    if (record.used) return refuse("consent token has already been used");
-    if (Date.now() > record.expiresAt) return refuse("consent token has expired");
-    if (record.proposalHash !== proposalHash(proposal)) {
-      return refuse("consent token does not match this proposal (it changed after consent was given)");
+    if (typeof nonce !== "string" || nonce.length === 0) return refuseConsent("no consent nonce was presented - nothing was executed");
+    if (!record) return refuseConsent("no consent request was issued for this nonce - nothing was executed");
+    if (record.used) {
+      return refuseConsent(record.superseded
+        ? "this consent request was superseded before it was approved - nothing was executed"
+        : "this consent has already been used - nothing was executed");
     }
-    record.used = true;
+    if (now > record.expiresAt) {
+      record.used = true;
+      if (this.outstanding === nonce) this.outstanding = null;
+      return refuseConsent("this consent request has expired - nothing was executed");
+    }
 
-    const startedAt = Date.now();
+    // BURN. Single-use, decided here, before any await.
+    record.used = true;
+    if (this.outstanding === nonce) this.outstanding = null;
+
+    // The proposal that runs is the one the broker kept. Nothing the agent sent can change it.
+    const proposal = record.proposal;
+
+    // Re-validate at execution time: state can change inside the 120 s window - a machine can come
+    // back online between render and click, which invalidates reset_adapter's precondition.
+    // audit:false - the refusal record below is this path's one record, with the nonce on it.
+    const validation = this.validate(proposal, { audit: false });
+    if (!validation.ok) {
+      const message = `refused at execution time: ${validation.errors.join("; ")}`;
+      const auditId = await this.audit.record({
+        capabilityId: proposal.capabilityId,
+        parameters: proposal.parameters ?? {},
+        source: proposal.source ?? null,
+        tier: record.capability.tier,
+        consentTokenId: null,
+        consentNonce: nonce,
+        consentRendered: record.rendered,
+        outcome: "refused",
+        gate: validation.gate,
+        reasons: validation.reasons,
+        message,
+      });
+      return { ok: false, capabilityId: proposal.capabilityId, message, detail: {}, needsBroker: false, rollbackWith: null, auditId };
+    }
+    const capability = /** @type {Capability} */ (validation.capability);
+
+    // The token is minted here, internally, for the retained proposal. It never leaves this
+    // process; its id goes on the record so the trail keeps its pre-D130 shape.
+    /** @type {ConsentToken} */
+    const token = { id: randomUUID(), proposalHash: proposalHash(proposal), issuedAt: now, expiresAt: record.expiresAt };
+
+    const startedAt = this.clock();
     try {
       const { message, detail } = await this.executors[capability.id](proposal.parameters ?? {});
       const auditId = await this.audit.record({
         capabilityId: capability.id,
         parameters: proposal.parameters ?? {},
-        consentTokenId: consentToken.id,
+        consentTokenId: token.id,
+        consentNonce: nonce,
+        consentRendered: record.rendered,
         tier: capability.tier,
         outcome: "success",
-        durationMs: Date.now() - startedAt,
+        durationMs: this.clock() - startedAt,
         detail,
       });
       return {
@@ -361,10 +548,12 @@ export class InProcessBroker {
       const auditId = await this.audit.record({
         capabilityId: capability.id,
         parameters: proposal.parameters ?? {},
-        consentTokenId: consentToken.id,
+        consentTokenId: token.id,
+        consentNonce: nonce,
+        consentRendered: record.rendered,
         tier: capability.tier,
         outcome: needsBroker ? "denied" : "failed",
-        durationMs: Date.now() - startedAt,
+        durationMs: this.clock() - startedAt,
         error: { message: err.message, code: err.code ?? null, call: err.call ?? null },
       });
       return {
