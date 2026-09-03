@@ -306,8 +306,10 @@ async function handleTurn(text) {
     "tier0-state": "  (from machine state alone - nothing matched what was typed, and the cloud was unreachable)",
     local: "  (a model running on this machine - the sentence did not leave it)",
     cloud: "  (sent to the Anthropic API)",
+    hub: "  (sent to the hub; where it went from there is the hub's claim, not this machine's knowledge)",
   };
-  bubble(`source: ${proposal.source}${SOURCE_NOTE[proposal.source] ?? ""}`, "sys");
+  const hubClaim = proposal.source === "hub" ? `; hub claims provider: ${proposal.hubProvider ?? "unstated"}` : "";
+  bubble(`source: ${proposal.source}${SOURCE_NOTE[proposal.source] ?? ""}${hubClaim}`, "sys");
 
   if (!validation.ok) {
     // The broker refused the model's proposal. This is the safety invariant working, and it

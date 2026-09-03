@@ -15,6 +15,9 @@
  * Usage:
  *   node eval/run-bakeoff.mjs gpt-oss:20b gemma4:12b mistral-small:24b
  *   node eval/run-bakeoff.mjs --cloud claude-haiku-4-5          (needs ANTHROPIC_API_KEY)
+ *   node eval/run-bakeoff.mjs --hub http://127.0.0.1:8787 mistral-small:24b
+ *                                                                (through the B0 hub; the hub picks
+ *                                                                 the model, the name here is a label)
  *   node eval/run-bakeoff.mjs --tag tier0-pinned gpt-oss:20b    (a subset)
  *   node eval/run-bakeoff.mjs --out results/run-2.json gpt-oss:20b
  *
@@ -28,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { OpenAICompatibleClient } from "../src/agent/openai-compatible-client.js";
 import { CloudClient } from "../src/agent/cloud-client.js";
+import { HubClient } from "../src/agent/hub-client.js";
 import { InProcessBroker } from "../src/broker/in-process-broker.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,12 +50,16 @@ const opt = (name, fallback) => {
   return i >= 0 ? argv[i + 1] : fallback;
 };
 const useCloud = argv.includes("--cloud");
+// --hub <url>: drive HubClient, the shipping hub provider, against a running B0 hub. The hub picks
+// the model (MATIC_HUB_MODEL on its side); the model name on this command line is a LABEL for the
+// results file, and the run records what the hub claimed it used.
+const hubUrl = opt("hub", null);
 const tagFilter = opt("tag", null);
 const casesPath = opt("cases", join(HERE, "cases.json"));
 const outPath = opt("out", join(HERE, "results", `run-${new Date().toISOString().replace(/[:.]/g, "-")}.json`));
 const baseUrl = opt("base-url", process.env.MATIC_LOCAL_BASE_URL ?? "http://127.0.0.1:11434/v1");
 // --cloud takes no value, so "preceded by a flag" is not enough to tell a value from a model name.
-const VALUE_FLAGS = new Set(["--tag", "--cases", "--out", "--base-url"]);
+const VALUE_FLAGS = new Set(["--tag", "--cases", "--out", "--base-url", "--hub"]);
 const models = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.has(argv[i - 1]));
 
 if (models.length === 0) {
@@ -135,7 +143,9 @@ for (const model of models) {
   const client = useCloud
     // temperature 0 so the cloud path is measured the same way the local ones are.
     ? new CloudClient({ model, capabilities, temperature: 0, onLog: () => {} })
-    : new OpenAICompatibleClient({ model, baseUrl, capabilities, onLog: () => {}, timeoutMs: 300000 });
+    : hubUrl
+      ? new HubClient({ hubUrl, capabilities, onLog: () => {}, timeoutMs: 300000 })
+      : new OpenAICompatibleClient({ model, baseUrl, capabilities, onLog: () => {}, timeoutMs: 300000 });
 
   if (!client.available) {
     console.error(`\n### ${model} - SKIPPED, provider not available (missing key or endpoint)`);
@@ -212,6 +222,8 @@ for (const model of models) {
       offList: answer.escalation?.offList ?? null,
       usage: answer.meta?.usage ?? null,
       requests: answer.meta?.requests ?? null,
+      // Hub runs only: what the hub CLAIMED about where the sentence went. Recorded as a claim.
+      hubProvider: answer.proposal?.hubProvider ?? answer.meta?.hubProvider ?? null,
     });
 
     const mark = { correct: "OK  ", false_action: "FALSE", over_escalation: "over", wrong_parameters: "param", no_answer: "none" }[scored.outcome];
@@ -235,7 +247,8 @@ for (const model of models) {
 
   const summary = {
     model,
-    provider: useCloud ? "anthropic" : "openai-compatible",
+    provider: useCloud ? "anthropic" : hubUrl ? "hub" : "openai-compatible",
+    hubUrl: hubUrl ?? undefined,
     cases: n,
     correct,
     falseActions: count("false_action"),

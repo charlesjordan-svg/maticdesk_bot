@@ -42,8 +42,18 @@ export interface Proposal {
    * "local"       = a model on an OpenAI-compatible endpoint - Ollama, LM Studio, vLLM, or the
    *                 customer’s own. Distinct from "cloud" because it says something different
    *                 about where the sentence went, which is the question a security review asks.
+   * "hub"         = the Matic Desk hub (server/). The endpoint knows the sentence went to the hub
+   *                 and nothing more; see `hubProvider`.
    */
-  source: "tier0" | "tier0-state" | "cloud" | "local";
+  source: "tier0" | "tier0-state" | "cloud" | "local" | "hub";
+  /**
+   * Present only when source === "hub". THE HUB'S CLAIM about where it sent the sentence next -
+   * NOT the endpoint's knowledge. The endpoint can attest that the sentence went to the hub; every
+   * statement past that hop is hearsay from the hub, and a security review will ask exactly that
+   * question. Null when the hub did not say. Recorded in the audit trail as a claim, never as a fact
+   * about the network.
+   */
+  hubProvider?: "local" | "cloud" | null;
 }
 
 /** Which check refused a proposal. Ordered as they run; the first to fire is the reason. */

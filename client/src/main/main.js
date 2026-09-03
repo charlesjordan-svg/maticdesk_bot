@@ -13,6 +13,7 @@ import { TtsService } from "./tts-service.js";
 import { InProcessBroker } from "../broker/in-process-broker.js";
 import { CloudClient } from "../agent/cloud-client.js";
 import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
+import { HubClient } from "../agent/hub-client.js";
 import { Agent } from "../agent/agent.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,18 +79,31 @@ app.whenReady().then(async () => {
 
   // ---- unprivileged half ----
   //
-  // Which model provider fills the tier-1 slot is a CONFIG choice, not a code change - both
-  // implement the same propose() contract, and both hand the broker an ordinary Proposal that is
-  // re-validated from scratch. Off by default: the demo build talks to Anthropic.
+  // Which model provider fills the tier-1 slot is a CONFIG choice, not a code change - all three
+  // implement the same propose() contract, and all three hand the broker an ordinary Proposal that
+  // is re-validated from scratch. Default "cloud": the demo build talks to Anthropic and sends the
+  // same request it always sent.
   //
-  // NOTE: this SWAPS the provider, it does not add a routing tier. Where a local model should sit
-  // relative to tier-0 and the cloud is a real decision - cost, latency, what to do when both are
-  // reachable - and it is not made here.
+  //   provider: "cloud"  CloudClient (Anthropic)                              - the default
+  //   provider: "local"  OpenAICompatibleClient (Ollama, LM Studio, vLLM...)  - also selected by
+  //                      the older `localModel.enabled` or MATIC_LOCAL_MODEL, which still work
+  //   provider: "hub"    HubClient -> POST /v1/turn on the B0 hub (server/)  - 2026-09-03
+  //   MATIC_PROVIDER overrides config for one run.
+  //
+  // NOTE: this SWAPS the provider, it does not add a routing tier. Tier-0 runs first regardless
+  // (D46b) - a printer complaint never leaves the machine whichever provider is configured.
   const localCfg = { enabled: false, baseUrl: "http://127.0.0.1:11434/v1", model: "", ...(config.localModel ?? {}) };
-  const localEnabled = process.env.MATIC_LOCAL_MODEL ? true : Boolean(localCfg.enabled);
+  const provider = process.env.MATIC_PROVIDER
+    || (process.env.MATIC_LOCAL_MODEL ? "local" : null)
+    || config.provider
+    || (localCfg.enabled ? "local" : "cloud");
 
   let cloud;
-  if (localEnabled) {
+  if (provider === "hub") {
+    const hubUrl = process.env.MATIC_HUB_URL || config.hubUrl || "http://127.0.0.1:8787";
+    cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), onLog: log });
+    log(`[hub] provider "hub" -> ${hubUrl} - sentences that tier-0 cannot resolve go to the hub; where the hub sends them next is the hub's claim`);
+  } else if (provider === "local") {
     const model = process.env.MATIC_LOCAL_MODEL || localCfg.model;
     const baseUrl = process.env.MATIC_LOCAL_BASE_URL || localCfg.baseUrl;
     cloud = new OpenAICompatibleClient({

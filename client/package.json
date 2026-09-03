@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "start:elevated": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-elevated.ps1",
-    "test": "node test/broker.test.mjs && node test/router.test.mjs && node test/agent.test.mjs && node test/probe.test.mjs && node test/audit.test.mjs && node test/local-provider.test.mjs && node test/preconditions.test.mjs && node test/consent-surface.test.mjs",
+    "test": "node test/broker.test.mjs && node test/router.test.mjs && node test/agent.test.mjs && node test/probe.test.mjs && node test/audit.test.mjs && node test/local-provider.test.mjs && node test/preconditions.test.mjs && node test/hub-client.test.mjs && node test/consent-surface.test.mjs",
     "probe": "node test/probe.test.mjs",
     "count-tokens": "node eval/count-tokens.mjs",
     "verify-cache": "node eval/verify-cache.mjs",
