@@ -65,7 +65,7 @@ function strictSafeSchema(node) {
 function toolsFromCatalog(capabilities) {
   return capabilities.map((c) => ({
     name: c.id,
-    description: `${c.title}. ${c.description} Risk tier ${c.tier}.`,
+    description: `${c.title}. ${c.description} Risk tier ${c.tier}.${c.whenNotToUse ? ` WHEN NOT TO USE: ${c.whenNotToUse}` : ""}`,
     // Shared shape, then sanitized for what strict mode on THIS API will accept.
     input_schema: strictSafeSchema(capabilityToolSchema(c)),
     // Verified working on claude-haiku-4-5 once the schema is sanitized above. This guarantees

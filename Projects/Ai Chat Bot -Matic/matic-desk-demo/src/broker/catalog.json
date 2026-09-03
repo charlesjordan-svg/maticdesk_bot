@@ -41,7 +41,8 @@
         "why": "Background services get stuck. Starting one again clears the stuck state, without restarting the whole machine.",
         "notice": "Whatever that service does pauses for a second or two. For the print spooler, anything waiting to print stays waiting until it is back.",
         "undo": "Yes - it can simply be restarted again."
-      }
+      },
+      "whenNotToUse": "Only restarts one of the four listed Windows services. Does not help with hardware, displays, projectors, peripherals, application bugs, licensing, accounts, or anything off this machine."
     },
     {
       "id": "flush_dns",
@@ -69,7 +70,8 @@
       },
       "requiresExplain": {
         "machineOnline": "This machine has no working network route at all, so clearing the DNS cache cannot help - a name lookup needs a route to reach a DNS server in the first place. The address itself is the problem, not the cache."
-      }
+      },
+      "whenNotToUse": "Only helps when this machine can reach the network but resolves names to the wrong address. Does not help when there is no working route, and does not help with hardware, displays, projectors, applications, licensing or accounts."
     },
     {
       "id": "renew_dhcp",
@@ -101,7 +103,8 @@
         "why": "If the machine never got a proper address, or is holding one that no longer works, asking again is usually all that is needed.",
         "notice": "The network drops for a few seconds while the new address arrives. Anything downloading or any call in progress may be interrupted.",
         "undo": "It can be run again, but the address you get back may not be the one you had before."
-      }
+      },
+      "whenNotToUse": "Only helps on an adapter that gets its address automatically and currently has a bad or missing one. Does not help on a statically configured adapter, and does not help with hardware, applications or anything off this machine."
     },
     {
       "id": "reset_adapter",
@@ -137,7 +140,8 @@
       },
       "requiresExplain": {
         "machineOnline": "This machine is online and routing normally, so resetting the adapter would drop every connection on it for no reason. That is worth doing when the network is not working - not as a first thing to try. If something specific is failing, say what it is."
-      }
+      },
+      "whenNotToUse": "Only for an adapter that holds an address but passes no traffic. Never a first thing to try, and never appropriate on a machine whose network is working - it drops every connection. A user asking for it by name is reporting a symptom, not making a diagnosis."
     }
   ],
   "policy": {
@@ -156,5 +160,6 @@
     }
   },
   "_plainNote": "plain/* and tiers/* are what the CONSENT PROMPT shows. They are catalog data on purpose: the text a user consents to must not be written by the model that is asking for the consent. Reviewable, signable with the rest of the catalog, and identical whether or not the cloud is reachable.",
-  "_requiresNote": "requires/* are preconditions on observed machine state, checked by the broker before any consent prompt. Deliberately a tiny grammar - a named fact and an expected boolean - because this file is the trust root (H3d). Added 2026-09-02 after every model tested, cloud included, proposed reset_adapter on a healthy machine when a user asked for it by name."
+  "_requiresNote": "requires/* are preconditions on observed machine state, checked by the broker before any consent prompt. Deliberately a tiny grammar - a named fact and an expected boolean - because this file is the trust root (H3d). Added 2026-09-02 after every model tested, cloud included, proposed reset_adapter on a healthy machine when a user asked for it by name.",
+  "_whenNotToUseNote": "whenNotToUse is appended to the tool description sent to the model. Model-facing guidance only - it is NOT consent text, which stays in plain/* and is never authored or influenced by the model (H3e). Added 2026-09-02 as a measured experiment against over-calling."
 }

@@ -56,7 +56,7 @@ function toolsFromCatalog(capabilities) {
     type: "function",
     function: {
       name: c.id,
-      description: `${c.title}. ${c.description} Risk tier ${c.tier}.`,
+      description: `${c.title}. ${c.description} Risk tier ${c.tier}.${c.whenNotToUse ? ` WHEN NOT TO USE: ${c.whenNotToUse}` : ""}`,
       parameters: capabilityToolSchema(c),
     },
   }));
