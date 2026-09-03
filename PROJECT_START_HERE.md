@@ -63,7 +63,8 @@ signed content distribution, central audit and ITSM integration.
 
 | File | What it is |
 |---|---|
-| `HANDOVER-2026-09-02-day4.md` | **Most current engineering state.** Read this first for code |
+| `HANDOVER-2026-09-02-post-demo.md` | **Most current engineering state.** Read this first for code. Post-demo branch: refusal auditing, provider, bake-off, hardening |
+| `HANDOVER-2026-09-02-day4.md` | Day 4 build record. Current for the FROZEN demo build |
 | `DEMO-RUNBOOK.md` | Sunday demo: pre-flight, three scenarios, failure playbook |
 | `BROKER-SURFACE.md` | Every native API the privileged half touches. The allowlisting document |
 | `PHASE1-TICKETING.md` | Ticketing design note |
