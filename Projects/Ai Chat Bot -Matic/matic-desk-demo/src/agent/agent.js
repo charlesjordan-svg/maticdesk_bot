@@ -10,6 +10,7 @@
  * @typedef {import("../broker/broker.d.ts").Proposal} Proposal
  * @typedef {import("../broker/broker.d.ts").Broker} Broker
  */
+import os from "node:os";
 import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
 import { diagnoseOffline } from "../router/offline-guide.js";
@@ -23,21 +24,36 @@ export class Agent {
   }
 
   /** Read-only machine state, for the facts panel and the router. Needs no elevation. */
+  /**
+   * Who and where this is. Ordinary Node calls, no elevation, no native binding.
+   *
+   * Kept OUT of `summary` on purpose. `summary` is the object handed to the cloud client, and
+   * a machine name and a username are the customer's environment, not diagnostic facts the
+   * model needs - it reasons about services and adapters. Nothing here is sent anywhere.
+   */
+  identify() {
+    let user = "unknown";
+    try { user = os.userInfo().username; } catch { /* no passwd entry; the panel can say unknown */ }
+    return { computer: os.hostname(), user };
+  }
+
+  /** Read-only machine state, for the facts panel and the router. Needs no elevation. */
   diagnose() {
     const probe = probeMachine();
     const primary = probe.primary[0];
-    return {
-      probe,
-      summary: {
-        online: probe.online ? "yes" : "no",
-        adapter: primary ? primary.description.slice(0, 22) : "none",
-        ip: primary?.ip ?? "-",
-        gateway: primary?.gateway ?? "-",
-        spooler: probe.services.spooler?.stateName ?? "?",
-        audio: probe.services.audiosrv?.stateName ?? "?",
-        dhcp: probe.services.dhcp?.stateName ?? "?",
-      },
+    // `summary` is cloud-facing. `panel` is what the user sees, and may hold more.
+    const summary = {
+      online: probe.online ? "yes" : "no",
+      adapter: primary ? primary.description.slice(0, 22) : "none",
+      ip: primary?.ip ?? "-",
+      gateway: primary?.gateway ?? "-",
+      spooler: probe.services.spooler?.stateName ?? "?",
+      audio: probe.services.audiosrv?.stateName ?? "?",
+      dhcp: probe.services.dhcp?.stateName ?? "?",
     };
+    const identity = this.identify();
+    // Identity first: on a support call the first question is always which machine, and who.
+    return { probe, summary, identity, panel: { ...identity, ...summary } };
   }
 
   /**
@@ -45,14 +61,14 @@ export class Agent {
    * @returns {Promise<object>}
    */
   async propose(text) {
-    const { probe, summary } = this.diagnose();
+    const { probe, summary, panel } = this.diagnose();
 
     // ---- Tier 0: local, deterministic, no network required ----
     const local = routeTier0(text, probe);
     if (local && local.proposal.confidence >= TIER0_CONFIDENCE_THRESHOLD) {
       this.onLog(`[router] tier-0 matched with confidence ${local.proposal.confidence} - no cloud call made`);
       const validation = this.broker.validate(local.proposal);
-      return { ok: true, proposal: local.proposal, validation, facts: summary, reply: local.reply };
+      return { ok: true, proposal: local.proposal, validation, facts: panel, reply: local.reply };
     }
 
     // ---- Tier 1: cloud model. The model proposes; it never executes (§5). ----
@@ -76,7 +92,7 @@ export class Agent {
           ok: true,
           proposal: { ...local.proposal, reasoning: `${local.proposal.reasoning} (local match; the cloud model was not reachable)` },
           validation,
-          facts: summary,
+          facts: panel,
           reply: local.reply,
         };
       }
@@ -93,7 +109,7 @@ export class Agent {
           ok: true,
           proposal: byState.proposal,
           validation,
-          facts: summary,
+          facts: panel,
           reply: byState.reply,
         };
       }
@@ -109,7 +125,7 @@ export class Agent {
           ok: false,
           error: cloudResult.error,
           guidance,
-          facts: summary,
+          facts: panel,
           reply: `${guidance.headline} ${guidance.cause}`,
         };
       }
@@ -117,7 +133,7 @@ export class Agent {
       return {
         ok: false,
         error: cloudResult.error,
-        facts: summary,
+        facts: panel,
         reply: `I could not reach the model, nothing you described matched a local rule, and I cannot see anything wrong on this machine that I am able to fix.`,
       };
     }
@@ -128,7 +144,7 @@ export class Agent {
         ok: false,
         error: "escalation",
         escalation: cloudResult.escalation,
-        facts: summary,
+        facts: panel,
         reply: cloudResult.reply,
       };
     }
@@ -138,7 +154,7 @@ export class Agent {
       ok: true,
       proposal: cloudResult.proposal,
       validation,
-      facts: summary,
+      facts: panel,
       reply: cloudResult.reply,
     };
   }

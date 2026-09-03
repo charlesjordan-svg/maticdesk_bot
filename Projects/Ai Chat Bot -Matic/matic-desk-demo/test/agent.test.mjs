@@ -31,7 +31,7 @@ function stubCloud({ ok = false, error = "Could not reach the model - this machi
   return {
     calls,
     available: true,
-    async propose(text) { calls.push(text); return ok ? { ok: true, proposal: { capabilityId: "flush_dns", parameters: {}, reasoning: "cloud", confidence: 0.9, source: "cloud" }, reply: "cloud reply" } : { ok: false, error }; },
+    async propose(text, ctx) { calls.push(text); this.lastContext = ctx; return ok ? { ok: true, proposal: { capabilityId: "flush_dns", parameters: {}, reasoning: "cloud", confidence: 0.9, source: "cloud" }, reply: "cloud reply" } : { ok: false, error }; },
   };
 }
 
@@ -39,18 +39,17 @@ function stubCloud({ ok = false, error = "Could not reach the model - this machi
 // describe THIS box. Overriding diagnose() is how a synthetic machine gets in.
 function agentOn(probe, cloud) {
   const agent = new Agent({ broker: stubBroker, cloud, onLog: () => {} });
-  agent.diagnose = () => ({
-    probe,
-    summary: {
-      online: probe.online ? "yes" : "no",
-      adapter: probe.primary[0]?.description ?? "none",
-      ip: probe.primary[0]?.ip ?? "-",
-      gateway: probe.primary[0]?.gateway ?? "-",
-      spooler: probe.services.spooler?.stateName ?? "?",
-      audio: probe.services.audiosrv?.stateName ?? "?",
-      dhcp: probe.services.dhcp?.stateName ?? "?",
-    },
-  });
+  const summary = {
+    online: probe.online ? "yes" : "no",
+    adapter: probe.primary[0]?.description ?? "none",
+    ip: probe.primary[0]?.ip ?? "-",
+    gateway: probe.primary[0]?.gateway ?? "-",
+    spooler: probe.services.spooler?.stateName ?? "?",
+    audio: probe.services.audiosrv?.stateName ?? "?",
+    dhcp: probe.services.dhcp?.stateName ?? "?",
+  };
+  const identity = { computer: "TEST-PC", user: "tester" };
+  agent.diagnose = () => ({ probe, summary, identity, panel: { ...identity, ...summary } });
   return agent;
 }
 
@@ -166,6 +165,30 @@ console.log("=== nothing is invented when there is genuinely no lever ===");
   }), stubCloud()).propose("I have no internet");
   check("a live link with no lease still proposes renew_dhcp", res.proposal?.capabilityId === "renew_dhcp", JSON.stringify(res.proposal));
   check("and gives no guidance, because there is a real fix", !res.guidance);
+}
+
+console.log("=== the facts panel identifies the machine, and the cloud does not see it ===");
+{
+  const real = new Agent({ broker: stubBroker, cloud: stubCloud(), onLog: () => {} });
+  const id = real.identify();
+  check("a computer name is reported", typeof id.computer === "string" && id.computer.length > 0, JSON.stringify(id));
+  check("a logged-in user is reported", typeof id.user === "string" && id.user.length > 0, JSON.stringify(id));
+  console.log(`        computer=${id.computer}  user=${id.user}`);
+}
+{
+  const res = await agentOn(probe({ adapters: [routed], online: true }), stubCloud({ ok: true })).propose("help");
+  check("the panel carries the machine name", res.facts.computer === "TEST-PC", JSON.stringify(res.facts));
+  check("and the logged-in user", res.facts.user === "tester", JSON.stringify(res.facts));
+  check("identity comes before the diagnostics", Object.keys(res.facts)[0] === "computer", JSON.stringify(Object.keys(res.facts)));
+}
+{
+  // The object handed to the cloud client must not carry who or where. A machine name and a
+  // username are the customer's environment, not something the model needs to pick a service.
+  const cloud = stubCloud({ ok: true });
+  await agentOn(probe({ adapters: [routed], online: true }), cloud).propose("help");
+  const sentSummary = cloud.lastContext?.summary ?? {};
+  check("the cloud is given no computer name", !("computer" in sentSummary), JSON.stringify(sentSummary));
+  check("the cloud is given no username", !("user" in sentSummary), JSON.stringify(sentSummary));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

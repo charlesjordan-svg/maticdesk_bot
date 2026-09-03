@@ -363,6 +363,33 @@ Tests pin it: every capability must supply all four fields, a jargon list is rej
 
 ---
 
+## 4c. The facts panel identifies the machine
+
+The panel now opens with **computer** and **user**, above the network and service rows. On a
+support call the first question is always which machine, and who — so it is the first thing shown.
+
+Ordinary Node calls (`os.hostname()`, `os.userInfo()`), no elevation, no native binding.
+
+### Say this bit out loud
+
+**That identity is deliberately not sent to the model.**
+
+The object handed to the cloud client carries services and adapters — what it needs to pick a
+capability — and nothing about who or where. A machine name and a username are the customer's
+environment, not diagnostic facts.
+
+> **"It shows you which machine it's on. It doesn't tell the model, because the model doesn't need
+> to know, and that's the customer's estate."**
+
+For a technical IT lead evaluating whether to put this on a fleet, "what leaves the machine" is a
+question that will get asked. Two tests assert the cloud payload contains no computer name and no
+username, so the answer stays true.
+
+**Note before recording:** the panel shows the real hostname and username, and they will be in the
+video. Fine on your own machine; worth a thought if you ever record on a customer's.
+
+---
+
 ## 5. The `dnscache` refusal — the best beat in the demo
 
 Get the model to propose restarting the DNS Client service. The broker refuses it, and explains

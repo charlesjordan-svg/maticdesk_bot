@@ -102,7 +102,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("broker:listCapabilities", () => broker.listCapabilities());
-  ipcMain.handle("agent:diagnose", () => agent.diagnose().summary);
+  ipcMain.handle("agent:diagnose", () => agent.diagnose().panel);
   ipcMain.handle("agent:propose", async (_e, text) => {
     try {
       return await agent.propose(String(text ?? ""));
