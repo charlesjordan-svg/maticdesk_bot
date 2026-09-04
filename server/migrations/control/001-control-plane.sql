@@ -6,6 +6,34 @@
 -- Everything here is created IF NOT EXISTS or is otherwise safe to re-run: the runner records
 -- applied versions and skips them, but a migration that is also idempotent in itself survives a
 -- half-applied run, which is the state you are actually in when something goes wrong at 2am.
+--
+-- ---------------------------------------------------------------------------------------------
+-- DECISION PROVENANCE (register §5.7b)
+--
+-- Where this file implements a decision, the comment names the decision AND the status that
+-- decision held WHEN THIS MIGRATION WAS WRITTEN. The status is not rewritten when a decision is
+-- later ratified — it is only appended to, as "(PROPOSED when written; ratified <date>)".
+--
+-- That is deliberate and it is the whole point of the convention. A comment that silently tracked
+-- current status would lose the only fact that made the finding in register §5.7 visible: that
+-- these shapes went into a migration that ran against a real database BEFORE the decisions behind
+-- them were accepted. That was not a defect — D160 asked for the shapes and shapes are free now
+-- and expensive later — but it is not something a reader should have to reconstruct by hand.
+-- Reconstructing it by hand is how the finding surfaced at all, and that does not repeat.
+--
+-- So: a reader can tell which shapes were bets, and the next ratification pass greps for
+-- provenance instead of re-deriving it.
+--
+-- Status of every decision this file implements, as of 2026-09-04:
+--   Ratified 2026-09-03 or earlier .... D143, D151
+--   Ratified as a set 2026-09-04 ...... D152, D153, D154, D155, D156, D157, D158, D159, D160
+--                                       (PROPOSED when this migration was written)
+--   Ratified as a set 2026-09-04 ...... D193-D197 (B1's own decisions, from building this)
+--   Still PROPOSED .................... D133, D146, D160's D56 precedent's own set (D42-D90 review
+--                                       set), and D202 (register §5.7a) which would add vendor-grant
+--                                       creation to D157's step-up list. D202 needs no schema change
+--                                       either way: admin_audit.step_up is indifferent to the list.
+-- ---------------------------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------------------------
 -- Extensions. ONE schema, for the whole database.
@@ -49,8 +77,11 @@ CREATE TABLE IF NOT EXISTS control.tenants (
 
 -- ---------------------------------------------------------------------------------------------
 -- Devices and enrollment. Shapes only — B1 builds no enrollment logic (that is B3).
--- These tables exist now because D160 says the schema must not foreclose what comes later, and
--- adding columns to an empty table is free.
+--
+-- D160 (PROPOSED when this migration was written; ratified 2026-09-04) — the schema must not
+--   foreclose what comes later. These tables exist now because adding columns to an empty table is
+--   free and adding them to a populated one is not. D160 argued that about federation columns
+--   specifically; it is not a general licence to front-run decisions (register §5.7b).
 -- ---------------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS control.devices (
   id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -147,9 +178,13 @@ CREATE INDEX IF NOT EXISTS job_queue_claimable ON control.job_queue (run_after, 
   WHERE status = 'queued';
 
 -- ---------------------------------------------------------------------------------------------
--- Admin identity. Local accounts are v1-testing-and-then-break-glass (D155); the schema must not
--- foreclose OIDC federation (D159, D160), so external identity sits ALONGSIDE local credentials
--- rather than replacing a column later.
+-- Admin identity.
+--
+-- D155 (PROPOSED when written; ratified 2026-09-04) — local accounts are v1-testing-and-then-
+--   break-glass, one per tenant, TOTP mandatory, use alerts the tenant owner.
+-- D159, D160 (PROPOSED when written; ratified 2026-09-04) — the schema must not foreclose OIDC
+--   federation, so external identity sits ALONGSIDE local credentials rather than replacing a
+--   column later. The hub is a relying party and never an identity provider.
 -- ---------------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS control.admin_users (
   id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -159,7 +194,9 @@ CREATE TABLE IF NOT EXISTS control.admin_users (
   email          text        NOT NULL,
   -- Local credential. NULL when the user only ever authenticates through the tenant's IdP.
   password_hash  text,
-  -- TOTP from day one, even in the local-accounts phase (D156).
+  -- D156 (PROPOSED when written; ratified 2026-09-04) — TOTP from day one, even in the
+  --   local-accounts phase. A password alone will not survive a security review of a console that
+  --   reads employee transcripts and the PII table (D58).
   totp_secret    bytea,
   -- Federation, alongside not instead: the issuer + subject the IdP asserts.
   external_issuer  text,
@@ -173,7 +210,9 @@ CREATE TABLE IF NOT EXISTS control.admin_users (
   CONSTRAINT admin_has_a_credential CHECK (password_hash IS NOT NULL OR external_subject IS NOT NULL)
 );
 
--- Roles are first-class, and permissions never attach to users directly (D152).
+-- D152 (PROPOSED when this migration was written; ratified 2026-09-04) — five hub actors, not one.
+--   Roles are first-class and carry permissions; permissions NEVER attach to users directly. The
+--   alternative becomes unauditable at roughly five hundred grants.
 CREATE TABLE IF NOT EXISTS control.admin_roles (
   id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name      text NOT NULL UNIQUE,
@@ -189,16 +228,24 @@ CREATE TABLE IF NOT EXISTS control.admin_role_grants (
   PRIMARY KEY (admin_user_id, role_id)
 );
 
--- Admin-action audit from day one (D156). Listed as absent in review B8.
+-- D156 (PROPOSED when this migration was written; ratified 2026-09-04) — admin-action audit from
+--   day one, even in the local-accounts phase. Listed as absent in review B8.
 CREATE TABLE IF NOT EXISTS control.admin_audit (
   id            bigserial   PRIMARY KEY,
   at            timestamptz NOT NULL DEFAULT now(),
   admin_user_id uuid        REFERENCES control.admin_users(id),
   tenant_id     uuid        REFERENCES control.tenants(id),
   action        text        NOT NULL,
-  -- Break-glass local-account use is its own event class and alerts the tenant owner (D155).
+  -- D155 (PROPOSED when written; ratified 2026-09-04) — break-glass local-account use is its own
+  --   event class and alerts the tenant owner.
   event_class   text        NOT NULL DEFAULT 'normal',
-  -- Step-up re-authentication was satisfied for this action (D157), or was not required.
+  -- D157 (PROPOSED when written; ratified 2026-09-04) — step-up re-authentication was satisfied
+  --   for this action, or was not required. D157's list is fleet-wide revocation, audit export,
+  --   transcript access, policy changes and IdP configuration.
+  --
+  -- D202 (PROPOSED, register §5.7a, awaiting the founder) would add vendor-grant creation and
+  --   modification to that list. NO SCHEMA CHANGE either way: this column is indifferent to what
+  --   is on the list, which is why D202 gates nothing.
   step_up       boolean     NOT NULL DEFAULT false,
   subject       text,
   detail        jsonb,
@@ -207,8 +254,13 @@ CREATE TABLE IF NOT EXISTS control.admin_audit (
 CREATE INDEX IF NOT EXISTS admin_audit_at ON control.admin_audit (at DESC);
 
 -- ---------------------------------------------------------------------------------------------
--- Vendor access grants (D153). Default off, expiring, visible to the tenant while active.
--- Transcript content requires a grant naming a window; metadata does not (D154).
+-- D153 (PROPOSED when this migration was written; ratified 2026-09-04) — vendor access is the
+--   highest-privilege position in the system and was previously unconstrained: nothing in the
+--   invariants stopped a support engineer reading employee transcripts across every customer. It
+--   becomes a time-boxed grant the customer enables: default off, expiring, visible to the tenant
+--   while active. This is threat-model A6/G2 given a control.
+-- D154 (PROPOSED when written; ratified 2026-09-04) — transcript content requires a grant naming a
+--   window; metadata does not.
 -- ---------------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS control.vendor_access_grants (
   id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -231,3 +283,16 @@ CREATE TABLE IF NOT EXISTS control.vendor_access_grants (
 );
 CREATE INDEX IF NOT EXISTS vendor_grants_live ON control.vendor_access_grants (tenant_id, expires_at)
   WHERE revoked_at IS NULL;
+
+-- ---------------------------------------------------------------------------------------------
+-- D158 (PROPOSED when this migration was written; ratified 2026-09-04) — DELIBERATELY NO TABLE.
+--
+-- Author /= approver for catalog changes, as a role constraint enforced by the permission model.
+-- It is the one decision in the D152-D160 set with no shape behind it, and that absence is the
+-- correct signal rather than an omission: D149 deferred catalog distribution out of Phase 1, so
+-- there are no drafts to approve and nothing for the constraint to act on.
+--
+-- D158 is RATIFIED AND INERT IN PHASE 1. If a later migration adds an approval workflow here, that
+-- is Phase 2 scope arriving through the back door and should be stopped rather than absorbed
+-- (register §5.7).
+-- ---------------------------------------------------------------------------------------------
