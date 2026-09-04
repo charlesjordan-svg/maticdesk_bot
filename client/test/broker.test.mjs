@@ -2,6 +2,7 @@
  * End-to-end broker + agent + router test, headless (no Electron, no UI).
  * Run: node test/broker.test.mjs
  */
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InProcessBroker } from "../src/broker/in-process-broker.js";
@@ -9,6 +10,35 @@ import { Agent } from "../src/agent/agent.js";
 import { probeMachine } from "../src/broker/capabilities/index.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * Is this process elevated? Case 8 asserts opposite things either way, so guessing wrong makes
+ * the suite fail for a reason that has nothing to do with the code.
+ *
+ * It used to trust `MATIC_ELEVATED` alone, which only `scripts/preflight.ps1` and
+ * `scripts/verify-privileged.ps1` set. A bare `npm test` from an Administrator window therefore
+ * took the unelevated branch, asserted "this should have needed the broker", watched the spooler
+ * restart successfully, and failed - aborting the other eight test files, because the npm script
+ * chains with `&&`. That happened, on the machine of the person the suite exists to serve.
+ *
+ * So: detect it. `fltmc` is a query that requires administrator and exits non-zero without it.
+ * Run through `execFileSync` with no arguments and no shell - there is nothing to interpolate
+ * here, and a test helper is a bad place to start a habit of building command strings.
+ *
+ * The environment variable still wins when set, so the two scripts above keep working and anyone
+ * can force either branch.
+ */
+function isElevated() {
+  if (process.env.MATIC_ELEVATED === "1") return true;
+  if (process.env.MATIC_ELEVATED === "0") return false;
+  if (process.platform !== "win32") return false;
+  try {
+    execFileSync("fltmc", [], { stdio: "ignore", windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
 const lines = [];
 const log = (l) => lines.push(l);
 
@@ -112,7 +142,9 @@ const reuse = await broker.execute(request.nonce);
 check("the same nonce cannot be used twice", reuse.ok === false);
 console.log("      message:", reuse.message);
 
-console.log("=== 8. privileged action unelevated surfaces as 'needs the broker', not a user error ===");
+const elevated = isElevated();
+console.log(`=== 8. privileged action ${elevated ? "ELEVATED succeeds" : "UNELEVATED surfaces as 'needs the broker', not a user error"} ===`);
+console.log(`      (detected: ${elevated ? "elevated" : "not elevated"}${process.env.MATIC_ELEVATED ? " - forced by MATIC_ELEVATED" : ""})`);
 const spooler = { capabilityId: "restart_service", parameters: { serviceName: "spooler" }, reasoning: "x", confidence: 1, source: "tier0" };
 const spoolerValidation = broker.validate(spooler);
 if (!spoolerValidation.ok) {
@@ -122,7 +154,7 @@ if (!spoolerValidation.ok) {
   const spoolerExec = await broker.execute(spoolerRequest.nonce);
   console.log("      ok:", spoolerExec.ok, " needsBroker:", spoolerExec.needsBroker);
   console.log("      message:", spoolerExec.message);
-  if (process.env.MATIC_ELEVATED === "1") {
+  if (elevated) {
     check("succeeded when elevated", spoolerExec.ok === true, spoolerExec.message);
   } else {
     check("reported as needing the broker (not as a user error)", spoolerExec.needsBroker === true, spoolerExec.message);
@@ -137,9 +169,22 @@ check("produced a network-related proposal or an honest failure",
   ["flush_dns", "renew_dhcp", "reset_adapter"].includes(net.proposal?.capabilityId) || net.ok === false);
 
 console.log("=== 10. an unmatched complaint does not invent a capability ===");
-const weird = await agent.propose("my chair is broken and my monitor is cracked");
-check("no proposal invented", !weird.proposal, JSON.stringify(weird.proposal));
-console.log("      reply:", weird.reply);
+// This one assumes a HEALTHY machine, and says so rather than failing as though the code were
+// wrong. With a demo fault injected - a stopped spooler, a released DHCP lease - the tier0-state
+// path correctly proposes the fix for what it can see, which is the designed behaviour and not an
+// invented capability. Diagnosing that from a bare "no proposal invented FAIL" cost real time.
+const faulted = [];
+const probe10 = broker.probe(); // synchronous, as in-process-broker.js calls it
+if (probe10.services?.spooler && probe10.services.spooler.stateName !== "RUNNING") faulted.push("the spooler is stopped");
+if (probe10.online === false) faulted.push("this machine is offline");
+if (faulted.length > 0) {
+  console.log(`      (skipped - ${faulted.join(" and ")}. A demo fault is injected, so tier0-state has`);
+  console.log("       something real to propose. Run `npm.cmd run reset-demo` and re-run this suite.)");
+} else {
+  const weird = await agent.propose("my chair is broken and my monitor is cracked");
+  check("no proposal invented", !weird.proposal, JSON.stringify(weird.proposal));
+  console.log("      reply:", weird.reply);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 console.log("\n--- broker log ---");
