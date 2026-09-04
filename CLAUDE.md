@@ -44,8 +44,14 @@ and earlier use that path; do not "fix" them, they are records.
   **wire format is now a contract** — changing `execute`'s shape needs a new decision, not a patch —
   and D201's ratification **accepts a named growth of `BROKER-SURFACE.md`**, so the new pipe
   lifecycle calls must be listed there *before* any implementation merges.
-- **Still proposed and still needing ratification as sets: D167–D192** (the KB architecture merge)
-  and **D193–D197** (B1). B1 is built and passing; that is not the same as ratified.
+- **Ratified as sets on 2026-09-04: D167–D192** (the KB architecture) **and D193–D197** (B1). Three
+  caveats in §5.11c survive that ratification and must not be softened by it: **D173 rests on
+  "findability beats volume", which KCS retrieval did NOT confirm** (it is our own argument — do
+  not cite KCS for it); D174's cross-encoder and the `k ≈ 60` RRF convention are unretrieved; and
+  nothing in the set is measured on our corpus, because there is no corpus.
+- **Still proposed: D130–D150** (the design review) and **D152–D160** (OPEN-6's human-identity and
+  authorisation model, §5.7). §5.11c used to say "ratify alongside OPEN-6"; ratification came
+  separately, so that pairing is void as guidance.
 - D1–D41 live only in `ASK-IT-questionnaire.xlsx`, which has never been downloaded. If it turns up,
   it goes into the register verbatim.
 - Every document you write names other files **by path**, never by name alone. Two documents were
