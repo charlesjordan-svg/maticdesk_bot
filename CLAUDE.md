@@ -39,6 +39,13 @@ and earlier use that path; do not "fix" them, they are records.
   back-fill them — the register does not renumber.
 - D130–D150 were assigned on 2026-09-03 from the independent design review; most are *proposed*,
   meaning the founder has not ratified them. Do not treat a proposed decision as settled.
+- **Ratified by the founder on 2026-09-04: D199 (the embedder), D199a (as a revisit trigger only),
+  D200 and D201 (the pipe protocol and its transport).** Two consequences worth knowing: the pipe
+  **wire format is now a contract** — changing `execute`'s shape needs a new decision, not a patch —
+  and D201's ratification **accepts a named growth of `BROKER-SURFACE.md`**, so the new pipe
+  lifecycle calls must be listed there *before* any implementation merges.
+- **Still proposed and still needing ratification as sets: D167–D192** (the KB architecture merge)
+  and **D193–D197** (B1). B1 is built and passing; that is not the same as ratified.
 - D1–D41 live only in `ASK-IT-questionnaire.xlsx`, which has never been downloaded. If it turns up,
   it goes into the register verbatim.
 - Every document you write names other files **by path**, never by name alone. Two documents were

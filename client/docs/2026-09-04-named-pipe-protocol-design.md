@@ -1,11 +1,16 @@
 # The named-pipe protocol — design
 
 **Date:** 2026-09-04
-**Decisions proposed:** **D200** (the protocol) and **D201** (the transport, and what it costs).
+**Decisions:** **D200** (the protocol) and **D201** (the transport, and what it costs) — **both
+ratified by the founder on 2026-09-04.**
 **Replaces:** the "not designed yet" note in `CLAUDE.md`.
 **Unblocked by:** D130, implemented and **verified on a screen** on 2026-09-03 (register §10.3a) — the
 renderer contract this serialises has now been looked at.
-**Status: design. Nothing is built.**
+**Status: ratified design. NOTHING IS BUILT.** Ratification settled the shape, not the schedule. The
+wire format is now the contract — `execute` takes a nonce and has nowhere to put a proposal, and
+changing that needs a new decision rather than a patch. D201's ratification also accepts the named
+growth of `BROKER-SURFACE.md`, so §8 item 9 (list the new native calls there **before** code merges)
+is now a commitment.
 
 ---
 

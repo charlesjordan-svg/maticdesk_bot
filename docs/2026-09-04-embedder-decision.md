@@ -3,7 +3,9 @@
 **Date:** 2026-09-04 (continues the 2026-09-03 night session)
 **Decides:** the model left unpicked by **D144**, which set the direction and the shortlist.
 **Unblocks:** **B7**, KB retrieval — the last item in the Phase 1 plan's §5 "blocking now" list.
-**Status: PROPOSED. The founder ratifies.** Nothing here is measured on our corpus.
+**Status: RATIFIED by the founder, 2026-09-04.** Nothing here is measured on our corpus, and it was
+ratified knowing that — there is no corpus to measure on, and D175 bounds the cost of being wrong.
+**§5 ("what would change this") survives ratification unchanged.**
 
 ---
 
