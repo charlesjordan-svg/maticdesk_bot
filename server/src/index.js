@@ -129,7 +129,45 @@ export function createHubServer({ provider, hubProvider = "local", log = console
         rerankerPresent: false,
       });
     }
-    return send(404, { ok: false, error: `no such route: ${req.method} ${req.url}` });
+    // GET / — the index. Added 2026-09-04 because the founder opened the hub in a browser and got
+    // `{"ok":false,"error":"no such route: GET /"}`, which is correct and useless.
+    //
+    // THE POINT IS CONSISTENCY WITH THE REST OF THIS FILE. Every other surface is loud about what
+    // this service is and is not — the startup banner, `x-matic-hub-auth: none` on every response,
+    // /v1/health's `auth` and `tenancy` fields. The one surface a HUMAN reaches first was silent.
+    // A person who opens a port in a browser is diagnosing, and "no such route" answers none of
+    // the three questions they have: what is this, what can it do, is it healthy.
+    //
+    // JSON rather than HTML, deliberately: this service has no rendering surface and should not
+    // acquire one for a diagnostic page. Browsers pretty-print JSON.
+    if (req.url === "/" && req.method === "GET") {
+      return send(200, {
+        ok: true,
+        hub: "matic-desk-hub",
+        phase: "B0 walking skeleton + B7a knowledge base",
+        // Repeated here rather than only in the banner, because the banner is in a terminal the
+        // reader of this page is probably not looking at.
+        warning: "NO AUTHENTICATION. NO TENANCY. LOOPBACK ONLY. This is not a service - do not expose it.",
+        auth: "none - every response carries x-matic-hub-auth: none. Device assertion -> token exchange (D61, D132) is NOT built",
+        tenancy: "none - MATIC_KB_TENANT_LABEL is a development log label, not an authenticated tenant",
+        routes: [
+          { method: "GET", path: "/", what: "this" },
+          { method: "GET", path: "/v1/health", what: "provider, embedder, corpus counts, and which model embedded it" },
+          { method: "POST", path: "/v1/ask", what: "answer a question from the knowledge base, or decline", body: { text: "string (required)", probe: "object (optional machine state; supplies the platform pre-filter)" } },
+          { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
+        ],
+        // The caveat that has to travel with any number this hub produces.
+        rerankerPresent: false,
+        note: "Retrieval quality figures from this hub are a FLOOR, not a measurement: six articles, no cross-encoder reranker, and a development embedder that is not the one D199 chose. See server/docs/B7a-KNOWLEDGE-BASE.md",
+      });
+    }
+
+    // Unknown route. Now names the routes that DO exist, for the same reason as the index.
+    return send(404, {
+      ok: false,
+      error: `no such route: ${req.method} ${req.url}`,
+      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn"],
+    });
   });
 }
 

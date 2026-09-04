@@ -208,6 +208,23 @@ These are in the register, but the register is not what a session reads first. E
   between using the app and reading a record.
 - **`npm.cmd run <script>`, never `npx.ps1`** — execution policy blocks it. `npm.cmd`, not
   `npm`. `py -3`, not `python`.
+- **NEVER HAND CHARLES A COMMAND CHAINED WITH `&&`.** He runs **Windows PowerShell 5.1**, where
+  `&&` is a **parser error**, not a fallback: *"The token '&&' is not a valid statement separator in
+  this version."* The whole line fails before anything runs. Hit on 2026-09-04 —
+  `cd server && npm.cmd run db:up && npm.cmd start` was pasted into an Administrator PowerShell and
+  produced two parser errors and no server. The command blocks in this file are fenced ```bash and
+  are written for the Bash tool; **a command meant for Charles must be PowerShell, on separate
+  lines, with an absolute path** (his prompt is usually `C:\Users\Charles`, not the repo):
+
+  ```powershell
+  cd C:\Users\Charles\Downloads\maticdesk_bot\server
+  npm.cmd run db:up
+  npm.cmd start
+  ```
+
+  Sequential-if-success in PowerShell 5.1 is `A; if ($?) { B }`, and unconditional is `A; B` — but
+  separate lines are clearer and there is no reason to chain an interactive command anyway.
+  `npm.cmd start` blocks, so anything after it never runs regardless.
 - **A chat-produced document is not on disk until you have looked.** `ls` the path at the start of
   the session and say what you found. **Never reconstruct a missing one** — from memory or from the
   register's summary of it.

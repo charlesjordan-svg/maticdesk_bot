@@ -135,8 +135,30 @@ await withServer(stubProvider({ body: toolCallBody("flush_dns", {}) }), async (b
   check("not JSON -> 400", (await post(base, "{not json")).status === 400);
   check("GET /v1/turn -> 405", (await fetch(`${base}/v1/turn`)).status === 405);
   check("unknown route -> 404", (await fetch(`${base}/v1/nope`)).status === 404);
+  const notFound = await (await fetch(`${base}/v1/nope`)).json();
+  check("a 404 names the routes that DO exist, rather than only the one that does not",
+    Array.isArray(notFound.routes) && notFound.routes.length === 4);
   const health = await (await fetch(`${base}/v1/health`)).json();
   check("health says what it is and that auth is none", health.phase?.includes("B0") && health.auth === "none");
+
+  // GET / — added because the founder opened the hub in a browser and got a bare "no such route".
+  // A person who opens a port is diagnosing; the index has to answer what/what-can-it-do/healthy.
+  const index = await fetch(`${base}/`);
+  const idx = await index.json();
+  check("GET / is 200, not a 404", index.status === 200);
+  check("the index warns that there is no authentication and no tenancy, in words",
+    /NO AUTHENTICATION/.test(idx.warning ?? "") && /NO TENANCY/.test(idx.warning ?? ""));
+  check("the index says do not expose it", /do not expose/i.test(idx.warning ?? ""));
+  check("the index lists every route, including itself",
+    Array.isArray(idx.routes)
+    && ["/", "/v1/health", "/v1/ask", "/v1/turn"].every((p) => idx.routes.some((r) => r.path === p)));
+  check("the index carries the no-reranker caveat, so a browser reader meets it too",
+    idx.rerankerPresent === false && /FLOOR/.test(idx.note ?? ""));
+  check("the index still stamps x-matic-hub-auth: none like every other response",
+    index.headers.get("x-matic-hub-auth") === "none");
+  // Not via post(), which hardcodes /v1/turn - that would have silently tested the wrong path.
+  check("POST / is still a 404 - the index is GET only",
+    (await fetch(`${base}/`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404);
 });
 check("checkTurnRequest rejects a capability without a schema", checkTurnRequest({ text: "x", probe: {}, capabilities: [{ id: "a" }] }) !== null);
 check("buildProviderInput with no repair has exactly two messages", buildProviderInput(turn()).messages.length === 2);
