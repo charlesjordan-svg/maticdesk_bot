@@ -2,17 +2,23 @@
   "name": "matic-desk-hub",
   "version": "0.0.1",
   "private": true,
-  "description": "Matic Desk hub - B0 walking skeleton (one route, one provider, no authentication, loopback only) plus the B1 control-plane schema and migration path.",
+  "description": "Matic Desk hub - B0 walking skeleton (POST /v1/turn, stateless, no authentication, loopback only), the B1 control-plane schema and migration path, and the B7a knowledge base (POST /v1/ask: hybrid retrieval over the generic KB, and a decline when it is not covered).",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/turn.test.mjs && node test/db-static.test.mjs",
-    "test:db": "node test/db.test.mjs",
+    "test": "node test/run-all.mjs",
+    "test:db": "node test/run-all.mjs --db",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down -v",
     "migrate": "node bin/db.mjs migrate",
-    "db": "node bin/db.mjs"
+    "db": "node bin/db.mjs",
+    "kb": "node bin/kb.mjs",
+    "kb:ingest": "node bin/kb.mjs ingest",
+    "kb:status": "node bin/kb.mjs status",
+    "kb:accept": "node test/kb-acceptance.mjs",
+    "kb:answer": "node test/kb-answer-live.mjs",
+    "kb:floor": "node bin/kb-floor.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"
