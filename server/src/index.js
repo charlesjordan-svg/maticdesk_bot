@@ -182,13 +182,20 @@ if (isMain) {
   });
   const embedder = embeddingProviderFromEnv();
   const tenantLabel = process.env.MATIC_KB_TENANT_LABEL ?? null;
+  // Every banner in this file is this wide. One constant so a box cannot fail to close.
+  const BANNER_WIDTH = 80;
   const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel });
 
-  // Verify the embedder BEFORE serving, and do not exit if it fails. A hub with no embedder still
-  // answers through the lexical leg, which is the degraded mode the endpoint sees when the embedder
-  // is down (B7a spec §6) — so refusing to start would turn a degradation into an outage. What it
-  // must not do is degrade quietly.
-  void (async () => {
+  // Verify the embedder, and do not exit if it fails. A hub with no embedder still answers through
+  // the lexical leg, which is the degraded mode the endpoint sees when the embedder is down (B7a
+  // spec §6) — so refusing to start would turn a degradation into an outage. What it must not do is
+  // degrade quietly.
+  //
+  // It runs from INSIDE the listen callback rather than before it. When it ran first, an EADDRINUSE
+  // failure printed "embedder ollama -> ... 1024 dimensions" AFTER the "did not start" banner,
+  // which reads as though the hub had started. Do not probe a dependency of a server that is not
+  // listening.
+  const verifyEmbedder = () => void (async () => {
     const v = await embedder.verify();
     if (v.ok) {
       console.log(`[hub] embedder ${embedder.name} -> ${embedder.model}, ${v.dimensions} dimensions (L2 norm ${v.l2?.toFixed(6)})`);
@@ -203,7 +210,49 @@ if (isMain) {
     }
   })();
 
+  // Starting the hub twice is a NORMAL mistake, not an exceptional one - you forget the first one
+  // is running, or a previous run is still alive in another window. Node's default answer is an
+  // unhandled 'error' event and a fifteen-line stack trace ending in EADDRINUSE, which buries the
+  // one fact that matters and the one command that resolves it.
+  //
+  // Observed 2026-09-04: the founder hit exactly this while a hub was already running.
+  //
+  // It is handled here rather than left to crash because this service's whole design is to be
+  // legible about its own state - the banner, the index route, x-matic-hub-auth: none - and a raw
+  // stack trace on the most common startup failure is the same gap the missing GET / route was.
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.log("");
+      // Padded by computation, not by a hand-counted run of spaces - the first version of this
+      // line was one character wide and the box did not close.
+      const box = (text) => "#  " + text.padEnd(BANNER_WIDTH - 4) + "#";
+      console.log("#".repeat(BANNER_WIDTH));
+      console.log(box(`PORT ${port} IS ALREADY IN USE. This hub did not start.`));
+      console.log("#".repeat(BANNER_WIDTH));
+      console.log("");
+      console.log("  Almost certainly a hub is ALREADY RUNNING - check before starting another:");
+      console.log("");
+      console.log(`    curl.exe http://127.0.0.1:${port}/v1/health`);
+      console.log("");
+      console.log("  If that answers, use the one that is already up. To find and stop it:");
+      console.log("");
+      console.log(`    Get-NetTCPConnection -LocalPort ${port} -State Listen | Select-Object OwningProcess`);
+      console.log("    Stop-Process -Id <that id>");
+      console.log("");
+      console.log(`  Or run this one on a different port:  $env:MATIC_HUB_PORT=8788; npm.cmd start`);
+      console.log("");
+      process.exitCode = 1;
+      return;
+    }
+    // Anything else is genuinely unexpected and should not be swallowed to look tidy.
+    console.log("");
+    console.log(`[hub] failed to start: ${err.code ?? "error"} - ${err.message}`);
+    console.log("");
+    process.exitCode = 1;
+  });
+
   server.listen(port, "127.0.0.1", () => {
+    verifyEmbedder();
     console.log("");
     console.log("################################################################################");
     console.log("#  MATIC DESK HUB - B0 WALKING SKELETON. NO AUTHENTICATION. LOOPBACK ONLY.     #");
