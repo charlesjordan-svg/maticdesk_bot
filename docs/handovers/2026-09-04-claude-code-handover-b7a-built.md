@@ -1,102 +1,116 @@
-# Claude Code Handover — 2026-09-04 — B7a is built and verified, and three of its spec's premises were wrong
+# Claude Code Handover — 2026-09-04 — B7a built, the endpoint can ask, the social layer is in
 
 **Repo root:** `C:\Users\Charles\Downloads\maticdesk_bot`. Repo paths are relative to it.
 
 **Previous handover:** [`2026-09-04-claude-code-handover-unblock-and-b7a.md`](2026-09-04-claude-code-handover-unblock-and-b7a.md)
-— Tasks 0, 1, 2a, 2b, 3a, 3b and 4 are **done**. Task 3c was left for Charles as instructed.
+— every task in it is **done**, except 3c, which was left for Charles as instructed.
 
-**Register:** v2.13, **D1–D207, next free D208**. Build notes:
+**Register:** v2.16, **D1–D212, next free D213**. Build notes:
 [`../../server/docs/B7a-KNOWLEDGE-BASE.md`](../../server/docs/B7a-KNOWLEDGE-BASE.md).
+
+---
+
+## The one thing to read if you read nothing else
+
+**Everything below has been run headless. Almost none of it has been seen on a screen.**
+
+`client/src/renderer/renderer.js` gained two new branches today — `res.social` and `res.answer` —
+and **neither has ever been looked at by a person.** No headless test can see a screen; `CLAUDE.md`
+says so, and [`../../client/docs/D130-RENDERER-CHECK.md`](../../client/docs/D130-RENDERER-CHECK.md)
+exists because that gap cost an evening once already. **Task 1 is closing it.**
+
+That is not a caveat on a small thing. Three of this session's five defects were found by *using*
+the software rather than reading it, and the renderer is now the largest surface nobody has used.
 
 ---
 
 ## On `main`, and pushed
 
-`50a6f4e..f342f59`, five commits, 27 files, +5105/−81. **Pushed to `origin/main` on 2026-09-04
-and verified against the remote** (`git rev-list --left-right --count origin/main...HEAD` → `0 0`).
-Nothing is uncommitted and nothing is unpushed.
+`50a6f4e..62b6513`, **twelve commits, 38 files, +6924/−99.** Pushed to `origin/main` and verified
+against the remote. Nothing uncommitted, nothing unpushed. `add-matic-desk-demo` untouched — the
+frozen Sunday demo build is unaffected and **rehearsals still run from that branch, not `main`.**
 
 | Commit | What |
 |---|---|
 | `ffc8c8f` | File the four chat documents of 2026-09-04, unaltered |
 | `fdf6b61` | Ratify D152–D160, and move decision provenance into the SQL |
-| `d1c0c53` | Build B7a: the hub answers questions from the knowledge base, and declines when it cannot |
+| `d1c0c53` | Build B7a: the hub answers questions, and declines when it cannot |
 | `b301139` | List D201's pipe calls before the code, turn the traps into rules, and hand over |
 | `f342f59` | Add the B7a build document, which should have gone in with the build |
+| `ad5e6c4` | Record the commit history in the handover, and that it is pushed |
+| `1552b57` | Record two founder answers: Q35 English-only for now, certificate ~1 month |
+| `c605943` | Give the hub an index, because opening it in a browser told you nothing |
+| `138c026` | Answer EADDRINUSE with the fix instead of a stack trace |
+| `6402448` | Compute the startup banners instead of hand-padding them, and test that they close |
+| `bbef791` | Let the endpoint ask a question, and find the seam that was broken between the two halves |
+| `62b6513` | Build D165's social layer, so a greeting stops producing a consent card |
 
-**Two things about how it landed, so nobody has to reverse-engineer them:**
+**The commit messages carry reasoning that is not repeated anywhere else** — `d1c0c53` on why the
+answer path is a tool rather than relaxed `tool_choice`, `fdf6b61` on why provenance records
+write-time status, `62b6513` on why the social branch is unconditional. `git log` is part of this
+project's record, not a changelog.
 
-- **The register could not be split.** §5.7 (the ratification) and §5.16 (B7a's decisions) are one
-  file, so `fdf6b61` carries both — which lands D203–D207 **one commit before the code they
-  describe**. That is the right direction for this project rather than a compromise: the register is
-  the decision record and code follows it. The commit message says so, so a reader who finds §5.16
-  citing `src/kb/` files that do not yet exist at that commit knows it was deliberate.
-- **`f342f59` exists because a file was missed.** `server/docs/B7a-KNOWLEDGE-BASE.md` was cited
-  by path from four places while untracked. It was committed separately rather than by amending
-  `d1c0c53`, which would have rewritten two commits that were already sound.
-
-**Work stayed on `main`** — `CLAUDE.md` says "work here or on feature branches off it", and the
-previous session's seven commits went to `main` directly. `add-matic-desk-demo` was not touched;
-the frozen demo build is unaffected, and **rehearsals still run from that branch, not from `main`.**
+**The register could not be split**, so `fdf6b61` carries §5.16 as well as §5.7 — D203–D207 land one
+commit before the code they describe. Decisions precede implementation, so that order is right.
 
 ---
 
-## State: everything is run
+## State: what has been run
 
-A Docker Desktop update (to 29.7.2) cleared the engine failure that had blocked the database half,
-so nothing is left unverified.
-
-| What | Result |
+| | Result |
 |---|---|
-| `npm.cmd test` from `server/` — 33 + 43 + 93 | **169 assertions, all pass.** Nothing installed |
-| `npm.cmd run migrate` — migration 002 against PostgreSQL 17.11 | **applied clean** |
-| `npm.cmd run kb:ingest` | 6 articles → 18 chunks → 18 embeddings |
-| `npm.cmd run test:db` — 56 (B1) + 52 (B7a) | **108 assertions, all pass** |
-| `npm.cmd run kb:accept` — the spec's §8 list, end to end | **30/30**, incl. **5/5 on the negative test** |
-| `npm.cmd run kb:answer` — the answer contract, real model, no database | **18/18** |
-| `npm.cmd run kb:floor` — is a relevance floor possible? | **ran. Answer: not over fused RRF scores** |
-| `client/` — unchanged by B7a | **278 assertions, 0 XFAIL** — closes acceptance item 9 |
+| `server/` — `npm.cmd test` (33 + 43 + 93) | **169 assertions**, nothing installed |
+| `server/` — `npm.cmd run test:db` (56 + 52) | **108 assertions**, PostgreSQL 17.11 |
+| `server/` — `npm.cmd run kb:accept` | **30/30**, B7a spec §8 end to end, incl. **5/5 negative** |
+| `server/` — `npm.cmd run kb:answer` | **18/18**, real model, no database |
+| `server/` — `npm.cmd run kb:floor` | ran. **A floor over fused RRF scores cannot work** |
+| `client/` — `npm.cmd test` | **395 assertions across 10 files**, 0 XFAIL |
+| `client/` — `npm.cmd run e2e:ask` | real agent → real hub → real model, run twice |
+| Migration 002 against PostgreSQL 17.11 | applied clean |
+| **The renderer** | **NEVER SEEN. Task 1.** |
+| The bake-off through the hub | **NOT re-run.** See the ledger |
 
-One prediction confirmed rather than assumed: the bare `vector(1024)` resolves inside the `control`
-schema through `withControl`'s `SET LOCAL search_path = extensions`. That was reasoning when it was
-written; it is now fact. The HNSW index built without incident.
-
----
-
-## Task 1 — the endpoint still has no way to ask a question
-
-**This is the only real gap in "a local agent that can answer questions and a Hub it can connect
-to."** The hub half is built and verified. The agent half is not: `client/src/agent/hub-client.js`
-speaks `/v1/turn` only, and D205's answer shape is new, so `HubClient` needs an `ask()` path.
-
-Four things to know before writing it:
-
-- **`propose()` and `ask()` are different operations and should stay different methods.** `propose()`
-  returns a `Proposal` for the broker; `ask()` returns `{answered, reply, citedArticleIds}` and
-  never touches the broker. Multiplexing them re-creates the problem D206 avoided on the hub side.
-- **The agent has to decide which one to call**, and that decision exists nowhere yet. It is a
-  router question, not a provider question, and it sits next to **D165's social layer, which must go
-  AHEAD of `routeByState()`** (D198). Both are "classify the input before routing it", and doing
-  them separately means classifying twice.
-- **Tier-0 still runs first** (D46b). A question tier-0 answers deterministically must not reach the
-  hub.
-- **The citation is attributed chrome under H5, not the avatar's voice.** `citedArticleIds` is a
-  separate field precisely so the renderer can present it as a source rather than as speech. **Do
-  not concatenate it into `reply`.**
+Both test runners now **discover** their files and **declare** their exclusions with a reason,
+printed on every run. `server/`: `test:db` is `--excluded`. `client/`: `cloud.test.mjs` (real API
+calls, costs money) and `privileged.test.mjs` (needs elevation) — both had silently fallen out of the
+old `&&` chain, which is how porting the runner found them.
 
 ---
 
-## Task 2 — two carry-overs
+## Task 1 — click through the two new renderer branches
 
-### 2a. `client/package.json` still chains its tests with `&&`
+**The only task here that cannot be done headless, and the largest unverified surface in the repo.**
 
-`server/` now runs every file, reports every result, and exits non-zero at the end
-(`server/test/run-all.mjs`). **`client/` does not** — nine files chained with `&&`, so the first
-failure hides the other eight. That is the trap the register and the analysis document both list as
-already paid for, and the fix is to port `run-all.mjs`. Small, and it is the one rule in `CLAUDE.md`
-the repo does not yet satisfy everywhere.
+Mirror [`../../client/docs/D130-RENDERER-CHECK.md`](../../client/docs/D130-RENDERER-CHECK.md): a
+short checklist against the real app, recording what was and was not verified. **Write the
+checklist, then Charles runs it** — the same division as D130, and for the same reason.
 
-### 2b. D148 and OPEN-1 — **still for Charles**
+Start the hub, point the client at it (`config.provider: "hub"`), and look at:
+
+- **A greeting.** `res.social`. Must NOT show a consent card, must speak the template, and the
+  inspector should read *"nothing executed. This turn never reached the consent path (D198)."*
+- **"What can you do?"** The capability answer, generated from the catalog. **Check it against
+  `catalog.json` by eye** — the whole point is that it cannot claim an ability that is not there, and
+  a screen is where a wrong claim would actually be believed.
+- **An answered question.** `res.answer`. The reply is spoken; the citation appears as a **separate
+  source line** and is **not** spoken (H5 — attributed chrome, not the avatar's voice). That
+  distinction exists only visually, so only a screen can confirm it.
+- **A declined question.** Must read as a correct answer rather than a failure, and must print
+  *"nothing was filed"* — an offer to raise a ticket can be heard as the act, which is why the
+  escalation branch already says the same thing.
+- **A polite problem report** — "hi, my printer is broken". Must reach the proposal path and show a
+  card. If a template answers this, the silent failure §5.19a warns about is live.
+
+**Two known unknowns to look for specifically**, because no headless test can:
+
+- `say()` is handed a long paragraph by the capability answer — **the longest string the avatar has
+  ever been given.** Check the lip-sync and the timing.
+- `res.answer`'s inspector JSON now carries a `retrieval` object, which may push the panel out of
+  view. That is a defect this project has hit before.
+
+---
+
+## Task 2 — D148 and OPEN-1, still for Charles
 
 Unchanged and deliberately not done. §10.4's correction (the SID comes from
 `GetTokenInformation(TokenUser)`, not from any `WTS_INFO_CLASS`) is not reflected in D148's text and
@@ -106,193 +120,139 @@ text, so this needs Charles's word.**
 
 ---
 
-## The relevance floor is answered, and the answer is that the mechanism is wrong
+## What is genuinely next, after Task 1
 
-This is the most useful thing the database run produced, and it is worth reading before anyone
-reaches for a threshold. Register **§5.16c**; reproduce with `npm.cmd run kb:floor`.
+In the order I would take them, with why:
 
-Every fused top score across 20 questions was one of exactly five values:
+1. **The pipe (D200/D201).** `BROKER-SURFACE.md` already lists the calls, which was the precondition
+   ratifying D201 accepted — the document work is done and the code is not. Still unchosen: koffi vs
+   an N-API addon vs a small signed helper, which interacts with D147. And **the last mile of §10.5
+   is still unrun** — a real LocalSystem service with a real standard-user agent. That experiment is
+   minutes, and **if the write somehow succeeds, most of D201 is unnecessary.** Do it before any
+   engineering.
+2. **B2** — local accounts, TOTP, roles, admin-action audit. Days. Unblocked since `fdf6b61`. When it
+   starts, **D158 is the thing to watch**: it is ratified and inert, and an approval workflow built
+   against it is Phase 2 scope arriving through the back door.
+3. **B3 / device authentication.** `authenticate()` in `server/src/index.js` is three lines returning
+   `{mode: "none"}`, and everything else the hub needs hangs off fixing it — real tenancy is
+   impossible before it and nearly free after. §9 puts it at **6–8 engineer-weeks on its own**, so it
+   does not fit inside the certificate's month.
+4. **The reranker measurement (D207/D209).** Q35's answer settled the pick; what is missing is a
+   latency figure, and D207 records why that is a harder question than a parameter count.
 
-| Score | What produced it |
-|---|---|
-| `2/61` = 0.032787 | the top chunk was found by **both legs**, rank 1 in each |
-| `1/61` = 0.016393 | one leg only, rank 1 |
-| `1/62` = 0.016129 | one leg only, rank 2 |
-| `1/63` = 0.015873 | one leg only, rank 3 |
-| `1/64` = 0.015625 | one leg only, rank 4 |
-
-That is arithmetic, not a distribution. **The fused score is a function of rank and leg agreement
-only — it carries no similarity magnitude**, because the rank transform discarded it. Discarding
-magnitude is RRF's *selling point* (D174 chose it so a `ts_rank` and a cosine never have to be
-reconciled) and it is precisely what a relevance floor needs.
-
-**So the covered and uncovered distributions overlap, for a reason more articles will not fix.** The
-semantic leg returned **all 18 chunks for every query**, covered or not — a dense leg has no notion
-of "no match" — so an uncovered question's nearest neighbour lands at semantic rank 1 and scores
-`1/61`, *identical* to a covered question whose phrasing shares no terms with its article. Two of
-the ten covered questions did exactly that and were retrieved correctly. **A threshold here is
-really asking "did the lexical leg agree?" — a one-bit test wearing a decimal point.**
-
-**If a relevance signal is ever wanted, neither candidate is `RELEVANCE_FLOOR`:** threshold the raw
-semantic cosine *before* fusion (`semanticLeg`'s `legScore`, real magnitude in [-1, 1]), or use leg
-agreement (`lexRank !== null && semRank !== null`) explicitly. Both are new mechanisms needing their
-own decision.
-
-**Until then the prompt carries the decline, and the live results say it does so** — 5/5 on the
-uncovered set through real retrieval, and 5/5 when handed a relevant-looking article that does not
-answer the question.
-
-**What is and is not evidence:** the **mechanism is not a sample** — `2/61` and `1/(60+rank)` are
-what the formula computes. The **distribution is** a sample (20 questions this session chose, 6
-articles, no reranker) and is **not** a measurement; it does not join §10.3.
+**None of these is gated on Daniel.** The certificate gates the *endpoint* shipping — signed MSI,
+then EDR. All four are server- or client-side and touch neither.
 
 ---
 
 ## What changed in the register
 
-**D152–D160 are ratified** (§5.7). Two things attached that are easy to lose:
+**v2.11 → v2.16, D201 → D212.** Ratified: **D152–D160** as a set (§5.7), as a separate act from
+B1's the same day. Proposed and awaiting Charles: **D202**. Everything else new is proposed.
 
-- **D158 is ratified but INERT in Phase 1.** Author ≠ approver governs catalog changes; D149
-  deferred catalog distribution. **If B2 starts building an approval workflow, that is Phase 2 scope
-  arriving through the back door** and should be stopped rather than absorbed.
-- **D202 is proposed and awaits Charles** (§5.7a). It gates nothing.
+| | |
+|---|---|
+| **§5.7b** | Migration provenance: SQL names the decision **and the status it held when the migration was written**, appended to and never rewritten. **Limitation found the same day:** once a migration is applied its comment is frozen by the runner's checksum, so this covers decisions predating first application and nothing after. **Never edit an applied migration to add provenance.** |
+| **D203** | D199's embedder is **not in Ollama's library**. The dev embedder is the **L** variant — different architecture, 568M vs 305M, 1024 dims vs 768, and MTEB-ranked *better*. So **dev latency is a pessimistic proxy and dev quality an optimistic one**, and the L sits in the parameter class D199 rejected. **A dev runtime choice, not an amendment to D199.** |
+| **D204** | The generic corpus lives in the control plane. Decided quickly, and the register says so rather than implying deliberation. |
+| **D205** | **Nothing in this system could return a prose answer** — `tool_choice: "required"` on both providers, HTTP 502 on a no-tool-call. An `answer` tool makes the decline a **testable field**, and an answer citing no supplied article is **downgraded to a decline**. |
+| **D206** | Questions go to a second route, `/v1/ask`. Adding a database to `/v1/turn` would have meant deleting the test that keeps it stateless. |
+| **D207** | The reranker is retrieved and **not picked**: a cross-encoder costs **per-query × per-candidate**, which is the real question and was in none of the handovers. |
+| **D208** | **Q35: English only, for now** (founder). *"For now"* is part of it — it licenses cheaper English-only components and does **not** license making a reversal a migration rather than a redeploy. |
+| **D209** | Selects within D207's own recorded fork: the reranker pick becomes **`gte-reranker-modernbert-base`** (150M, int8 ONNX, 8192 context) over the 306M multilingual one. Still not a decision to build — no latency figure exists. |
+| **D210** | **D199's deciding reason is spent.** It was "this removes Q35 from the critical path", and Q35 is answered. D199 stands; `nomic-embed-text-v1.5` (137M, same 768 dims) is the pre-argued alternative and is **not** adopted, because no latency measurement exists for either and "for now" can revert. |
+| **D211** | The endpoint classifies question vs action and calls `HubClient.ask()`. Biased towards the measured path; a declined question does **not** fall through to a consent card; gated **by capability, not provider name**, so the demo cannot reach it. |
+| **D212** | **D165's social layer, built.** D198's defect is fixed. The capability answer is **generated from `broker.listCapabilities()`**; with an unreadable catalog it promises nothing. Called **unconditionally**, which corrects D211's gating. |
 
-**The finding §5.7 exists to preserve:** B1's ratified schema already implemented D152–D160's
-shapes. That was correct — D160 asked for them, and shapes are cheap now and expensive later — and
-it was **never evidence those decisions were accepted.** The same inference error had to be
-corrected twice. So **§5.7b now puts the provenance in the SQL**: a migration names the decision it
-implements *and the status that decision held when the migration was written*, appended to and never
-rewritten. `001-control-plane.sql` carries it retroactively.
+### The relevance floor is answered, and the mechanism is wrong (§5.16c)
 
-### The three B7a findings that contradicted the spec
+Worth reading before anyone reaches for a threshold. Reproduce with `npm.cmd run kb:floor`.
 
-D203, D205, D206 in §5.16. Each changed code rather than a comment.
+Every fused top score is `2/61` (both legs, rank 1) or `1/(60 + rank)`. **That is arithmetic, not a
+distribution: the score encodes rank and leg agreement and carries no similarity magnitude**, because
+the rank transform discarded it — which is what RRF is *for* (D174 chose it so a `ts_rank` and a
+cosine never need reconciling) and is exactly what a floor needs.
 
-1. **D199's embedder is not in Ollama's library.** The tag that exists is the **L** variant — a
-   different architecture (`XLMRobertaModel` vs `GteModel`), 568M against 305M, 1024 dims against
-   768, and MTEB-ranked **better** (35 vs 41). **The near-miss is a trap:**
-   `snowflake-arctic-embed:m` exists but is the **v1.0** suite, English-only — precisely what D199
-   rejected. Consequence: **dev latency is a pessimistic proxy and dev quality an optimistic one**,
-   both wrong directions. And the L sits in the parameter class D199 explicitly rejected (it turned
-   down Qwen3-0.6B at 509–600M), so this is a **dev runtime choice and not an amendment to D199**.
-2. **Nothing in this system could return a prose answer.** `tool_choice: "required"` on both
-   providers; `/v1/turn` returns **502** on a no-tool-call; `HubClient` turns it into `{ok:false}`.
-   What the spec mistook for prose was the `escalate` tool's template. Answers now come through an
-   `answer` tool, and **an answer citing no supplied article is downgraded to a decline** —
-   unattributable advice wearing the company's authority is the failure B7a exists to prevent.
-3. **Questions went to `/v1/ask`, not a flag on `/v1/turn`**, because the second option meant
-   deleting the test that keeps `/v1/turn` stateless.
+The distributions overlap for a reason more articles will not fix: **a dense leg has no notion of
+"no match"** and returns every chunk for every query, so an uncovered question's nearest neighbour
+scores the same `1/61` as a correctly-retrieved covered question whose phrasing shares no terms with
+its article. Two of ten covered questions did exactly that. **A threshold there is really asking
+"did the lexical leg agree?" — a one-bit test wearing a decimal point.**
 
-### The reranker is retrieved and deliberately not picked (D207)
-
-Options, licences, parameter counts, contexts and architectures are in §5.16. **The finding is a
-cost shape that is in none of the handover documents: a cross-encoder costs per-query ×
-per-candidate.** An embedder runs one forward pass per question; a reranker runs one per (query,
-chunk) pair — ~20 passes of a ~300M model per question on 1–2 vCPU. **So "is it CPU-viable on
-Fargate" is not answerable by comparing parameter counts**, and the mitigation may be architectural
-(rerank 10 not 20; managed-mode only) rather than a model choice.
-
-**Q35 CAME BACK ENGLISH-ONLY ON 2026-09-04, SO THE FORK IS RESOLVED — see D209 (§5.17).** The pick
-is **`Alibaba-NLP/gte-reranker-modernbert-base`**: Apache-2.0, **150M**, ModernBert, 8192-token
-context, TEI-named, **full ONNX including `model_int8.onnx`**, BEIR 56.73. It displaces
-`gte-multilingual-reranker-base` (306M, no ONNX), which was only the pick while Q35 was open.
-
-**This matters more for the reranker than Q35 does for the embedder, and D207's cost shape is why:**
-a cross-encoder runs one forward pass **per (query, chunk) pair**, so halving the parameters halves
-**every question** rather than a one-off, and int8 is the first quantisation option any candidate has
-offered. The two things that made CPU viability doubtful are exactly what changed. The 8192 context
-also survives, which the `bge-reranker` pair (514 tokens) did not — our reference article is a
-single unsplit markdown table.
-
-**It is still not a decision to build.** No latency figure exists for this or any candidate on
-Fargate-class hardware, and Q35's answer does not supply one.
-
-**Every retrieval number B7a produces is still a FLOOR, not a measurement of the design.** Review A1
-suggests the reranker may matter more to quality than the embedder does.
+If a relevance signal is ever wanted: the raw semantic cosine *before* fusion, or leg agreement made
+explicit. Neither is a value for that constant. **The mechanism generalises; the 20-question
+distribution is a sample and is not a measurement.**
 
 ---
 
-## Two traps, and both are the same class
+## Traps, all of them found the hard way
 
-**`"darwin".includes("win")` is true.** The first `platformFromProbe` (`server/src/kb/ask.js`)
-tested `win` before `darwin` and classified **every macOS machine as Windows** — the exact D162
-failure the platform pre-filter exists to prevent, arriving through the pre-filter itself. **It would
-have presented as a pass:** the macOS article correctly withheld from a Mac, for entirely the wrong
-reason. A test asserting `darwin -> macos` caught it; reading the line did not.
+`CLAUDE.md` carries these as rules. Four are instances of one class — **a false signal wearing the
+shape of the expected answer**, where care does not help and only an independent check does.
 
-**A pipe replaces the exit code with the last stage's.** A backgrounded
-`docker compose up -d 2>&1 | tail -20` was reported as completing with exit code 0 — that was
-`tail`'s status — while its own output said it could not reach the Docker daemon. **Read the output,
-not the status, whenever a command is piped.**
-
-Both are §10.5's class: **a false signal wearing the shape of the expected answer.** That one was hit
-twice, the second time while writing the note about the first. `CLAUDE.md` now carries all of them as
-rules rather than anecdotes, along with the PowerShell single-return rule (7.1% of this repo, so it
-will recur).
-
----
-
-## B2 is still deferred, and still unblocked
-
-Task 1 of the previous handover was the only thing gating it, and it is done. B2 is days of work:
-local accounts, TOTP, roles, admin-action audit. **It stays deferred on the founder's direction** —
-B7a needed no admin console, and neither does Task 1 above. When B2 starts, D158 is the thing to
-watch.
+- **A pipe replaces the exit code with the last stage's.** A backgrounded
+  `docker compose up -d 2>&1 | tail -20` was reported as exiting 0 — that was `tail`'s status —
+  while its own output said it could not reach the Docker daemon. **Read the output, not the status.**
+- **`"darwin".includes("win")` is true.** `platformFromProbe` classified every Mac as Windows — the
+  exact D162 failure the pre-filter prevents, arriving through the pre-filter, and it **would have
+  presented as a pass.**
+- **A Windows pipe path losing backslashes through bash** produced an `EACCES` indistinguishable
+  from D201's finding. Hit **twice**, the second time while writing the note about the first.
+- **A bare `"Hi"` classified as an action.** Punctuation was enumerated (`"hi "`, `"hi!"`, `"hi."`)
+  where the problem was word boundaries.
+- **Never hand Charles a `&&` command.** Windows PowerShell 5.1 makes it a **parser error**, so the
+  whole line fails before anything runs. PowerShell, separate lines, absolute path.
+- **PowerShell helpers return one thing.** Status to `Write-Host`; explicit `[bool]` at the call
+  site. 7.1% of this repo — this will recur.
+- **Comments are stripped before scanning source in a test.** A test forbidding
+  `provider === "hub"` failed on the comment *explaining* that the check is a capability check —
+  "a test starting to fail for saying the right thing", which `db-static.test.mjs` already documents.
+- **`npm test` runs every file and reports all before exiting non-zero.** Both packages now do. And
+  **exclusions are declared with a reason**, because "belongs out" and "was forgotten" look
+  identical in a hand-written chain and only one of them is a decision.
 
 ---
 
 ## On Charles, not the next session
 
+- **Task 1's click-through**, once the checklist exists. Needs a screen; no elevation.
+- **§3 and §4 of [`../../client/docs/D130-RENDERER-CHECK.md`](../../client/docs/D130-RENDERER-CHECK.md)** — supersede and expired nonce. Five minutes, still open.
 - **D202** — yes or no (§5.7a). Gates nothing.
-- **D148 and OPEN-1 wording** (Task 2b). The register will not rewrite a decision's text without it.
-- **§3 and §4 of [`../../client/docs/D130-RENDERER-CHECK.md`](../../client/docs/D130-RENDERER-CHECK.md)** — supersede and expired nonce. Five minutes, no elevation, needs a screen.
-- **A DATE from Daniel** on the code-signing certificate, not a status. **This currently sets the
-  pilot date rather than any engineering decision** — EDR allowlisting cannot start without a signed
-  binary, and if that review takes weeks, the sequence is longer than B2 plus B3 combined.
-- **Q9, on its own now** — Q35 was answered on 2026-09-04. Q9 (which EDR products the design
-  partner runs) is a prerequisite for identifying the vendor to submit to at all, and with the
-  certificate now estimated at ≈2026-10-04 it is **the item on the critical path**: the certificate
-  has a date and Q9 has none, and Q9 can be answered during the wait so the submission is ready when
-  the binary is.
-- **Daniel's certificate estimate is recorded as ≈2026-10-04** (OPEN-9, register §9) — roughly one
-  month from 2026-09-04, possibly sooner. It is an estimate, not a commitment. **About a month of
-  engineering fits inside the wait** (B2, the pipe, Task 1's `ask()` path); B3's 6–8 engineer-weeks
-  does not.
-- **The top-30 ticket categories.** Roughly seven weeks outstanding. Nothing here is blocked on
-  them; the Phase 1 exit criteria are.
-- **Two unstarted clocks with no owner:** the Anthropic Scale tier and the EDR conversation. Four
-  sessions have now flagged both. **The certificate's one-month wait is exactly the window for the
-  Scale tier** — it accrues by spend history rather than by payment, nothing is accruing, and running
-  part of the eval loop against `claude-haiku-4-5` would start it *and* give regression coverage on
-  the shipped model. If that month passes with nothing accruing, the next month is the same
-  conversation.
+- **D148 and OPEN-1 wording** (Task 2).
+- **Q9 — which EDR products the design partner runs.** Q35 is answered, so this goes on its own.
+  **It is now the item on the critical path**: the certificate has an estimate (≈2026-10-04) and Q9
+  has none, and Q9 can be answered *during* the wait so the submission is ready when the binary is.
+- **The top-30 ticket categories.** ~7 weeks outstanding. Gates *evaluating* Phase 1, not building it.
+- **The Anthropic Scale tier.** The certificate's month is exactly the window — it accrues by spend
+  history rather than by payment, nothing is accruing, and running part of the eval loop against
+  `claude-haiku-4-5` would start it *and* give regression coverage on the shipped model. If that
+  month passes with nothing accruing, next month is the same conversation.
 
 ---
 
 ## Honesty ledger
 
-- **Everything written this session has been run** (see the table at the top). The database half was
-  unrun for most of it and is not any more.
+- **The renderer has never been looked at.** Two new branches, zero screens. Task 1.
+- **The bake-off through the hub was not re-run** (B7a spec §8 item 9's third clause). `/v1/turn`
+  was not modified and a test still asserts it reaches no database, so there is no reason to expect
+  movement — **but that is an argument, not a run.**
 - **Nothing about retrieval quality can be concluded from B7a.** Six articles, **no reranker**, no
   corpus, and a dev embedder that is not the shipped model. Every figure is a floor.
-- **The floor result's mechanism generalises; its distribution does not.** 20 questions this session
-  chose, 6 articles. It is not a measurement and does not join §10.3.
-- The claim that no GGUF of `arctic-embed-m-v2.0` exists **because** of its custom architecture is
-  **inference, not retrieved**. The observable facts are retrieved; the causal link is ours.
-- `RRF_K = 60` is still an unretrieved convention. `CANDIDATES_PER_LEG = 20` where D174 says ~50 —
-  with six articles neither is reachable. The kind weights are reasoned from "users describe
+- **`RRF_K = 60` is still an unretrieved convention.** `CANDIDATES_PER_LEG = 20` where D174 says
+  ~50 — with six articles neither is reachable. The kind weights are reasoned from "users describe
   problems, not fixes", not measured.
-- **The bake-off through the hub was NOT re-run** (spec §8 item 9's third clause). `/v1/turn` was not
-  modified and `test/db-static.test.mjs` still asserts it reaches no database, so there is no reason
-  to expect movement — but that is an argument, not a run.
+- **The floor result's mechanism generalises; its distribution does not.** 20 questions this session
+  chose, 6 articles. Not a measurement, and it does not join §10.3.
+- The claim that no GGUF of `arctic-embed-m-v2.0` exists **because** of its custom architecture is
+  **inference, not retrieved.** The observable facts are retrieved; the causal link is ours.
+- **D165's templates are one person's wording.** Deterministic and catalog-checked, which is what
+  D165 required — but nobody has read them aloud to a user. **The capability answer is the one to be
+  least confident about: it is long, and it is the only template that grows with the catalog.**
+- **The classifier's marker lists are judgement, not data.** No corpus of real utterances exists to
+  tune them against; the bias towards the measured path is what makes being wrong survivable.
 - **`ASK-IT-questionnaire.xlsx` (D1–D41) and `2026-09-03-phase0-decisions-D130-D150.md` are still
-  not on disk.** Do not reconstruct either. The second still matters more than it looks:
-  **D130–D150 are still proposed and the document arguing for them cannot be read**, so anyone
-  ratifying that set is working from the register's summary of an argument that no longer exists in
-  full.
-- Work is **committed and pushed** — `50a6f4e..f342f59` on `origin/main`, verified against the
-  remote. `add-matic-desk-demo` untouched.
-- **The five commit messages carry reasoning that is not repeated anywhere else** — in particular
-  `d1c0c53` on why the answer path is a tool rather than relaxed `tool_choice`, and `fdf6b61` on
-  why the provenance convention records write-time status and is appended to rather than rewritten.
-  `git log` is part of this project's record, not a changelog.
+  not on disk.** Do not reconstruct either. **D130–D150 are still proposed and the document arguing
+  for them cannot be read**, so anyone ratifying that set works from the register's summary of an
+  argument that no longer exists in full. **Q35, Q9 and Q39 are the same problem one level down:**
+  cited throughout the register, defined nowhere in it (§5.17).
+- Work is **committed and pushed** — `50a6f4e..62b6513` on `origin/main`, verified against the remote.
