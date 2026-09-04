@@ -548,7 +548,29 @@ The second document, `2026-09-03-kb-architecture-authoring-ux.md`, used D151–D
 
 ### 5.7 D151–D160 — standalone self-updater and the hub admin model (2026-09-03)
 
-D151 is a founder decision of 2026-09-03 (handover §1b). D152–D160 are §4 of the Phase 0 document as summarised in the handover §1c; the handover says *record*, not *ratified*, so they carry **proposed** and should be ratified as a set alongside OPEN-6.
+D151 is a founder decision of 2026-09-03 (handover §1b). D152–D160 are §4 of the Phase 0 document as summarised in the handover §1c; the handover says *record*, not *ratified*, so they carry **proposed**.
+
+> **D152–D160 ARE STILL PROPOSED, AND B1'S RATIFIED SCHEMA ALREADY IMPLEMENTS THEIR SHAPES.**
+> Observed 2026-09-04 while ratifying, not looked for. `server/migrations/control/001-control-plane.sql`
+> has run against a real PostgreSQL and contains: `admin_users.totp_secret` (D156);
+> `admin_users.external_issuer` / `.external_subject` (D159, D160); `admin_roles`,
+> `admin_role_grants` and `admin_roles.scope` (D152); `admin_audit.event_class` valued
+> `break-glass` / `vendor-access` (D155, D156); `admin_audit.step_up` (D157); and
+> `vendor_access_grants` with `level` and a window, plus the CHECK constraint
+> `vendor_transcripts_need_a_window` (D153, D154).
+>
+> **This is not a defect and nothing needs undoing.** The shapes are free now and expensive later,
+> which is D160's own argument, and B1 was scoped to establish shapes rather than features — none
+> of those tables has logic behind it. **But ratifying B1 was not a ratification of D152–D160,
+> and the built schema must not be read as evidence that it was.** That exact inference had to be
+> corrected once already in §5.12.
+>
+> **It stops being academic at B2**, which writes logic against these tables. Decide the set before
+> B2 starts, and record the answer here — a ratification note, or new IDs from D202 if anything
+> changes. `../handovers/2026-09-04-claude-code-handover-b2-and-open-items.md` Task 1.
+>
+> §5.11c previously advised ratifying the KB set "alongside OPEN-6". The KB set was ratified
+> separately on 2026-09-04, so that pairing is void as guidance and this set stands alone.
 
 | ID | Decision | Status | Source and forcing reason |
 |---|---|---|---|

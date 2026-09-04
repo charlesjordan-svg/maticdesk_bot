@@ -11,7 +11,7 @@ and blockers, and it is kept current. This file only tells you how to work here.
 | `server/` | The hub. **B0 walking skeleton since 2026-09-03**: one route (`POST /v1/turn`), one provider (Ollama), **no authentication, loopback only**, and loud about both. **Plus the B1 control plane since 2026-09-03 night** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. `pg` is its first dependency, so `npm.cmd install` is now needed. **`/v1/turn` stayed stateless and must stay so** — a test fails if it imports `src/db/`. **B1's six exit criteria pass** — `npm.cmd run test:db`, 56 assertions on PostgreSQL 17.11: `server/docs/B1-CONTROL-PLANE.md`. |
 | `docs/decisions/DECISION-REGISTER.md` | **The** decision register. D1–D201, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
-| `docs/handovers/` | Founder handovers, kept for the record. The current one is `2026-09-03-claude-code-handover-b1-schema.md`. |
+| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b2-and-open-items.md`** — state, the next five tasks in order, and the traps this project has already fallen into. The earlier ones run founder → session; that one runs the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
 | `docs/kb/` | The generic knowledge base (`generic-kb-v2.json`) and its rules (D162). An article never names a capability or says what the bot does. Also the schema findings and **the KB architecture document** — retrieval, authoring UX and client UI, merged into the register as D167–D192. **Every D-number written inside that document is void**; it carries a banner saying so. |
 | `Projects/`, `.obsidian/` | The founder's Obsidian notes. Not product code. |
@@ -52,6 +52,11 @@ and earlier use that path; do not "fix" them, they are records.
 - **Still proposed: D130–D150** (the design review) and **D152–D160** (OPEN-6's human-identity and
   authorisation model, §5.7). §5.11c used to say "ratify alongside OPEN-6"; ratification came
   separately, so that pairing is void as guidance.
+- **B1's ratified schema already implements D152–D160's table shapes** — `totp_secret`,
+  `external_issuer`, `admin_roles`, `admin_audit.event_class`, `step_up`, `vendor_access_grants`.
+  Cheap now, expensive later, and exactly what D160 asked for — **but do not read the built schema
+  as evidence those decisions were ratified.** Register §5.7 carries the note; B2 is where it
+  matters, because B2 writes logic against those tables.
 - D1–D41 live only in `ASK-IT-questionnaire.xlsx`, which has never been downloaded. If it turns up,
   it goes into the register verbatim.
 - Every document you write names other files **by path**, never by name alone. Two documents were
