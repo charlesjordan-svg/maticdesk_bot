@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node test/run-all.mjs",
-    "test:db": "node test/run-all.mjs --db",
+    "test:db": "node test/run-all.mjs --excluded",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down -v",
     "migrate": "node bin/db.mjs migrate",

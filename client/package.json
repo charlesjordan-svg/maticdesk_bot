@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "start:elevated": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-elevated.ps1",
-    "test": "node test/broker.test.mjs && node test/router.test.mjs && node test/agent.test.mjs && node test/probe.test.mjs && node test/audit.test.mjs && node test/local-provider.test.mjs && node test/preconditions.test.mjs && node test/hub-client.test.mjs && node test/consent-surface.test.mjs",
+    "test": "node test/run-all.mjs",
     "probe": "node test/probe.test.mjs",
     "count-tokens": "node eval/count-tokens.mjs",
     "verify-cache": "node eval/verify-cache.mjs",
@@ -20,7 +20,8 @@
     "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1",
     "check:adapter": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-adapter-visibility.ps1",
     "show-consent": "node scripts/show-consent.mjs",
-    "verify:pipe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-pipe-security.ps1"
+    "verify:pipe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-pipe-security.ps1",
+    "e2e:ask": "node eval/e2e-ask.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

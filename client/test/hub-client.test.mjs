@@ -190,6 +190,69 @@ console.log("=== C. LIVE: a real turn through a running hub (skipped unless MATI
   }
 }
 
+// ==============================================================================================
+console.log("\n=== ask(): POST /v1/ask, and the platform bug that only an end-to-end run found ===");
+{
+  const hub = stubHub([{ body: { ok: true, answered: true, reply: "Press Win + Shift + S.", citedArticleIds: ["keyboard-shortcuts-windows"], retrieval: { chunks: 3, rerankerPresent: false }, logId: 7 } }]);
+  const r = await client(hub).ask("How do I take a screenshot?", { probe: { online: true, services: {}, adapters: [], primary: [] } });
+  check("ask() posts to /v1/ask, not /v1/turn", hub.sent[0].url.endsWith("/v1/ask"), hub.sent[0].url);
+  check("it returns the hub's answered flag, reply and citations",
+    r.ok === true && r.answered === true && /Win \+ Shift \+ S/.test(r.reply) && r.citedArticleIds[0] === "keyboard-shortcuts-windows");
+  check("the citation is a separate field and is NOT concatenated into the reply (H5)",
+    !r.reply.includes("keyboard-shortcuts-windows"));
+
+  // THE REGRESSION. probeMachine() returns no `platform`, so with the real probe the hub's
+  // pre-filter admitted only `platform: "any"` articles and EVERY WINDOWS-ONLY ARTICLE WAS
+  // INVISIBLE. "How do I take a screenshot" declined through the agent while answering through
+  // curl, because curl was sending a platform by hand. Found by eval/e2e-ask.mjs, 2026-09-04.
+  check("A PLATFORM IS ALWAYS SENT, even though probeMachine() does not supply one",
+    hub.sent[0].body.probe?.platform === process.platform,
+    JSON.stringify(hub.sent[0].body.probe));
+
+  const noProbe = stubHub([{ body: { ok: true, answered: false, reply: "I don't have guidance on that.", citedArticleIds: [] } }]);
+  await client(noProbe).ask("anything");
+  check("…and with NO probe at all it still sends the platform",
+    noProbe.sent[0].body.probe?.platform === process.platform,
+    JSON.stringify(noProbe.sent[0].body.probe));
+
+  const realPlatform = stubHub([{ body: { ok: true, answered: false, reply: "no", citedArticleIds: [] } }]);
+  await client(realPlatform).ask("anything", { probe: { platform: "darwin" } });
+  check("a probe that DOES carry a platform wins over process.platform",
+    realPlatform.sent[0].body.probe.platform === "darwin",
+    "so this fix disappears cleanly the day probeMachine() reports one");
+
+  check("NO TENANT is ever sent - the hub 400s on one, and a client-supplied tenant would become the tenancy model",
+    !("tenant" in hub.sent[0].body) && !("tenantId" in hub.sent[0].body) && !("tenantLabel" in hub.sent[0].body));
+}
+{
+  const hub = stubHub([{ body: { ok: true, answered: false, reply: "I don't have company guidance covering that. I can raise a ticket.", citedArticleIds: [] } }]);
+  const r = await client(hub).ask("How do I request a payroll adjustment?");
+  check("A DECLINE IS ok:true WITH answered:false - not a failure (D205)",
+    r.ok === true && r.answered === false && r.reply.length > 20);
+}
+{
+  const hub = stubHub([{ status: 502, body: { ok: false, error: "the model returned nothing" } }]);
+  const r = await client(hub).ask("x");
+  check("a hub 5xx is ok:false with NO reason:connection - it is not evidence about this machine's network",
+    r.ok === false && r.reason === undefined && /502/.test(r.error));
+}
+{
+  const hub = stubHub([{ body: { ok: true, answered: true, reply: "   ", citedArticleIds: [] } }]);
+  const r = await client(hub).ask("x");
+  check("a 200 with an empty reply is a hub bug, not an answer - no prose is manufactured for it",
+    r.ok === false && !r.reply);
+}
+{
+  const dead = new HubClient({ hubUrl: "http://127.0.0.1:1", capabilities, timeoutMs: 500, onLog: () => {} });
+  const r = await dead.ask("x");
+  check("an unreachable hub is reason:connection and never throws", r.ok === false && r.reason === "connection");
+}
+{
+  const none = new HubClient({ hubUrl: "", capabilities, onLog: () => {} });
+  const r = await none.ask("x");
+  check("no hub URL configured -> ok:false without a call", r.ok === false && /No hub URL/.test(r.error));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 // exitCode rather than process.exit(): after a LIVE fetch, process.exit() on Windows trips a libuv
 // teardown assertion (`!(handle->flags & UV_HANDLE_CLOSING)`, node 24) and exits 127. Letting the

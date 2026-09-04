@@ -141,6 +141,119 @@ export class HubClient {
     }
   }
 
+  /**
+   * ANSWER A QUESTION from the hub's knowledge base. POST /v1/ask (D206). Added 2026-09-04.
+   *
+   * **A SEPARATE METHOD FROM `propose()`, AND IT MUST STAY SEPARATE.** `propose()` returns a
+   * `Proposal` for the broker to validate and execute; `ask()` returns prose and article ids and
+   * **never touches the broker at all**. Multiplexing them behind one method would re-create on the
+   * endpoint exactly the problem D206 avoided on the hub — a call whose meaning depends on
+   * configuration rather than on which method you invoked.
+   *
+   * **`answered` is the hub's own field, not an inference from `reply` being non-empty.** The hub
+   * downgrades an answer it cannot attribute to a supplied article into a decline (D205), so
+   * `answered: false` with a non-empty `reply` is the NORMAL decline case and must not be read as
+   * failure. `ok: false` means the hub could not be reached or refused the request; it does not
+   * mean the question went unanswered.
+   *
+   * **`citedArticleIds` is kept as a separate field and never concatenated into `reply`.** Under H5
+   * a citation is attributed chrome, not the avatar's own voice, and the renderer can only present
+   * it that way while it is a distinct value.
+   *
+   * Never throws — an unreachable hub must degrade, not crash a turn.
+   *
+   * @param {string} text
+   * @param {{ probe?: object }} [opts]
+   * @returns {Promise<{ok:boolean, answered?:boolean, reply?:string, citedArticleIds?:string[], retrieval?:object, error?:string, reason?:string, meta?:object}>}
+   */
+  async ask(text, { probe } = {}) {
+    if (!this.available) return { ok: false, error: "No hub URL is configured, so no hub call was made." };
+
+    const meta = { requests: 0, hubAuth: null, usage: { prompt_tokens: 0, completion_tokens: 0 }, logId: null };
+    try {
+      // `probe` is optional on /v1/ask, unlike /v1/turn: a question is answerable without machine
+      // state. It is sent when we have it because it supplies the platform pre-filter (D162).
+      //
+      // ==========================================================================================
+      // THE PLATFORM IS ADDED HERE, AND A BUG IS WHY. Found by `eval/e2e-ask.mjs` on 2026-09-04.
+      //
+      // `probeMachine()` returns { services, adapters, primary, actionable, online } — NO PLATFORM.
+      // It never needed one: every capability is Windows-only, so nothing on the proposal path ever
+      // asked. But the hub's pre-filter reads `probe.platform`, and with it absent
+      // `platformFromProbe()` correctly returns null, which admits `platform: "any"` articles ONLY.
+      //
+      // So EVERY WINDOWS-ONLY ARTICLE WAS INVISIBLE TO THE ENDPOINT. "How do I take a screenshot"
+      // declined through the agent while answering correctly through curl, because curl was sending
+      // `{"platform":"win32"}` by hand and the agent was sending the real probe. Both sides were
+      // behaving exactly as designed and the integration was broken — which is why this needed an
+      // end-to-end run and could not have been caught by either side's tests.
+      //
+      // Fixed HERE rather than in `probeMachine()` on purpose: `machineStateBlock(probe)` renders
+      // the probe into the prompt the 40-case bake-off measured, and adding a field to the probe
+      // risks changing that prompt. This path is the only consumer of a platform, so this is the
+      // narrowest place the fix can live. **If the probe ever grows a real `platform`, it wins** —
+      // the spread below defers to it.
+      // ==========================================================================================
+      const withPlatform = probe
+        ? { platform: process.platform, ...probe }
+        : { platform: process.platform };
+
+      // NO TENANT IS SENT, and the hub returns 400 if one is. B7a's tenancy is a server-side label
+      // because device authentication is not built (D61, D132), and a client-supplied tenant would
+      // become the tenancy model by default.
+      const res = await this.fetch(`${this.hubUrl}/v1/ask`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.timeout(this.timeoutMs),
+        body: JSON.stringify({ text, probe: withPlatform }),
+      });
+      const body = await res.json().catch(() => ({}));
+      meta.requests = 1;
+      meta.hubAuth = res.headers?.get?.("x-matic-hub-auth") ?? null;
+      if (body?.usage) {
+        meta.usage.prompt_tokens += body.usage.prompt_tokens ?? 0;
+        meta.usage.completion_tokens += body.usage.completion_tokens ?? 0;
+      }
+      meta.logId = body?.logId ?? null;
+
+      if (res.status !== 200) {
+        const detail = body?.error ?? JSON.stringify(body).slice(0, 200);
+        this.onLog(`[hub] /v1/ask HTTP ${res.status}: ${detail}`);
+        // As in propose(): 5xx means the hub answered and the model behind it did not, which is
+        // not evidence about THIS machine's network, so no `reason: "connection"`.
+        return { ok: false, error: `The hub returned ${res.status}: ${detail}`, meta };
+      }
+      if (meta.hubAuth === "none") this.onLog(`[hub] the hub authenticated nobody (x-matic-hub-auth: none) - B0 skeleton`);
+
+      const answered = body?.answered === true;
+      const reply = String(body?.reply ?? "").trim();
+      // Only ids the hub actually returned. The hub has already dropped any the model invented
+      // (D205); this is defence in depth on a field the renderer will display as provenance.
+      const citedArticleIds = Array.isArray(body?.citedArticleIds) ? body.citedArticleIds.map(String) : [];
+
+      if (!reply) {
+        // A 200 with no reply is a hub bug, not an answer. Do not manufacture prose for it.
+        this.onLog(`[hub] /v1/ask returned 200 with no reply`);
+        return { ok: false, error: "The hub answered without saying anything.", meta };
+      }
+
+      if (body?.retrieval && body.retrieval.rerankerPresent === false) {
+        this.onLog(`[hub] retrieved ${body.retrieval.chunks ?? 0} chunk(s) from ${(body.retrieval.articles ?? []).length} article(s); NO RERANKER, so quality here is a floor`);
+      }
+      this.onLog(answered
+        ? `[hub] answered from ${citedArticleIds.join(", ") || "no cited article"}`
+        : `[hub] DECLINED - the knowledge base does not cover this`);
+
+      return { ok: true, answered, reply, citedArticleIds, retrieval: body?.retrieval ?? null, meta };
+    } catch (err) {
+      if (err.name === "TimeoutError" || err.name === "AbortError") {
+        return { ok: false, reason: "connection", error: `The hub did not answer within ${Math.round(this.timeoutMs / 1000)}s.`, meta };
+      }
+      this.onLog(`[hub] ${err.stack ?? err.message}`);
+      return { ok: false, reason: "connection", error: `Could not reach the hub at ${this.hubUrl}: ${err.message}`, meta };
+    }
+  }
+
   /** A capability proposal - passed through even when invalid, to be refused and audited by the broker. */
   #capabilityProposal(name, args, violations, hubProvider) {
     const capability = this.capabilities.find((c) => c.id === name);

@@ -28,7 +28,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D211 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D212 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -65,7 +65,7 @@ and earlier use that path; do not "fix" them, they are records.
   that is Phase 2 scope arriving through the back door**; and **D202 is proposed and awaits Charles**
   (§5.7a: step-up for vendor-grant creation, the one item D157's list missed — it gates nothing,
   because `admin_audit.step_up` is indifferent to what is on the list).
-- **Still proposed: D130–D150** (the design review) and **D202–D210**. Note that a proposed row's
+- **Still proposed: D130–D150** (the design review) and **D202–D211**. Note that a proposed row's
   status cell reads the same as a ratified set's used to — **never search-and-replace a status
   file-wide.**
 - **Q35 is ANSWERED: English only, FOR NOW** (founder, 2026-09-04 — D208, register §5.17). *"For
@@ -108,7 +108,11 @@ cd client
 npm.cmd install            # npm.cmd, not npm — PowerShell execution policy blocks npm.ps1
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
-npm.cmd test               # headless, no key, no admin, no hub: 278 assertions, 0 expected failures
+npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
+#                            headless, no key, no admin, no hub: 336 assertions across 10 files.
+#                            It also PRINTS what it deliberately does not run and why -
+#                            cloud.test.mjs (real API calls, costs money) and privileged.test.mjs
+#                            (needs elevation). Both had silently fallen out of the old && chain.
 # The renderer is NOT covered by any of it - no headless test can see a screen.
 # client/docs/D130-RENDERER-CHECK.md is the manual click-through. Its §1 and §2 PASSED on
 # 2026-09-03: the card on screen matched consentRendered field for field. §3 (supersede) and

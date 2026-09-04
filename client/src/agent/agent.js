@@ -13,6 +13,7 @@
 import os from "node:os";
 import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
+import { classify } from "../router/classify.js";
 import { diagnoseOffline } from "../router/offline-guide.js";
 
 export class Agent {
@@ -69,6 +70,48 @@ export class Agent {
       this.onLog(`[router] tier-0 matched with confidence ${local.proposal.confidence} - no cloud call made`);
       const validation = this.broker.validate(local.proposal);
       return { ok: true, proposal: local.proposal, validation, facts: panel, reply: local.reply };
+    }
+
+    // ---- Tier 0.5: is this a QUESTION rather than a request to change the machine? (D211) ----
+    //
+    // AFTER tier-0, so D46b holds: a sentence tier-0 matches with confidence never reaches here.
+    //
+    // GATED ON THE PROVIDER BEING ABLE TO ANSWER QUESTIONS, by duck-typing rather than by a flag.
+    // `CloudClient` and `OpenAICompatibleClient` have no `ask`, so with `provider: "cloud"` — which
+    // is what the FROZEN DEMO BUILD uses — this branch is unreachable and the demo's behaviour is
+    // unchanged by construction rather than by configuration. That property is the reason this is a
+    // capability check and not `if (config.provider === "hub")`.
+    //
+    // A declined question does NOT fall through to the proposal path. See src/router/classify.js:
+    // it would produce a consent card the user never provoked, which is D198's defect.
+    if (typeof this.cloud?.ask === "function") {
+      const kind = classify(text);
+      if (kind.kind === "question") {
+        this.onLog(`[router] classified as a question (${kind.why}) - asking the knowledge base, not proposing`);
+        const asked = await this.cloud.ask(text, { probe });
+        if (asked.ok) {
+          // `ok: true` with `answered: false` is the NORMAL decline (D205), not a failure.
+          return {
+            ok: true,
+            // A distinct field, like `escalation`. The renderer branches on it BEFORE it destructures
+            // a proposal, because an answer has no proposal and no validation to show.
+            answer: {
+              answered: asked.answered,
+              citedArticleIds: asked.citedArticleIds ?? [],
+              retrieval: asked.retrieval ?? null,
+            },
+            facts: panel,
+            reply: asked.reply,
+          };
+        }
+        // The hub could not be reached. Fall through to the ordinary path rather than inventing an
+        // answer: the model may still be able to help, and if it cannot, the existing offline
+        // guidance is better than a decline that blames the knowledge base for a network problem.
+        this.onLog(`[router] the knowledge base was unreachable (${asked.error}) - falling through to the proposal path`);
+      } else if (kind.kind !== "action") {
+        // D165's social layer would land here. classify() never returns "social" today.
+        this.onLog(`[router] classified as ${kind.kind} (${kind.why}) - no handler is built, treating as an action`);
+      }
     }
 
     // ---- Tier 1: cloud model. The model proposes; it never executes (§5). ----

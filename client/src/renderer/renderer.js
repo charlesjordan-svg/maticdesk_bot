@@ -272,6 +272,41 @@ async function handleTurn(text) {
     return;
   }
 
+  if (res.answer) {
+    // A QUESTION was answered (or declined) from the knowledge base — D211. Branches BEFORE the
+    // `res.ok` destructure below, because an answer has no proposal and no validation: reaching
+    // that code would read `validation.ok` off undefined.
+    const { answered, citedArticleIds, retrieval } = res.answer;
+    show(proposalJson, {
+      answeredFromKnowledgeBase: answered,
+      // Named `citedArticleIds` here too, rather than flattened into prose, for the reason below.
+      citedArticleIds,
+      retrieval,
+    });
+    show(validationJson, "not applicable — no capability was proposed. A question changes nothing on this machine.");
+    show(executionJson, "nothing executed — this was a question, not an action.");
+    renderFacts(res.facts ?? {});
+    setState("thinking");
+
+    if (answered) {
+      // THE CITATION IS ATTRIBUTED CHROME, NOT THE AVATAR'S VOICE (H5). It is shown as a source
+      // line in the transcript and is deliberately NOT spoken and NOT concatenated into the
+      // reply: "according to keyboard-shortcuts-windows, press Win+Shift+S" said aloud is the
+      // avatar claiming provenance, where a separate line is the UI attributing it.
+      await say(res.reply, "idle");
+      if (citedArticleIds.length) bubble(`source: ${citedArticleIds.join(", ")}`, "sys");
+    } else {
+      // A DECLINE IS A CORRECT ANSWER, not a failure, and the transcript must not dress it as one
+      // (D205, B7a §2). The avatar says it does not know and offers a ticket; the system line says
+      // plainly that nothing was filed, for the same reason the escalation branch does — the offer
+      // can be heard as the act.
+      await say(res.reply, "idle");
+      bubble("no company guidance covers this — nothing was filed, and there is no ticketing integration in this build", "sys bad");
+    }
+    setState("idle");
+    return;
+  }
+
   if (!res.ok) {
     show(proposalJson, res.error ?? "no proposal");
     if (res.guidance) {
