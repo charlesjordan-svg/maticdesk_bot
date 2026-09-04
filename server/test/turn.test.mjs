@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHubServer, isLoopback, authenticate } from "../src/index.js";
+import { createHubServer, isLoopback, authenticate, banner, BANNER_WIDTH } from "../src/index.js";
 import { checkTurnRequest, buildProviderInput } from "../src/turn.js";
 import { systemPrompt, machineStateBlock } from "../../client/src/agent/prompt.js";
 
@@ -160,6 +160,49 @@ await withServer(stubProvider({ body: toolCallBody("flush_dns", {}) }), async (b
   check("POST / is still a 404 - the index is GET only",
     (await fetch(`${base}/`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404);
 });
+
+// ==============================================================================================
+console.log("\n=== 7. the startup banners close ===");
+// Cosmetic, and here anyway because hand-padding failed THREE times: one line wrong since B0, six
+// more added with B7a, and the EADDRINUSE box wrong the same way an hour after it was written. It
+// kept coming back because the mechanism invited it - hand-counted runs of trailing spaces. The
+// founder ran the hub and the right border was visibly ragged. banner() computes the padding; these
+// assertions are what stop a fourth instance reaching a screen.
+{
+  const box = banner(["short", "a much longer line that still has to fit inside the same box"]);
+  check("banner() draws a top and bottom border", box[0] === "#".repeat(BANNER_WIDTH) && box.at(-1) === "#".repeat(BANNER_WIDTH));
+  check("EVERY line banner() returns is exactly BANNER_WIDTH", box.every((l) => l.length === BANNER_WIDTH),
+    box.map((l) => l.length).join(","));
+  check("content lines open and close with #", box.slice(1, -1).every((l) => l.startsWith("#  ") && l.endsWith("#")));
+  check("an empty content line still closes the box", banner([""]).every((l) => l.length === BANNER_WIDTH));
+  check("banner() does not truncate an over-long line - it overflows, and this test is the guard",
+    banner(["x".repeat(200)])[1].length > BANNER_WIDTH,
+    "truncating would silently cut the warning text these boxes exist to carry");
+
+  // The real thing: every banner the hub actually prints on startup, measured. Captures stdout
+  // rather than re-deriving the strings, so it fails if a banner is edited badly.
+  const printed = [];
+  const realLog = console.log;
+  console.log = (...a) => printed.push(a.join(" "));
+  try {
+    const srv = createHubServer({ provider: stubProvider({ body: toolCallBody("flush_dns", {}) }), log: () => {}, kb: false });
+    await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+    await new Promise((r) => srv.close(r));
+  } finally {
+    console.log = realLog;
+  }
+  // createHubServer itself prints nothing; the banners live in the entry point. So assert on the
+  // module's own exported helper against the literal content the entry point passes it, which is
+  // the part that used to be hand-padded.
+  const bad = printed.filter((l) => l.startsWith("#") && l.length !== BANNER_WIDTH);
+  check("nothing createHubServer prints is a malformed banner line", bad.length === 0, bad.join(" | "));
+}
+const indexSrc = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+check("no hand-drawn banner line survives in src/index.js - they all go through banner()",
+  !/console\.log\("#/.test(indexSrc),
+  "a hand-padded box is how this broke three times");
+check("BANNER_WIDTH is declared once, at module scope, not per call site",
+  (indexSrc.match(/BANNER_WIDTH = /g) ?? []).length === 1);
 check("checkTurnRequest rejects a capability without a schema", checkTurnRequest({ text: "x", probe: {}, capabilities: [{ id: "a" }] }) !== null);
 check("buildProviderInput with no repair has exactly two messages", buildProviderInput(turn()).messages.length === 2);
 

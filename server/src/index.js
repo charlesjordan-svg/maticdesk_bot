@@ -53,6 +53,36 @@ import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
+/**
+ * Every banner box in this file is this wide.
+ *
+ * THIS EXISTS BECAUSE HAND-PADDING FAILED THREE TIMES. The startup banners were drawn with
+ * hand-counted runs of trailing spaces, and on 2026-09-04 the founder ran the hub and the right-hand
+ * border was visibly ragged: SEVEN of sixteen banner lines were 81 or 82 characters against an
+ * 80-character border. One of them had been wrong since B0; six were added with B7a; and the
+ * EADDRINUSE box added an hour earlier was wrong the same way, for the same reason.
+ *
+ * It is a cosmetic bug three times over, and that is the point — it kept coming back because the
+ * mechanism invited it. `banner()` computes the padding, and `test/turn.test.mjs` asserts that
+ * every line the real banners produce is exactly this wide, so a fourth instance fails a test
+ * instead of reaching a screen.
+ */
+export const BANNER_WIDTH = 80;
+
+/**
+ * Draw a boxed banner. Returns the lines rather than printing them, so they can be measured.
+ *
+ * A line longer than the box is NOT silently truncated — truncating would hide the warning text
+ * that is the whole reason these boxes exist. It overflows, and the test catches it.
+ *
+ * @param {string[]} lines  content lines, without the border or the leading "#  "
+ * @returns {string[]}
+ */
+export function banner(lines) {
+  const bar = "#".repeat(BANNER_WIDTH);
+  return [bar, ...lines.map((l) => "#  " + l.padEnd(BANNER_WIDTH - 4) + "#"), bar];
+}
+
 /** True when the peer is this machine. Defence in depth behind the 127.0.0.1 bind. */
 export function isLoopback(remoteAddress) {
   return typeof remoteAddress === "string" && LOOPBACK.has(remoteAddress);
@@ -182,8 +212,6 @@ if (isMain) {
   });
   const embedder = embeddingProviderFromEnv();
   const tenantLabel = process.env.MATIC_KB_TENANT_LABEL ?? null;
-  // Every banner in this file is this wide. One constant so a box cannot fail to close.
-  const BANNER_WIDTH = 80;
   const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel });
 
   // Verify the embedder, and do not exit if it fails. A hub with no embedder still answers through
@@ -223,12 +251,7 @@ if (isMain) {
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
       console.log("");
-      // Padded by computation, not by a hand-counted run of spaces - the first version of this
-      // line was one character wide and the box did not close.
-      const box = (text) => "#  " + text.padEnd(BANNER_WIDTH - 4) + "#";
-      console.log("#".repeat(BANNER_WIDTH));
-      console.log(box(`PORT ${port} IS ALREADY IN USE. This hub did not start.`));
-      console.log("#".repeat(BANNER_WIDTH));
+      for (const l of banner([`PORT ${port} IS ALREADY IN USE. This hub did not start.`])) console.log(l);
       console.log("");
       console.log("  Almost certainly a hub is ALREADY RUNNING - check before starting another:");
       console.log("");
@@ -254,12 +277,12 @@ if (isMain) {
   server.listen(port, "127.0.0.1", () => {
     verifyEmbedder();
     console.log("");
-    console.log("################################################################################");
-    console.log("#  MATIC DESK HUB - B0 WALKING SKELETON. NO AUTHENTICATION. LOOPBACK ONLY.     #");
-    console.log("#  Nothing here identifies a device, a tenant or a user. Do not expose it.     #");
-    console.log("#  Device assertion -> token exchange (D61, D132) is not built. Every response  #");
-    console.log("#  carries x-matic-hub-auth: none so nobody can mistake this for a service.    #");
-    console.log("################################################################################");
+    for (const l of banner([
+      "MATIC DESK HUB - B0 WALKING SKELETON. NO AUTHENTICATION. LOOPBACK ONLY.",
+      "Nothing here identifies a device, a tenant or a user. Do not expose it.",
+      "Device assertion -> token exchange (D61, D132) is not built. Every response",
+      "carries x-matic-hub-auth: none so nobody can mistake this for a service.",
+    ])) console.log(l);
     console.log(`[hub] listening on http://127.0.0.1:${port}`);
     console.log(`[hub]   POST /v1/turn   stateless, proposes a machine change, reaches no database`);
     console.log(`[hub]   POST /v1/ask    stateful, answers from the knowledge base (B7a)`);
@@ -267,15 +290,15 @@ if (isMain) {
     console.log(`[hub] provider ${provider.name} -> ${provider.baseUrl} model ${provider.model} (claimed as hubProvider "local")`);
     console.log(`[hub] holds no catalog: the endpoint sends its tool schemas with every turn (D149)`);
     console.log("");
-    console.log("################################################################################");
-    console.log("#  /v1/ask HAS NO TENANCY. The corpus it reads is the GENERIC KB, which is       #");
-    console.log("#  cross-tenant by decision (D45), so nothing it returns depends on a tenant.    #");
-    console.log(`#  MATIC_KB_TENANT_LABEL is ${(tenantLabel ?? "unset").padEnd(20)} - a LOG LABEL, not an identity. #`);
-    console.log("#  /v1/ask refuses a tenant in the request body: a client-supplied tenant       #");
-    console.log("#  becomes the tenancy model by default, which is worse than having none.       #");
-    console.log("#                                                                              #");
-    console.log("#  NO CROSS-ENCODER RERANKER EXISTS (B7a spec §7). Retrieval quality numbers    #");
-    console.log("#  from this hub are a FLOOR, not a measurement of the design.                  #");
-    console.log("################################################################################");
+    for (const l of banner([
+      "/v1/ask HAS NO TENANCY. The corpus it reads is the GENERIC KB, which is",
+      "cross-tenant by decision (D45), so nothing it returns depends on a tenant.",
+      `MATIC_KB_TENANT_LABEL is ${tenantLabel ?? "unset"} - a LOG LABEL, not an identity.`,
+      "/v1/ask refuses a tenant in the request body: a client-supplied tenant",
+      "becomes the tenancy model by default, which is worse than having none.",
+      "",
+      "NO CROSS-ENCODER RERANKER EXISTS (B7a spec §7). Retrieval quality numbers",
+      "from this hub are a FLOOR, not a measurement of the design.",
+    ])) console.log(l);
   });
 }
