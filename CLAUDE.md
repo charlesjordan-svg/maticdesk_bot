@@ -8,10 +8,10 @@ and blockers, and it is kept current. This file only tells you how to work here.
 | Path | What |
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
-| `server/` | The hub. **B0 walking skeleton since 2026-09-03**: one route (`POST /v1/turn`), one provider (Ollama), **no authentication, loopback only**, and loud about both. **Plus the B1 control plane since 2026-09-03 night** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. `pg` is its first dependency, so `npm.cmd install` is now needed. **`/v1/turn` stayed stateless and must stay so** — a test fails if it imports `src/db/`. **B1's six exit criteria pass** — `npm.cmd run test:db`, 56 assertions on PostgreSQL 17.11: `server/docs/B1-CONTROL-PLANE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register. D1–D201, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it. |
+| `server/` | The hub. **TWO ROUTES since 2026-09-04.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.13. D1–D207, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
-| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b2-and-open-items.md`** — state, the next five tasks in order, and the traps this project has already fallen into. The earlier ones run founder → session; that one runs the other way. |
+| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b7a-built.md`.** The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
 | `docs/kb/` | The generic knowledge base (`generic-kb-v2.json`) and its rules (D162). An article never names a capability or says what the bot does. Also the schema findings and **the KB architecture document** — retrieval, authoring UX and client UI, merged into the register as D167–D192. **Every D-number written inside that document is void**; it carries a banner saying so. |
 | `Projects/`, `.obsidian/` | The founder's Obsidian notes. Not product code. |
@@ -28,8 +28,12 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D202 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D208 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
+- **When a migration implements a decision, the SQL names it AND the status it held when the
+  migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
+  **The comment is appended to, never rewritten**, because a comment that silently tracks current
+  status loses the only fact worth recording: that the shape went in before the decision came out.
 - Two chat documents dated 2026-09-03 numbered their own content D130–D168 in parallel with the
   register. Those IDs are **void**; the register's §0, §5.6 and §5.11a map them. Do not cite them.
   One of the two (`docs/kb/2026-09-03-kb-architecture-authoring-ux.md`) is now **in the repo** with a
@@ -47,16 +51,28 @@ and earlier use that path; do not "fix" them, they are records.
 - **Ratified as sets on 2026-09-04: D167–D192** (the KB architecture) **and D193–D197** (B1). Three
   caveats in §5.11c survive that ratification and must not be softened by it: **D173 rests on
   "findability beats volume", which KCS retrieval did NOT confirm** (it is our own argument — do
-  not cite KCS for it); D174's cross-encoder and the `k ≈ 60` RRF convention are unretrieved; and
-  nothing in the set is measured on our corpus, because there is no corpus.
-- **Still proposed: D130–D150** (the design review) and **D152–D160** (OPEN-6's human-identity and
-  authorisation model, §5.7). §5.11c used to say "ratify alongside OPEN-6"; ratification came
-  separately, so that pairing is void as guidance.
-- **B1's ratified schema already implements D152–D160's table shapes** — `totp_secret`,
-  `external_issuer`, `admin_roles`, `admin_audit.event_class`, `step_up`, `vendor_access_grants`.
-  Cheap now, expensive later, and exactly what D160 asked for — **but do not read the built schema
-  as evidence those decisions were ratified.** Register §5.7 carries the note; B2 is where it
-  matters, because B2 writes logic against those tables.
+  not cite KCS for it); the `k ≈ 60` RRF convention is still unretrieved; and nothing in the set is
+  measured on our corpus, because there is no corpus. **D174's cross-encoder options ARE now
+  retrieved (D207) but it is still not picked, and its CPU viability is still unmeasured** — and
+  D207 records why that is a harder question than a parameter count: a cross-encoder costs
+  per-query × per-candidate, not per-query.
+- **B7a implemented D174's lexical leg, semantic leg and RRF fusion; the cross-encoder is absent**
+  (D207). So B7a's retrieval numbers are a floor, not a measurement of the design.
+- **Ratified as a set on 2026-09-04: D152–D160** (OPEN-6's human-identity and authorisation model,
+  §5.7), as a **separate act** from B1's ratification the same day. Two consequences: **D158
+  (author ≠ approver for the catalog) is ratified but INERT in Phase 1** — D149 deferred catalog
+  distribution, so there are no drafts to approve, and **if B2 starts building an approval workflow
+  that is Phase 2 scope arriving through the back door**; and **D202 is proposed and awaits Charles**
+  (§5.7a: step-up for vendor-grant creation, the one item D157's list missed — it gates nothing,
+  because `admin_audit.step_up` is indifferent to what is on the list).
+- **Still proposed: D130–D150** (the design review) and **D202–D207**. Note that a proposed row's
+  status cell reads the same as a ratified set's used to — **never search-and-replace a status
+  file-wide.**
+- **Do not read a built schema as evidence that the decisions behind it were ratified.** B1's
+  ratified schema implemented D152–D160's shapes before those decisions were accepted. That was
+  correct (D160 asked for the shapes, and they are cheap now and expensive later) and it is NOT
+  evidence of ratification. The same inference error had to be corrected once in §5.12 and once in
+  §5.7, which is why §5.7b now puts the provenance in the SQL.
 - D1–D41 live only in `ASK-IT-questionnaire.xlsx`, which has never been downloaded. If it turns up,
   it goes into the register verbatim.
 - Every document you write names other files **by path**, never by name alone. Two documents were
@@ -93,11 +109,20 @@ npm.cmd run verify:pipe    # D201: reads the DACL Windows gives a Node pipe and 
 #                            enabled rather than deny-only and the write succeeds (wrong answer).
 
 cd ../server
-npm.cmd install            # pg - B1's dependency, and server/'s first
-npm.cmd test               # B0 hub (33) + B1's source-level rules (43) = 76 assertions, no database
+npm.cmd install            # pg - the only dependency
+npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
+#                            B0 hub (33) + B1 source rules (43) + B7a source rules (93) = 169
 npm.cmd run db:up          # PostgreSQL 17 + pgvector in Docker, loopback, port 5433 (D197)
 npm.cmd run migrate        # control plane + every tenant schema in one run
-npm.cmd run test:db        # B1's six exit criteria: 56 assertions; needs db:up first
+npm.cmd run test:db        # the files that need the database: B1's six exit criteria (56) + B7a retrieval (52) = 108
+npm.cmd run kb:ingest      # the six generic articles -> control.kb_* , then embed them
+npm.cmd run kb:status      # what is loaded, and WHICH MODEL embedded it (two models = two spaces)
+npm.cmd run kb -- legs "DisplayLink"      # the two retrieval legs, side by side, UNFUSED
+npm.cmd run kb -- retrieve "my mouse cuts out" --platform windows
+npm.cmd run kb:accept      # B7a's acceptance list end-to-end (30); needs db + Ollama. NEGATIVE TEST FIRST
+npm.cmd run kb:answer      # the answer contract against a real model (18). Ollama only, NO database
+npm.cmd run kb:floor       # is a relevance floor possible? Answer: NOT over fused RRF scores (§5.16c)
+ollama pull snowflake-arctic-embed2:568m  # the DEV embedder. NOT D199's model - see D203
 npm.cmd start              # http://127.0.0.1:8787 - needs Ollama with mistral-small:24b resident
 # then, from client/:  MATIC_HUB_URL=http://127.0.0.1:8787 node test/hub-client.test.mjs   (adds one live turn)
 #                      MATIC_HUB_URL=http://127.0.0.1:8787 node eval/e2e-hub-consent.mjs    (three demo scenarios, hub + two-step consent, headless)
@@ -131,6 +156,49 @@ security attributes, and this is **measured, not assumed** (`npm.cmd run verify:
 needs native creation with an explicit DACL (D201); and **that DACL is not a defence against
 user-context malware and cannot be** — D130's audit trail is what covers that (§5.15a).
 
+## Traps this project has actually fallen into — rules, not anecdotes
+
+These are in the register, but the register is not what a session reads first. Every one produced a
+**confident wrong answer that looked right.**
+
+- **A FALSE SIGNAL WEARING THE SHAPE OF THE EXPECTED ANSWER IS THE ONE CLASS WHERE CARE DOES NOT
+  HELP. Only an independent check does.** Three instances now:
+  - A Windows pipe path lost its backslashes through bash, and the resulting `EACCES` was
+    **indistinguishable from the finding being sought** (D201's blocker). Hit **twice** — the second
+    time while writing the note about the first. **Build Windows paths inside the script, and assert
+    a path is well-formed BEFORE drawing any conclusion from a failure to open it.**
+  - `"darwin".includes("win")` is **true**. `platformFromProbe` (`server/src/kb/ask.js`) tested
+    `win` first and classified every macOS machine as Windows — the exact D162 failure the platform
+    pre-filter exists to prevent, arriving through the pre-filter, and it would have PRESENTED AS A
+    PASS (the macOS article correctly withheld from a Mac, for entirely the wrong reason). Caught by
+    a test asserting `darwin -> macos`, not by reading the line. Register §5.16b.
+- **PowerShell helpers return ONE thing.** Status goes to `Write-Host`; cast booleans explicitly at
+  the call site (`[bool]`). A function that prints status *and* returns a boolean puts both on the
+  pipeline, the caller captures an array, **every array is truthy**, and a verdict silently inverts.
+  **PowerShell is 7.1% of this repo — this will recur.**
+- **Reproduce a measured ACL exactly; never approximate one.** Use the mask you measured. And
+  `verify:pipe` runs **unelevated or not at all** — an elevated token has Administrators enabled
+  rather than deny-only, and the write wrongly succeeds.
+- **`npm test` runs every file, reports every result, and exits non-zero at the END.** `&&`
+  short-circuits, so the first failure hides every later file: two environment failures once aborted
+  eight others. `server/` does this via `test/run-all.mjs`. **`client/package.json` still chains
+  with `&&` and should be moved to the same shape.**
+- **A PIPE REPLACES THE EXIT CODE WITH THE LAST STAGE'S.** `some-command | tail -20` exits 0
+  whenever `tail` succeeds, *however hard `some-command` failed* — so anything reporting "exit code
+  0" for a piped command is reporting `tail`. Hit on 2026-09-04: a backgrounded
+  `docker compose up -d | tail -20` was announced as having completed successfully while its own
+  output said it could not reach the Docker daemon, and port 5433 was closed. **Read the output, not
+  the status, whenever a command is piped** — or drop the pipe when the exit code is what you care
+  about. Same class as the `&&` rule above and as the two false-signal traps: the wrong answer
+  arrived wearing the shape of the right one.
+- **`npm.cmd test` writes to the app's audit log, and `reset-demo` deletes it.** Do not reset
+  between using the app and reading a record.
+- **`npm.cmd run <script>`, never `npx.ps1`** — execution policy blocks it. `npm.cmd`, not
+  `npm`. `py -3`, not `python`.
+- **A chat-produced document is not on disk until you have looked.** `ls` the path at the start of
+  the session and say what you found. **Never reconstruct a missing one** — from memory or from the
+  register's summary of it.
+
 ## Never
 
 - Commit `.env`, an API key, or any `.onnx` file. Both are gitignored at two levels; keep it so.
@@ -156,6 +224,40 @@ user-context malware and cannot be** — D130's audit trail is what covers that 
   returned; malformed output is an error. A hub that fixes proposals becomes an authority on
   capabilities (H2). And do not add authentication to the B0 hub piecemeal — its value is in being
   obviously unfinished.
+- **Add a database dependency to `server/src/turn.js`** (D206). B7a added `/v1/ask` rather than a
+  flag, precisely so the stateless path is not something a later edit can quietly undo, and
+  `test/db-static.test.mjs` enforces it. Questions go to `/v1/ask`; proposals go to `/v1/turn`.
+- **Return an answer the system cannot attribute to a retrieved article** (D205). `/v1/ask` answers
+  through an `answer` tool with an `answered` boolean; a citation of an article that was not
+  supplied is dropped, and `answered: true` with no surviving citation is **downgraded to a
+  decline** — an unattributable answer is an answer from training wearing the company's authority.
+  Do not relax `tool_choice`, and **do not add a general-knowledge fallback when retrieval finds
+  nothing.** That is the whole of B7a and there is no flag for it.
+- **Set `RELEVANCE_FLOOR` over a fused RRF score** (`server/src/kb/retrieve.js`). It is `null`,
+  and that is now **measured rather than deferred** — `npm.cmd run kb:floor`, register §5.16c.
+  **A floor over fused RRF scores cannot work by construction:** every top score is `2/61` (both
+  legs agreed at rank 1) or `1/(60 + rank)`, so **the score encodes rank and leg agreement and
+  carries no similarity magnitude** — discarding magnitude is what RRF is *for* (D174 chose it so a
+  `ts_rank` and a cosine never have to be reconciled), and magnitude is exactly what a floor needs.
+  The distributions overlap because the dense leg returns **every** chunk for **every** query — a
+  dense leg has no "no match" — so an uncovered question's nearest neighbour scores the same
+  `1/61` as a correctly-retrieved covered question whose phrasing shares no terms with its article.
+  **If a relevance signal is wanted, threshold the raw semantic cosine BEFORE fusion, or use leg
+  agreement explicitly** — both are new mechanisms needing a decision, not a value for this constant.
+- **Let a client name its own tenant.** `/v1/ask` refuses `tenant`/`tenantId`/`tenantLabel` in
+  the request body with a 400. B7a's tenancy is a server-side log label because device
+  authentication is not built (D61, D132), and a client-supplied tenant becomes the tenancy model by
+  default — which is worse than having none.
+- **Put retrieved chunk text in a system prompt, or let it leave the hub** (G4, D53). Articles go in
+  a user-role message inside a delimited block, marked as reference material and not instruction;
+  `/v1/ask` returns article IDs and counts, never chunk text.
+- **Quote a retrieval quality number from B7a without the caveat.** Six articles, **no
+  cross-encoder reranker** (D207), and a dev embedder that is **not D199's model** (D203). Every
+  figure is a FLOOR, not a measurement of the design.
+- **Embed a corpus with two different models.** Vectors from different models are in different
+  spaces and retrieval is then confidently wrong for part of the corpus.
+  `control.kb_chunks.embedding_model` exists to make that detectable; `npm.cmd run kb:status`
+  reports it, and `node bin/kb.mjs reembed` is the fix.
 - Put broker logic in the renderer, or import `client/src/broker/win32/*` or `capabilities/*` from
   anywhere but a `Broker` implementation. `client/src/broker/broker.d.ts` explains why.
 - **Offer a consent card the user did not provoke** (**D198**). A greeting answered with a card is a
