@@ -10,6 +10,37 @@
 
 ---
 
+## On `main`, and pushed
+
+`50a6f4e..f342f59`, five commits, 27 files, +5105/−81. **Pushed to `origin/main` on 2026-09-04
+and verified against the remote** (`git rev-list --left-right --count origin/main...HEAD` → `0 0`).
+Nothing is uncommitted and nothing is unpushed.
+
+| Commit | What |
+|---|---|
+| `ffc8c8f` | File the four chat documents of 2026-09-04, unaltered |
+| `fdf6b61` | Ratify D152–D160, and move decision provenance into the SQL |
+| `d1c0c53` | Build B7a: the hub answers questions from the knowledge base, and declines when it cannot |
+| `b301139` | List D201's pipe calls before the code, turn the traps into rules, and hand over |
+| `f342f59` | Add the B7a build document, which should have gone in with the build |
+
+**Two things about how it landed, so nobody has to reverse-engineer them:**
+
+- **The register could not be split.** §5.7 (the ratification) and §5.16 (B7a's decisions) are one
+  file, so `fdf6b61` carries both — which lands D203–D207 **one commit before the code they
+  describe**. That is the right direction for this project rather than a compromise: the register is
+  the decision record and code follows it. The commit message says so, so a reader who finds §5.16
+  citing `src/kb/` files that do not yet exist at that commit knows it was deliberate.
+- **`f342f59` exists because a file was missed.** `server/docs/B7a-KNOWLEDGE-BASE.md` was cited
+  by path from four places while untracked. It was committed separately rather than by amending
+  `d1c0c53`, which would have rewritten two commits that were already sound.
+
+**Work stayed on `main`** — `CLAUDE.md` says "work here or on feature branches off it", and the
+previous session's seven commits went to `main` directly. `add-matic-desk-demo` was not touched;
+the frozen demo build is unaffected, and **rehearsals still run from that branch, not from `main`.**
+
+---
+
 ## State: everything is run
 
 A Docker Desktop update (to 29.7.2) cleared the engine failure that had blocked the database half,
@@ -243,4 +274,9 @@ watch.
   **D130–D150 are still proposed and the document arguing for them cannot be read**, so anyone
   ratifying that set is working from the register's summary of an argument that no longer exists in
   full.
-- Work is **uncommitted**. Charles has not asked for a commit.
+- Work is **committed and pushed** — `50a6f4e..f342f59` on `origin/main`, verified against the
+  remote. `add-matic-desk-demo` untouched.
+- **The five commit messages carry reasoning that is not repeated anywhere else** — in particular
+  `d1c0c53` on why the answer path is a tool rather than relaxed `tool_choice`, and `fdf6b61` on
+  why the provenance convention records write-time status and is appended to rather than rewritten.
+  `git log` is part of this project's record, not a changelog.
