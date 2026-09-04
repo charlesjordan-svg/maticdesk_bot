@@ -9,7 +9,7 @@ and blockers, and it is kept current. This file only tells you how to work here.
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
 | `server/` | The hub. **B0 walking skeleton since 2026-09-03**: one route (`POST /v1/turn`), one provider (Ollama), **no authentication, loopback only**, and loud about both. **Plus the B1 control plane since 2026-09-03 night** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. `pg` is its first dependency, so `npm.cmd install` is now needed. **`/v1/turn` stayed stateless and must stay so** — a test fails if it imports `src/db/`. **B1's six exit criteria pass** — `npm.cmd run test:db`, 56 assertions on PostgreSQL 17.11: `server/docs/B1-CONTROL-PLANE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register. D1–D198, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register. D1–D199, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
 | `docs/handovers/` | Founder handovers, kept for the record. The current one is `2026-09-03-claude-code-handover-b1-schema.md`. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
@@ -28,7 +28,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D199 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D200 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - Two chat documents dated 2026-09-03 numbered their own content D130–D168 in parallel with the
   register. Those IDs are **void**; the register's §0, §5.6 and §5.11a map them. Do not cite them.
