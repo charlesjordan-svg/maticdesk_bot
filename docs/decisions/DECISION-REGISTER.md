@@ -915,6 +915,29 @@ Recorded so they are not invented by whoever writes the code first.
 
 ---
 
+### 10.3a Verified on a screen — the D130 renderer check (2026-09-03, night)
+
+**The only thing in this project verified by a human looking at it**, and the only way this
+particular guarantee can be verified at all: D130 exists to make the consent card show what the
+broker rendered, and no headless test can see a screen.
+
+| What | Result |
+|---|---|
+| A `flush_dns` card, reached through the app, explain panel opened, **approved**, executed | `outcome: "success"`, `detail: {"flushed": true}`, audit `2026-09-04T00:36:28.675Z` |
+| All **eight displayed fields** against `consentRendered` — `title`, `what`, `detail`, `rollbackNote`, and `notice` / `undo` / `why` / `risk` in the explain panel | **Matched.** |
+| `rollbackNote` is `null` for `flush_dns` | **No rollback line on the card.** The same session's `renew_dhcp` card did show one, and that capability's rollback is non-null — so the field is driven by the data, not by the renderer |
+| Any string on the card not in `consentRendered` | **None**, other than the labelled "Why this, here" line, which is `proposal.reasoning` — the only model-authored text allowed there |
+
+**Not verified, and not to be claimed:** §3 (supersede on screen — a superseded record was seen
+incidentally in an earlier session, but the deliberate deny-then-ask-again sequence was never run;
+the headless equivalent passes in `consent-surface.test.mjs` §5) and §4 (the expired nonce — not
+attempted). Both are consent-layer and neither needs elevation.
+
+Run by the founder on the development machine. Recorded in
+`../../client/docs/D130-RENDERER-CHECK.md`, which states exactly what was and was not covered.
+
+---
+
 ### 10.4 Verified 2026-09-03 (night) — the first-build-steps handover's Task 5, against primary sources
 
 Retrieved live from the publishers' pages, with verbatim quotes on file (`Downloads\2026-09-03-claude-code-handover-first-build-steps.md` Task 5; working notes in the session scratchpad, findings recorded here). Nothing in this table is from memory.

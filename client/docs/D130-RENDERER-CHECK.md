@@ -8,8 +8,10 @@ broker and two-step consent (`../eval/e2e-hub-consent.mjs`, `../test/consent-sur
 broker renders `rendered` and the guarantee is that the Electron renderer displays it verbatim. No
 headless test can see a screen.
 
-**Do this before B1.** The renderer contract is about to be frozen into a wire format (the named-pipe
-protocol), and a wire format built on an unverified contract is the expensive kind of mistake.
+**Why now.** The renderer contract is about to be frozen into a wire format (the named-pipe
+protocol), and a wire format built on an unverified contract is the expensive kind of mistake. B1
+went ahead of this check on 2026-09-03 because it is control-plane schema and touches neither the
+renderer nor the pipe; the pipe protocol must not.
 
 ---
 
@@ -61,12 +63,20 @@ Scenarios 1 and 2 are tier-0 and need no key. **Scenario 3 needs `ANTHROPIC_API_
 Fault injection and the exact phrasings are in `DEMO-RUNBOOK.md` §2 — use `-Fault dhcp` for
 Scenario 2, never `-Fault network` (§3.2).
 
-The audit trail is `client/audit/audit.jsonl`, one JSON object per line. To read the last few
-consent records:
+The audit trail is `client/audit/audit.jsonl`, one JSON object per line. Read the broker's side of
+the comparison with:
 
 ```bash
-node -e "const fs=require('fs');const L=fs.readFileSync('audit/audit.jsonl','utf8').trim().split(/\r?\n/).slice(-8).map(JSON.parse);for(const r of L)console.log(JSON.stringify({outcome:r.outcome,gate:r.gate,capabilityId:r.capabilityId,consentNonce:r.consentNonce,message:r.message,consentRendered:r.consentRendered},null,2))"
+npm.cmd run show-consent
 ```
+
+`-- --all` for every rendered card, `-- -n 3` for the last three. It prints the eight displayed
+fields in the order they appear on the card, marks which live in the explain panel, and flags a
+`null` field as one that should **not** appear.
+
+**`npm.cmd test` writes to this same log**, so it mixes test records with app records — the `at`
+timestamp tells them apart, and `reset-demo` clears the file so a rehearsal starts from an empty
+trail. Note that it clears it: do not reset between using the app and reading the record.
 
 ---
 
@@ -168,12 +178,70 @@ Neither is a required check; both are cheap to observe once and expensive to dis
 
 ## Result
 
-**Date run:**
-**Build / commit:**
-**Verdict:** ☐ D130 confirmed on screen  ☐ defects found (list below)
+**Date run:** 2026-09-03 (night)
+**Build / commit:** `8501ef1`, plus the uncommitted test and launcher fixes made the same evening
+**Run by:** Charles, on the development machine
+**Verdict:** **§1 and §2 PASS — the renderer displays what the broker rendered.** §3 partially
+observed, §4 not attempted. See below; this is a partial pass and should not be cited as a full one.
 
-**Findings:**
+### What was verified
 
-<!-- Record what you saw here, including "everything matched". A blank result is indistinguishable
-     from an unrun check, and this file is the only evidence that the human-facing half of D130 was
-     ever verified. -->
+**§2, the field-for-field comparison — the check this file exists for. PASS.**
+
+One `flush_dns` card, reached through the app, explain panel opened, **approved**, executed for
+real. Audit record `2026-09-04T00:36:28.675Z`, `outcome: "success"`, `detail: {"flushed": true}`.
+All eight displayed fields matched `consentRendered` on screen — `title`, `what`, `detail`, and the
+four in the explain panel (`notice`, `undo`, `why`, `risk`).
+
+Two negative checks also held:
+
+- `rollbackNote` is `null` for `flush_dns`, and **no rollback line appeared on the card.** The
+  earlier `renew_dhcp` card in the same session did show one, and that capability has a non-null
+  rollback — so the field is driven by the data, not by the renderer.
+- **Nothing appeared on the card that was not in `consentRendered`**, other than the labelled
+  "Why this, here" line, which is `proposal.reasoning` and is the only model-authored text allowed
+  there.
+
+**That is the D130 guarantee, confirmed on a screen for the first time.** Until this run it had only
+ever been rendered into an assertion.
+
+**§1, the scenarios. Partial.** The `flush_dns` path was completed end to end as above. The same
+session's log also shows `[cloud] claude-haiku-4-5 chose escalate` (the Scenario 3 path) and a
+`renew_dhcp` card under an injected DHCP fault (Scenario 2), but neither was carried through to an
+approved execution with a field comparison. **Only `flush_dns` is fully evidenced.**
+
+### What was NOT verified, and must not be claimed
+
+- **§3, supersede (D166) — observed, not tested.** A superseded-consent record was seen in the
+  Broker Inspector during an earlier session (`"request superseded by a new consent request for
+  renew_dhcp before any decision reached the broker - nothing was executed"`), which is the right
+  shape. But that was incidental, the audit log has since been cleared by `reset-demo`, and the
+  deliberate sequence in §3 — deny, then a second request inside 120 s, then confirm the superseded
+  record carries the **first** card's text — was never run. The headless equivalent passes
+  (`consent-surface.test.mjs` §5); the on-screen half is open.
+- **§4, the expired nonce — not attempted.** Nobody left a card unclicked for over 120 s and then
+  approved it.
+- **§5's two observations** were not recorded either way.
+
+### Notes from the run, worth keeping
+
+- **`npm.cmd test` writes to this same audit log**, so `audit/audit.jsonl` mixes test records with
+  app records. The 00:29:51 and 00:38:30 entries are test runs; only 00:36:28 came from the app.
+  `reset-demo` clears the file, which is what makes a rehearsal trail readable.
+- **Read the broker's side with `npm.cmd run show-consent`.** It was a pasted one-liner during this
+  run and failed twice — once with ENOENT after `reset-demo` deleted the log, once with "Illegal
+  return statement", because top-level `return` is not legal in `node -e`. It is a script now.
+- Two test-environment traps were found and fixed the same evening: `broker.test.mjs` case 8
+  asserted the *unelevated* behaviour while running elevated, and case 10 assumed a healthy machine
+  while a demo fault was injected. Because the npm script chains with `&&`, either one aborted the
+  remaining eight test files — so a run that looked like a D130 failure never reached
+  `consent-surface.test.mjs` at all.
+- `start:elevated` launched `npx electron .` inside a `cmd /c` window that closed on error, and
+  `npx.ps1` is blocked by the same execution policy that makes it `npm.cmd` here. It now launches
+  the local `electron.cmd` directly.
+
+### To close this file completely
+
+Run §3 and §4 deliberately, in one sitting, and add the result above. Both are consent-layer and
+**neither needs elevation** — the broker writes `consentRendered` on refusals and on
+needs-the-broker denials as well as on successes.
