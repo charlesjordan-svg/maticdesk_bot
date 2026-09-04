@@ -14,6 +14,7 @@ import os from "node:os";
 import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
 import { classify } from "../router/classify.js";
+import { socialReply } from "../router/social.js";
 import { diagnoseOffline } from "../router/offline-guide.js";
 
 export class Agent {
@@ -72,20 +73,54 @@ export class Agent {
       return { ok: true, proposal: local.proposal, validation, facts: panel, reply: local.reply };
     }
 
-    // ---- Tier 0.5: is this a QUESTION rather than a request to change the machine? (D211) ----
+    // ---- Tier 0.5: is this SOCIAL, a QUESTION, or a request to change the machine? ----
     //
     // AFTER tier-0, so D46b holds: a sentence tier-0 matches with confidence never reaches here.
+    // ONE classification for both branches — classifying twice is how the two disagree.
+    const kind = classify(text);
+
+    // ---- D165 / D198: the social layer, and it is UNCONDITIONAL. -----------------------------
+    //
+    // Not gated on the provider, unlike the question branch below. **D198 makes this a safety
+    // requirement rather than polish**, and the defect it recorded — "Hello how are you?" produced
+    // a `renew_dhcp` consent card — was observed on `provider: "cloud"`, which is exactly the
+    // configuration the frozen demo build uses. A social layer that only protected the hub path
+    // would leave the observed defect in place on the path it was observed on.
+    //
+    // It is also the only branch here that needs no network: the templates are client-shipped and
+    // deterministic (D165), so a greeting is answered with the cloud unreachable and the hub down,
+    // which is the state D198's defect was found in.
+    if (kind.kind === "social") {
+      // `listCapabilities()` carries `tierInfo` from the catalog's `tiers/*`, so this needs
+      // nothing else. Reaching through the broker into `broker.catalog` would be the layering
+      // violation broker.d.ts exists to prevent.
+      const reply = socialReply(kind.subkind, { capabilities: this.broker.listCapabilities() });
+      if (reply) {
+        this.onLog(`[router] ${kind.why} - answering from a template, no provider call, NO PROPOSAL`);
+        return {
+          ok: true,
+          // A distinct field, like `answer` and `escalation`. There is no proposal and no
+          // validation, so the renderer must branch before it destructures either.
+          social: { subkind: kind.subkind },
+          facts: panel,
+          reply,
+        };
+      }
+      // classify() and the template table disagreed. Fall through rather than say nothing — and the
+      // log says so, because a silent disagreement between those two is a bug worth seeing.
+      this.onLog(`[router] classified as social/${kind.subkind} but no template exists - falling through`);
+    }
+
+    // ---- D211: a question goes to the knowledge base, not to a proposal. ---------------------
     //
     // GATED ON THE PROVIDER BEING ABLE TO ANSWER QUESTIONS, by duck-typing rather than by a flag.
-    // `CloudClient` and `OpenAICompatibleClient` have no `ask`, so with `provider: "cloud"` — which
-    // is what the FROZEN DEMO BUILD uses — this branch is unreachable and the demo's behaviour is
-    // unchanged by construction rather than by configuration. That property is the reason this is a
-    // capability check and not `if (config.provider === "hub")`.
+    // `CloudClient` and `OpenAICompatibleClient` have no `ask`, so with `provider: "cloud"` this
+    // branch is unreachable and the demo's proposal behaviour is unchanged by construction rather
+    // than by configuration. That is why it is a capability check and not a provider-name check.
     //
     // A declined question does NOT fall through to the proposal path. See src/router/classify.js:
     // it would produce a consent card the user never provoked, which is D198's defect.
     if (typeof this.cloud?.ask === "function") {
-      const kind = classify(text);
       if (kind.kind === "question") {
         this.onLog(`[router] classified as a question (${kind.why}) - asking the knowledge base, not proposing`);
         const asked = await this.cloud.ask(text, { probe });
@@ -108,9 +143,6 @@ export class Agent {
         // answer: the model may still be able to help, and if it cannot, the existing offline
         // guidance is better than a decline that blames the knowledge base for a network problem.
         this.onLog(`[router] the knowledge base was unreachable (${asked.error}) - falling through to the proposal path`);
-      } else if (kind.kind !== "action") {
-        // D165's social layer would land here. classify() never returns "social" today.
-        this.onLog(`[router] classified as ${kind.kind} (${kind.why}) - no handler is built, treating as an action`);
       }
     }
 

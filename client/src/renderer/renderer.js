@@ -272,6 +272,27 @@ async function handleTurn(text) {
     return;
   }
 
+  if (res.social) {
+    // D165 / D198. A greeting, a "what can you do", a thanks, a goodbye, or something plainly
+    // off-topic. Answered from a client-shipped template with NO provider call and NO PROPOSAL.
+    //
+    // Branches before everything else for the reason D198 gives: the whole point is that this turn
+    // does not reach the code that can offer a consent card. On 2026-09-03 "Hello how are you?"
+    // produced a renew_dhcp card, and every gate behaved correctly — which is what made it a
+    // safety issue rather than a cosmetic one.
+    show(proposalJson, {
+      socialTemplate: res.social.subkind,
+      note: "answered from a client-shipped template (D165). No model was called, and no capability was proposed.",
+    });
+    show(validationJson, "not applicable — nothing was proposed, so there was nothing to validate.");
+    show(executionJson, "nothing executed. This turn never reached the consent path (D198).");
+    renderFacts(res.facts ?? {});
+    setState("thinking");
+    await say(res.reply, "idle");
+    setState("idle");
+    return;
+  }
+
   if (res.answer) {
     // A QUESTION was answered (or declined) from the knowledge base — D211. Branches BEFORE the
     // `res.ok` destructure below, because an answer has no proposal and no validation: reaching

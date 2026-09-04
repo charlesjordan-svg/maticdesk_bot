@@ -16,7 +16,8 @@
  *    "simplifies" it into a provider-name check.
  */
 import { readFileSync } from "node:fs";
-import { classify, isQuestion } from "../src/router/classify.js";
+import { classify, isQuestion, residue } from "../src/router/classify.js";
+import { socialReply, capabilityReply, SOCIAL_SUBKINDS } from "../src/router/social.js";
 import { Agent } from "../src/agent/agent.js";
 
 let pass = 0, fail = 0;
@@ -88,16 +89,132 @@ check("a trailing question mark alone does not make a question",
   classify("my printer won't print?").kind === "action",
   "an uncertain report of a problem is not a request for an article");
 
-console.log("\n=== 4. D165's social layer is NOT built, and the absence is explicit ===");
-check("classify() never returns 'social' today",
-  ["hello", "hi there", "how are you", "good morning", "thanks!"].every((t) => classify(t).kind !== "social"),
-  "the branch exists so D165 slots in; the branch is not the feature");
-// D198: "Hello how are you?" produced a consent card. That is still true and this test records it
-// rather than hiding it - "how are you" contains no action verb and no question marker, so it
-// falls to "action" and reaches the proposal path exactly as it does today.
-check("D198's greeting still routes to the proposal path (the defect is UNFIXED, not masked)",
-  classify("Hello how are you?").kind === "action",
-  "D165 is what fixes this; classify() is only where it will go");
+console.log("\n=== 4. D165's SOCIAL LAYER — built 2026-09-04 ===");
+// THE CASE D198 ACTUALLY OBSERVED. On 2026-09-03 this exact sentence produced a renew_dhcp consent
+// card. It is the first assertion in this section on purpose.
+{
+  const r = classify("Hello how are you?");
+  check("D198's EXACT sentence is now social, not an action",
+    r.kind === "social" && r.subkind === "howareyou",
+    `got ${r.kind}/${r.subkind} (${r.why})`);
+}
+for (const [t, want] of [
+  ["hello", "greeting"],
+  ["Hi", "greeting"],
+  ["hey", "greeting"],
+  ["Good morning!", "greeting"],
+  ["how are you", "howareyou"],
+  ["how's it going?", "howareyou"],
+  ["thanks", "thanks"],
+  ["thank you!", "thanks"],
+  ["cheers", "thanks"],
+  ["bye", "farewell"],
+  ["goodbye", "farewell"],
+  ["that's all", "farewell"],
+  ["what can you do?", "capability"],
+  ["what can you do", "capability"],
+  ["who are you", "capability"],
+  ["what are your capabilities?", "capability"],
+  
+  ["tell me a joke", "offtopic"],
+]) {
+  const r = classify(t);
+  check(`social/${want}: "${t}"`, r.kind === "social" && r.subkind === want, `got ${r.kind}/${r.subkind}`);
+}
+
+console.log("\n  -- off-topic markers are COMPLETE PHRASES, so they cannot eat a real problem --");
+// The first version listed bare topic nouns - "the weather", "a joke", "the score", "the news" -
+// each of which appears inside a real complaint. A bare topic noun is a noun, not an off-topic
+// question. And "what is the weather" had to STOP taking the residue test: it leaves "what is",
+// which tripped the threshold and sent it to the KNOWLEDGE BASE. Observed 2026-09-04.
+for (const t of ["what is the weather?", "whats the weather like today", "tell me a joke", "what time is it", "who won the game"]) {
+  const r = classify(t);
+  check(`offtopic: "${t}"`, r.kind === "social" && r.subkind === "offtopic", `got ${r.kind}/${r.subkind ?? "-"}`);
+}
+for (const t of ["the weather app won't open", "this printer is a joke", "the news site won't load", "my score sheet is corrupted"]) {
+  const r = classify(t);
+  check(`NOT offtopic - a real problem containing the topic noun: "${t}"`,
+    !(r.kind === "social" && r.subkind === "offtopic"), `got ${r.kind}/${r.subkind ?? "-"}`);
+}
+
+console.log("\n  -- THE HARD PART: a greeting must not SWALLOW a real problem --");
+// This is the failure that would be worse than the one D198 found, because it is silent: the
+// assistant answers warmly and does nothing. Every one of these opens socially and carries a real
+// complaint, and every one must reach the ordinary path.
+for (const t of [
+  "hi, my printer is broken",
+  "hello my printer isn't working",
+  "hey I have no internet",
+  "good morning, the wifi keeps dropping",
+  "thanks but it still doesn't work",
+  "hi can you restart the spooler",
+  "hello how do I take a screenshot",
+]) {
+  const r = classify(t);
+  check(`NOT social: "${t}"`, r.kind !== "social", `got ${r.kind}/${r.subkind ?? "-"} (${r.why})`);
+}
+check("…and the polite question still classifies as a QUESTION, not an action",
+  classify("hello how do I take a screenshot").kind === "question",
+  "stripping the greeting must not also lose the question");
+check("…and the polite action request still classifies as an ACTION",
+  classify("hi can you restart the spooler").kind === "action");
+
+console.log("\n  -- residue() is what decides it --");
+check("a bare greeting leaves no residue", residue("hello") === "");
+check("a greeting plus filler leaves no residue", residue("hello there, please") === "");
+check("a greeting plus a complaint leaves the complaint",
+  residue("hi my printer is broken") === "my printer is broken",
+  residue("hi my printer is broken"));
+check("ONE leftover word is already enough to not be social",
+  classify("hello printer").kind !== "social",
+  "a single noun is often the whole complaint from someone who does not want to type");
+
+console.log("\n  -- every subkind classify() emits has a template, and vice versa --");
+{
+  const emitted = new Set();
+  for (const t of ["hello", "how are you", "thanks", "bye", "what can you do", "the weather"]) {
+    const r = classify(t);
+    if (r.kind === "social") emitted.add(r.subkind);
+  }
+  check("classify() emits only subkinds social.js has templates for",
+    [...emitted].every((k) => SOCIAL_SUBKINDS.includes(k)),
+    [...emitted].filter((k) => !SOCIAL_SUBKINDS.includes(k)).join(", "));
+  check("and socialReply() returns a non-empty string for each",
+    [...emitted].every((k) => (socialReply(k, { capabilities: [] }) ?? "").length > 20));
+  check("socialReply() returns null for an unknown subkind rather than an empty string",
+    socialReply("nonsense") === null,
+    "so a disagreement between the two is visible instead of silent");
+}
+
+console.log("\n  -- THE CAPABILITY ANSWER IS GENERATED FROM THE CATALOG (D165) --");
+{
+  const caps = [
+    { id: "restart_service", title: "Restart a Windows service", tier: "R1", tierInfo: { label: "Low risk" } },
+    { id: "flush_dns", title: "Flush the DNS resolver cache", tier: "R1", tierInfo: { label: "Low risk" } },
+    { id: "reset_adapter", title: "Disable and re-enable a network adapter", tier: "R2", tierInfo: { label: "Disruptive" } },
+  ];
+  const r = capabilityReply({ capabilities: caps });
+  check("it names every capability in the catalog", caps.every((c) => r.includes(c.title.toLowerCase().slice(1, 20)) || r.includes(c.title.slice(1, 20))), r);
+  check("it lowercases a title mid-sentence without mangling an acronym",
+    r.includes("flush the DNS resolver cache") && !r.includes("dns resolver"), r);
+  check("it NAMES the disruptive one rather than summarising it (tierInfo, from the catalog)",
+    /disable and re-enable a network adapter/.test(r) && /notice/.test(r), r);
+  check("it says nothing happens without approval", /approve|approval/.test(r));
+  check("IT STATES THE BOUNDARY - a user who hears three things assumes the fourth is included",
+    /beyond that list I can't/.test(r), r);
+
+  // The whole reason this is generated: it cannot claim what is not there.
+  const fewer = capabilityReply({ capabilities: caps.slice(0, 1) });
+  check("REMOVE a capability and the answer shrinks - there is no hand-written list to drift",
+    fewer.includes("restart a Windows service") && !fewer.includes("flush the DNS"), fewer);
+  check("with one capability it does not say 'One of those' about a tier that is not there",
+    !/notice happen/.test(fewer), fewer);
+  const empty = capabilityReply({ capabilities: [] });
+  check("AN UNREADABLE CATALOG PROMISES NOTHING rather than claiming from memory",
+    /can't see my own list/.test(empty) && !/restart/.test(empty), empty);
+  check("titles containing 'and' do not produce three ands in a row",
+    !/ and \w+ and \w+ and /.test(r), r);
+}
 
 console.log("\n=== 5. isQuestion is a thin wrapper, not a second opinion ===");
 for (const t of ["how do i take a screenshot", "my printer is broken", "how do i fix my printer"]) {
@@ -143,6 +260,63 @@ const proposeOnly = {
   check("…and it is a CAPABILITY check, not a provider-name check",
     /typeof this\.cloud\?\.ask === "function"/.test(agentSrc) && !/provider\s*===\s*"hub"/.test(agentSrc),
     "a name check would break the moment a second question-capable provider exists");
+}
+
+// D165 / D198 AT THE AGENT LEVEL, AND ON THE DEMO'S PROVIDER.
+//
+// This is the assertion that matters most in this file. D198's defect was observed on
+// `provider: "cloud"` — the configuration the frozen demo build uses — so a social layer gated on
+// the provider having `ask()` would have left the observed defect in place on the path it was
+// observed on. The social branch is therefore UNCONDITIONAL, and these prove it.
+{
+  const cloud = { ...proposeOnly, proposed: 0 };  // no ask(), like CloudClient
+  const res = await agentWith(cloud).propose("Hello how are you?");
+  check("D198'S DEFECT IS FIXED ON THE DEMO'S OWN PROVIDER - a greeting returns res.social",
+    res.ok === true && res.social?.subkind === "howareyou",
+    JSON.stringify({ social: res.social, proposal: res.proposal }));
+  check("…with NO PROPOSAL, so the turn never reaches the consent path",
+    res.proposal === undefined && res.validation === undefined);
+  check("…and NO PROVIDER CALL AT ALL - the templates are local and deterministic (D165)",
+    cloud.proposed === 0);
+  check("…and it still speaks", typeof res.reply === "string" && res.reply.length > 20);
+  check("…and the facts panel is still populated", res.facts?.computer === "T");
+}
+{
+  // The capability answer through the agent, generated from whatever the broker reports.
+  // Two brokers, because the two outcomes are different assertions and the first version of this
+  // block asserted BOTH against an empty one, which cannot pass: the fallback says "I can't see my
+  // own list", and `/I can /` does not match `I can't`.
+  const withCatalog = {
+    validate: () => ({ ok: true, capability: { id: "x" } }),
+    listCapabilities: () => [
+      { id: "flush_dns", title: "Flush the DNS resolver cache", tier: "R1", tierInfo: { label: "Low risk" } },
+      { id: "reset_adapter", title: "Disable and re-enable a network adapter", tier: "R2", tierInfo: { label: "Disruptive" } },
+    ],
+  };
+  const cloud = { ...proposeOnly, proposed: 0 };
+  const a = new Agent({ broker: withCatalog, cloud, onLog: () => {} });
+  a.diagnose = () => ({ probe: PROBE_OK, summary: {}, identity: {}, panel: {} });
+  const res = await a.propose("what can you do?");
+  check("'what can you do' is answered FROM THE CATALOG via the agent, with no provider call",
+    res.social?.subkind === "capability" && cloud.proposed === 0
+    && /flush the DNS resolver cache/.test(res.reply)
+    && /disable and re-enable a network adapter/.test(res.reply),
+    res.reply);
+  check("…and the disruptive one is named as such, from tierInfo", /notice/.test(res.reply), res.reply);
+
+  // The stub broker used everywhere else in this file reports NO capabilities, which is what an
+  // unsigned or unreadable catalog looks like. The honest fallback is the assertion.
+  const empty = await agentWith({ ...proposeOnly, proposed: 0 }).propose("what can you do?");
+  check("…and with NO readable catalog it PROMISES NOTHING rather than claiming from memory",
+    /can't see my own list/.test(empty.reply) && !/flush/.test(empty.reply), empty.reply);
+}
+{
+  // A greeting wrapped around a real problem must still reach the proposal path.
+  const cloud = { ...proposeOnly, proposed: 0 };
+  const res = await agentWith(cloud).propose("hi, my printer is broken");
+  check("a POLITE PROBLEM REPORT still reaches the proposal path, not a template",
+    res.social === undefined && res.proposal !== undefined && cloud.proposed === 1,
+    "swallowing this would be a silent failure: warm answer, no help");
 }
 
 // A hub-like provider that answers.

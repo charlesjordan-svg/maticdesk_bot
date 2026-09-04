@@ -28,7 +28,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D212 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D213 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -65,7 +65,7 @@ and earlier use that path; do not "fix" them, they are records.
   that is Phase 2 scope arriving through the back door**; and **D202 is proposed and awaits Charles**
   (§5.7a: step-up for vendor-grant creation, the one item D157's list missed — it gates nothing,
   because `admin_audit.step_up` is indifferent to what is on the list).
-- **Still proposed: D130–D150** (the design review) and **D202–D211**. Note that a proposed row's
+- **Still proposed: D130–D150** (the design review) and **D202–D212**. Note that a proposed row's
   status cell reads the same as a ratified set's used to — **never search-and-replace a status
   file-wide.**
 - **Q35 is ANSWERED: English only, FOR NOW** (founder, 2026-09-04 — D208, register §5.17). *"For
@@ -109,7 +109,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 336 assertions across 10 files.
+#                            headless, no key, no admin, no hub: 395 assertions across 10 files.
 #                            It also PRINTS what it deliberately does not run and why -
 #                            cloud.test.mjs (real API calls, costs money) and privileged.test.mjs
 #                            (needs elevation). Both had silently fallen out of the old && chain.
@@ -296,9 +296,18 @@ These are in the register, but the register is not what a session reads first. E
   anywhere but a `Broker` implementation. `client/src/broker/broker.d.ts` explains why.
 - **Offer a consent card the user did not provoke** (**D198**). A greeting answered with a card is a
   defect even when every gate behaved correctly: it teaches the user that the card is noise to click
-  past, and `consent-surface.test.mjs` will still pass on the day it has become furniture. When
-  D165's social layer is built it goes **ahead** of `routeByState()` in `client/src/agent/agent.js`,
-  not after it. Observed on 2026-09-03: "Hello how are you?" produced a `renew_dhcp` card.
+  past, and `consent-surface.test.mjs` will still pass on the day it has become furniture.
+  **D165's social layer is BUILT as of 2026-09-04** (D212, register §5.19):
+  `client/src/router/social.js` plus the social branch of `classify()`, called **unconditionally**
+  from `Agent.propose()` ahead of every provider call and of `routeByState()`. The observed case
+  ("Hello how are you?" → a `renew_dhcp` card) is the first assertion in
+  `client/test/classify.test.mjs` §4. **This removed one source of unprovoked cards, not the
+  general possibility** — the rule stands.
+- **Hand-write a list of what the assistant can do.** The capability answer is generated from
+  `broker.listCapabilities()` (D165, D212): a hand-written list is a claim, a generated one is a
+  fact, and with an unreadable catalog the assistant promises nothing rather than claiming from
+  memory. Read tier labels from `capability.tierInfo`, never from `broker.catalog` — reaching
+  through a Broker into its catalog is the layering violation `broker.d.ts` exists to prevent.
 - Let the model author consent text. Consent wording is catalog data (`plain/*` in `catalog.json`).
   **Verified on screen 2026-09-03:** the only model-authored string on the card is the labelled
   "Why this, here" line (`proposal.reasoning`). Nothing else on the card came from anywhere but

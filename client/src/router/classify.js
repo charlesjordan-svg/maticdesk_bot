@@ -33,16 +33,21 @@
  * premise and there is no flag for it.
  *
  * ---------------------------------------------------------------------------------------------
- * WHERE D165'S SOCIAL LAYER GOES
+ * D165'S SOCIAL LAYER IS HERE, AND IT RUNS FIRST — BUILT 2026-09-04
  *
- * **Here, ahead of everything else, and it is NOT built.** D198 found that "Hello how are you?"
- * produced a consent card, and pinned D165's social templates ahead of `routeByState()`. This
- * function is the place: classifying "is this social?" is the same act as classifying "is this a
- * question?", and doing them in two passes means classifying twice.
+ * D198 found that "Hello how are you?" produced a `renew_dhcp` consent card, and pinned D165's
+ * templates ahead of `routeByState()`. They sit ahead of everything: a greeting should not cost a
+ * model call either, and classifying "is this social?" is the same act as classifying "is this a
+ * question?" — doing them in two passes would mean classifying twice.
  *
- * `SOCIAL_MARKERS` below is deliberately empty and `classify()` never returns `"social"` yet —
- * the shape is here so D165 slots in without moving anything, and the absence is explicit rather
- * than forgotten. **Do not treat the presence of the branch as the presence of the feature.**
+ * Templates: `src/router/social.js`. Deterministic, client-shipped, never model-authored, and the
+ * capability answer is GENERATED FROM THE CATALOG so it cannot claim an ability that is not there.
+ *
+ * **`Agent.propose()` calls this UNCONDITIONALLY**, unlike the question branch, which is gated on
+ * the provider having an `ask()`. That difference is deliberate and was a correction: the social
+ * layer is a safety requirement under D198 and must protect **every** provider — including
+ * `provider: "cloud"`, which is what the frozen demo build uses and is the configuration D198's
+ * defect was observed in.
  */
 
 /**
@@ -81,10 +86,126 @@ const QUESTION_MARKERS = [
 ];
 
 /**
- * D165's social layer. EMPTY ON PURPOSE — see the header. Populating this is D165's job, not this
- * function's, and the empty array is the honest record that it has not been done.
+ * D165's social layer. BUILT 2026-09-04. Templates: `src/router/social.js`.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * THE HARD PART IS NOT RECOGNISING "HELLO". IT IS NOT SWALLOWING "HI, MY PRINTER IS BROKEN".
+ *
+ * A naive substring match on greetings turns every polite problem report into a greeting, and the
+ * user who opened with "hi" never gets help. That failure is worse than the one D198 found, because
+ * it is silent: the assistant answers warmly and does nothing.
+ *
+ * So a greeting is social only when, with the greeting REMOVED, there is nothing of substance left.
+ * `residue()` below does the removing, and `classify()` requires the remainder to be empty or
+ * trivial. "hello" is social; "hello my printer is broken" is not, and falls through to the ordinary
+ * classification, which sends it to the proposal path exactly as it does today.
+ *
+ * CAPABILITY QUESTIONS ARE THE EXCEPTION and fire on a marker alone, because they are substantial by
+ * nature — "what can you do" has no residue to test and nothing else it could mean.
+ * ---------------------------------------------------------------------------------------------
  */
-const SOCIAL_MARKERS = [];
+/**
+ * Normalise an utterance for WORD-BOUNDARY matching, and pad it with spaces.
+ *
+ * Social markers are short words, and substring matching on short words is wrong in both
+ * directions. The first version listed `"hi "`, `"hi!"`, `"hi."` and `"hi?"` as separate markers to
+ * stop `"hi"` matching inside "this" and "hint" — and a bare `"Hi"` with no trailing character
+ * then matched none of them and was classified as an action. Enumerating punctuation is the wrong
+ * fix for a boundary problem.
+ *
+ * So: apostrophes are REMOVED (so "how's it going" and "hows it going" are the same string), all
+ * other punctuation becomes a space, runs of whitespace collapse, and the result is padded. A
+ * marker is then matched as ` marker `, which is a whole-phrase match — ` hi ` is in " hi there "
+ * and is not in " this ".
+ *
+ * @param {string} t
+ */
+export function normalise(t) {
+  const cleaned = String(t ?? "")
+    .toLowerCase()
+    .replace(/['\u2018\u2019]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return ` ${cleaned} `;
+}
+
+const SOCIAL = [
+  // Order matters within a subkind's list only for the log message; across subkinds, the first
+  // match wins, so the more specific "how are you" is tested before the bare greetings.
+  { subkind: "howareyou", markers: ["how are you", "howre you", "how are things", "hows it going", "you ok", "you alright"] },
+  { subkind: "capability", markers: [
+    "what can you do", "what do you do", "what are you able", "what can you help",
+    "what else can you do", "who are you", "what are you", "can you help me with",
+    "what are your capabilities", "list your", "what can i ask",
+  ] },
+  { subkind: "thanks", markers: ["thanks", "thank you", "cheers", "much appreciated", "appreciate it"] },
+  { subkind: "farewell", markers: ["goodbye", "good bye", "bye", "see you", "thats all", "nothing else", "were done", "im done"] },
+  { subkind: "greeting", markers: [
+    "hello", "hi", "hey", "hiya", "good morning", "good afternoon", "good evening",
+    "morning", "howdy", "greetings",
+  ] },
+  // OFF-TOPIC. A short, explicit list, and it must STAY short: anything not matched here goes to
+  // the ordinary path, which is the conservative direction. Guessing that an unrecognised sentence
+  // is off-topic would refuse to help with real problems phrased unusually — the same failure mode
+  // as swallowing "hi, my printer is broken", arrived at from the other side.
+  //
+  // EVERY MARKER IS A COMPLETE PHRASE, and the first version's were not. It listed "the weather",
+  // "a joke", "the score" and "the news" — all of which appear inside real complaints: "the weather
+  // app won't open", "this printer is a joke", "the news site won't load". A bare topic noun is not
+  // an off-topic question, it is a noun, and matching on it would refuse to help with a real
+  // problem. Complete phrases cannot collide that way.
+  { subkind: "offtopic", markers: [
+    "whats the weather", "what is the weather", "the weather like", "the weather forecast",
+    "tell me a joke", "know any jokes", "who won the", "whats the score", "what is the score",
+    "what time is it", "whats the time", "your favourite", "your favorite",
+    "who is the president", "write me a poem", "what do you think of",
+  ] },
+];
+
+/** Every marker, longest first, so "how are you" is stripped before "hi". */
+const ALL_SOCIAL_MARKERS = SOCIAL.flatMap((s) => s.markers).sort((a, b) => b.length - a.length);
+
+/** True when `marker` appears in `text` as a whole word or phrase. */
+function hasMarker(paddedText, marker) {
+  return paddedText.includes(` ${marker} `);
+}
+
+/**
+ * Filler that carries no problem statement. Removed alongside the social markers so that
+ * "hello there, thanks" reduces to nothing rather than to "there".
+ */
+const FILLER = ["there", "please", "mate", "buddy", "again", "quickly", "just", "so", "ok", "okay", "well", "um", "uh", "hi", "hey"];
+
+/**
+ * What is left of an utterance once the social markers and filler are taken out.
+ *
+ * The residue is what decides whether a greeting was the whole message or the doormat in front of a
+ * real one. Punctuation goes too, so "hello!!!" and "hello" behave the same.
+ *
+ * @param {string} t  already lowercased and trimmed
+ * @returns {string}
+ */
+export function residue(t) {
+  let r = normalise(t);
+  // Whole-word removal, and repeated until nothing more comes out: taking " hi " out of " hi hi
+  // there " leaves " hi there " on a single pass, because the two markers overlap on one space.
+  for (const m of ALL_SOCIAL_MARKERS) {
+    while (hasMarker(r, m)) r = r.split(` ${m} `).join(" ");
+  }
+  const words = r.split(/\s+/).filter((w) => w && !FILLER.includes(w));
+  return words.join(" ");
+}
+
+/**
+ * How much residue still counts as "nothing of substance".
+ *
+ * ONE word, not two or three. "hello printer" should reach the proposal path — a single noun is
+ * often the whole complaint from someone who does not want to type. The threshold is deliberately
+ * at its most conservative setting, and raising it is how "hi, my printer is broken" starts getting
+ * swallowed again.
+ */
+const MAX_SOCIAL_RESIDUE_WORDS = 0;
 
 /**
  * @typedef {"social" | "question" | "action"} InputKind
@@ -99,10 +220,42 @@ const SOCIAL_MARKERS = [];
 export function classify(text) {
   const t = String(text ?? "").toLowerCase().trim();
   if (!t) return { kind: "action", why: "empty input - the existing path already handles it" };
+  const padded = normalise(text);
 
-  // D165, when it exists. Never fires today.
-  for (const m of SOCIAL_MARKERS) {
-    if (t.includes(m)) return { kind: "social", why: `social marker "${m}" (D165)` };
+  // ---- D165's social layer, FIRST. D198 requires it ahead of the state fallback; it is ahead of
+  // every provider call too, because a greeting should not cost a model call either.
+  for (const { subkind, markers } of SOCIAL) {
+    const hit = markers.find((m) => hasMarker(padded, m));
+    if (!hit) continue;
+
+    // CAPABILITY and OFF-TOPIC questions fire on the marker alone, without the residue test.
+    //
+    // The residue test exists to stop a GREETING swallowing a real complaint — "hi" is politeness
+    // wrapped around a message, so what is left after removing it decides what the message was.
+    // These two are not politeness: they are content. "What can you do" has no residue to test, and
+    // "what is the weather" leaves "what is", which trips the threshold and sent it to the KNOWLEDGE
+    // BASE — observed 2026-09-04 before this branch existed. The protection they need is markers
+    // specific enough not to collide with a real problem, which is the note above their lists.
+    if (subkind === "capability" || subkind === "offtopic") {
+      return {
+        kind: "social",
+        subkind,
+        why: subkind === "capability"
+          ? `capability question ("${hit}") - answered from the catalog (D165)`
+          : `off-topic phrase ("${hit}") - redirected, not sent to the knowledge base`,
+      };
+    }
+
+    // Everything else must be the WHOLE message. See the note above SOCIAL: swallowing
+    // "hi, my printer is broken" is a worse failure than the one D198 found, because it is silent.
+    const left = residue(t);
+    const wordsLeft = left ? left.split(" ").length : 0;
+    if (wordsLeft <= MAX_SOCIAL_RESIDUE_WORDS) {
+      return { kind: "social", subkind, why: `social marker "${hit.trim()}" with no residue (D165)` };
+    }
+    // There IS something else in the sentence. Stop testing social markers and classify the rest
+    // normally - do not let a later, shorter marker match on the same text.
+    break;
   }
 
   // An action verb wins over question grammar. See the header: the bias is towards the measured
