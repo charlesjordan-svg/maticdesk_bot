@@ -70,6 +70,9 @@ npm.cmd run show-consent   # what the broker rendered and kept, for that compari
 npm.cmd run start:elevated # the app; needs .env with ANTHROPIC_API_KEY (see .env.example)
 npm.cmd run count-tokens   # measures the shipped prompt prefix against the cache floor
 npm.cmd run verify-cache   # TWO REAL CALLS to claude-sonnet-5: proves the cache_control breakpoint works (D161)
+npm.cmd run verify:pipe    # D201: reads the DACL Windows gives a Node pipe and exercises the
+#                            access check. RUN UNELEVATED - an elevated token has Administrators
+#                            enabled rather than deny-only and the write succeeds (wrong answer).
 
 cd ../server
 npm.cmd install            # pg - B1's dependency, and server/'s first
@@ -104,10 +107,11 @@ The `NamedPipeBroker` pipe protocol is **designed** (D200–D201,
 two-step shape: `execute` takes a nonce and the wire schema has nowhere to put a proposal. **Do not
 add a parameter to `execute`** and do not reintroduce a one-call `consentAndExecute` — either
 re-opens the finding the whole design answers. Two things to know before touching it: **a
-LocalSystem-hosted Node pipe gives the unprivileged agent read and no write** (libuv passes NULL
-security attributes), so the transport needs native creation with an explicit DACL (D201); and
-**that DACL is not a defence against user-context malware and cannot be** — D130's audit trail is
-what covers that (§5.15a).
+LocalSystem-hosted Node pipe gives the unprivileged agent read and no write** — libuv passes NULL
+security attributes, and this is **measured, not assumed** (`npm.cmd run verify:pipe`, register
+§10.5: `GENERIC_READ` allowed, `GENERIC_WRITE` refused with ERROR_ACCESS_DENIED) — so the transport
+needs native creation with an explicit DACL (D201); and **that DACL is not a defence against
+user-context malware and cannot be** — D130's audit trail is what covers that (§5.15a).
 
 ## Never
 
@@ -116,6 +120,10 @@ what covers that (§5.15a).
   bake-off (one machine, 40 hand-written cases), the prompt prefix token count, one live
   prompt-cache check on Sonnet 5 (two calls), and the same bake-off through the B0 hub (identical to
   the direct path on 40 of 40 cases, one session). Everything else is a target and the docs say so.
+  **Verifications are not measurements and do not lengthen that list.** B1's exit criteria (§10.3a
+  family), the D130 renderer check and the D201 pipe DACL are *pass/fail against a real system* —
+  they establish that something behaves as claimed, and none of them is a latency, throughput or
+  cost figure. The register keeps them in §10.3a/§10.5, apart from §10.3's four numbers, on purpose.
 - **Reach a tenant's tables by any route other than `withTenant()`** (`server/src/db/tenant.js`). It
   asserts the schema name against `control.tenants` before setting `search_path`, and `SET` takes no
   bind parameter — so the allow-list is the injection defence, not a tidiness check. Do not add a

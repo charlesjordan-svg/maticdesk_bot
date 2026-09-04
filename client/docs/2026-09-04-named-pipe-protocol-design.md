@@ -12,7 +12,7 @@ renderer contract this serialises has now been looked at.
 > ## The finding, first, because it changes the shape of the work
 >
 > **Node cannot create the pipe this design needs, and the pipe it *does* create makes the protocol
-> impossible.**
+> impossible. This is now MEASURED, not inferred** — `npm.cmd run verify:pipe`, 2026-09-04.
 >
 > libuv passes `NULL` as `lpSecurityAttributes` to `CreateNamedPipeW`
 > ([source](https://github.com/libuv/libuv/blob/v1.x/src/win/pipe.c)). Microsoft documents what that
@@ -21,14 +21,32 @@ renderer contract this serialises has now been looked at.
 > creator owner. They also grant read access to members of the Everyone group and the anonymous
 > account."*
 >
-> The broker runs as **LocalSystem**. So a pipe it creates through `node:net` grants a standard user
-> **read access and nothing more** — and a client needs write access to send a request. **The
-> unprivileged agent could connect and listen, and never speak.** The protocol cannot run on the
+> **The DACL read off a live Node pipe on this machine, verbatim:**
+>
+> ```
+> O:<creator>D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;<creator>)(A;;FR;;;WD)(A;;FR;;;AN)
+> ```
+>
+> | Principal | Mask | Decoded |
+> |---|---|---|
+> | `SY` LocalSystem | `0x001F01FF` | full control |
+> | `BA` Administrators | `0x001F01FF` | full control |
+> | creator owner | `0x001F01FF` | full control |
+> | **`WD` Everyone** | **`0x00120089`** | READ_DATA, READ_ATTRS, READ_CONTROL, SYNCHRONIZE — **no WRITE_DATA** |
+> | **`AN` Anonymous Logon** | **`0x00120089`** | the same |
+>
+> The broker runs as **LocalSystem**, so the creator-owner ace *is* the `SY` ace and an unprivileged
+> agent falls through to `WD`. Exercising the access check against that exact DACL from an
+> unelevated token: **`GENERIC_READ` ALLOWED, `GENERIC_WRITE` REFUSED with ERROR_ACCESS_DENIED**,
+> and the same for `FILE_WRITE_DATA` and for a duplex open.
+>
+> **The unprivileged agent can connect and listen, and never speak.** The protocol cannot run on the
 > transport we assumed.
 >
-> libuv also omits `PIPE_REJECT_REMOTE_CLIENTS`, so the pipe mode does not itself refuse remote
-> callers. Given a default DACL that grants read to *Everyone and the anonymous account*, that is a
-> pre-authentication surface on a LocalSystem service, which is not a thing to ship.
+> Note the **anonymous-logon ace getting read access** on what would be a LocalSystem service's
+> pipe, while libuv also omits `PIPE_REJECT_REMOTE_CLIENTS` so the pipe mode does not itself refuse
+> remote callers. That is a pre-authentication surface on a privileged service, it is **observed
+> rather than argued**, and it is what §4.1 closes.
 >
 > **This is why D201 exists as a separate decision from D200.** The protocol below is cheap. The
 > transport underneath it costs native code, and native code in the privileged half is exactly what
@@ -276,10 +294,22 @@ record the broker already wrote.
 
 - **Nothing here is built.** No pipe, no service, no native binding. This is a design document and
   the acceptance list above is what would make it real.
-- **The blocker is retrieved, not measured.** I read libuv's source and Microsoft's documentation; I
-  did not stand up a LocalSystem service and watch a standard user's write fail. That experiment is
-  small and it should be the first thing done — **if the default DACL somehow permits the write, most
-  of D201 is unnecessary**, and that is worth ten minutes before it is worth engineering weeks.
+- **The blocker is now measured** (`npm.cmd run verify:pipe`, `scripts/verify-pipe-security.ps1`),
+  and it held: read allowed, write refused with ERROR_ACCESS_DENIED. **Two caveats on how.** The
+  pipe whose DACL was read was created by a normal user rather than by LocalSystem, so the
+  creator-owner ace names that user; the load-bearing ace is `WD` (Everyone), which is identical
+  either way, and the LocalSystem case only *removes* the separate creator ace by merging it into
+  `SY`. And the access check was exercised against a **reproduction** of that DACL with no ace for
+  the caller, not against a real service. **What has still never been run is the real thing: a
+  LocalSystem-hosted Node pipe with a standard user's agent on the other end.** That needs an
+  elevated window and it is the last mile of this verification.
+- **Two bugs in the verification itself, worth recording because both produced a confident wrong
+  answer.** Passing `\\.\pipe\name` as a bash argument silently ate the backslashes and produced an
+  `EACCES` that looked exactly like the finding being sought — a false positive for the right
+  conclusion. And a PowerShell helper that emitted status strings *and* returned a boolean put both
+  on the pipeline, so the caller captured an array, every array is truthy, and the verdict inverted
+  to "the write was ALLOWED". Neither was caught by the result looking wrong; both were caught by
+  the result looking *right for the wrong reason*.
 - **`[VERIFY]` how the native calls are made.** koffi, an N-API addon, or a small signed helper —
   not chosen here, and it interacts with D147's requirement that broker binaries and native DLLs sit
   under `%ProgramFiles%` and ship separately from the agent's.
@@ -310,4 +340,5 @@ Retrieved 2026-09-04.
   logon-SID guidance for cross-session and remote access
 - [nodejs/node#30823](https://github.com/nodejs/node/issues/30823) — the request for pipe-permission
   control, **closed `wontfix`**
+- `../scripts/verify-pipe-security.ps1` — the experiment, reproducible with `npm.cmd run verify:pipe`
 - Register §10.4 — the WTS/token→SID verification that D148's wording still needs to absorb
