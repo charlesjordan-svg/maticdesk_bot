@@ -192,11 +192,20 @@ chunk) pair — ~20 passes of a ~300M model per question on 1–2 vCPU. **So "is
 Fargate" is not answerable by comparing parameter counts**, and the mitigation may be architectural
 (rerank 10 not 20; managed-mode only) rather than a model choice.
 
-If one is forced today: **`Alibaba-NLP/gte-multilingual-reranker-base`** — 306M against
-arctic-embed-m-v2.0's 305M, same GTE family, Apache-2.0, 8192 context, multilingual, TEI-named.
-`gte-reranker-modernbert-base` is the fallback **if Q35 comes back English-only** (150M, int8 ONNX,
-but English-only). Note that **both `bge-reranker` base and large cap at 514 tokens**, close to
-disqualifying here — the reference article is a single unsplit markdown table.
+**Q35 CAME BACK ENGLISH-ONLY ON 2026-09-04, SO THE FORK IS RESOLVED — see D209 (§5.17).** The pick
+is **`Alibaba-NLP/gte-reranker-modernbert-base`**: Apache-2.0, **150M**, ModernBert, 8192-token
+context, TEI-named, **full ONNX including `model_int8.onnx`**, BEIR 56.73. It displaces
+`gte-multilingual-reranker-base` (306M, no ONNX), which was only the pick while Q35 was open.
+
+**This matters more for the reranker than Q35 does for the embedder, and D207's cost shape is why:**
+a cross-encoder runs one forward pass **per (query, chunk) pair**, so halving the parameters halves
+**every question** rather than a one-off, and int8 is the first quantisation option any candidate has
+offered. The two things that made CPU viability doubtful are exactly what changed. The 8192 context
+also survives, which the `bge-reranker` pair (514 tokens) did not — our reference article is a
+single unsplit markdown table.
+
+**It is still not a decision to build.** No latency figure exists for this or any candidate on
+Fargate-class hardware, and Q35's answer does not supply one.
 
 **Every retrieval number B7a produces is still a FLOOR, not a measurement of the design.** Review A1
 suggests the reranker may matter more to quality than the embedder does.
@@ -240,16 +249,23 @@ watch.
 - **A DATE from Daniel** on the code-signing certificate, not a status. **This currently sets the
   pilot date rather than any engineering decision** — EDR allowlisting cannot start without a signed
   binary, and if that review takes weeks, the sequence is longer than B2 plus B3 combined.
-- **Q9 and Q35 in one message.** Q9 (which EDR products the design partner runs) is a prerequisite
-  for identifying the vendor to talk to at all. **Q35 (multilingual) now has a second consumer:** it
-  decides whether D207's reranker can be the 150M English-only one or has to be the 306M
-  multilingual one.
+- **Q9, on its own now** — Q35 was answered on 2026-09-04. Q9 (which EDR products the design
+  partner runs) is a prerequisite for identifying the vendor to submit to at all, and with the
+  certificate now estimated at ≈2026-10-04 it is **the item on the critical path**: the certificate
+  has a date and Q9 has none, and Q9 can be answered during the wait so the submission is ready when
+  the binary is.
+- **Daniel's certificate estimate is recorded as ≈2026-10-04** (OPEN-9, register §9) — roughly one
+  month from 2026-09-04, possibly sooner. It is an estimate, not a commitment. **About a month of
+  engineering fits inside the wait** (B2, the pipe, Task 1's `ask()` path); B3's 6–8 engineer-weeks
+  does not.
 - **The top-30 ticket categories.** Roughly seven weeks outstanding. Nothing here is blocked on
   them; the Phase 1 exit criteria are.
-- **Two unstarted clocks with no owner:** the Anthropic Scale tier (accrues by spend history, and
-  nothing is accruing — running part of the eval loop against `claude-haiku-4-5` would start it and
-  give regression coverage on the shipped model at the same time) and the EDR conversation. Four
-  sessions have now flagged both.
+- **Two unstarted clocks with no owner:** the Anthropic Scale tier and the EDR conversation. Four
+  sessions have now flagged both. **The certificate's one-month wait is exactly the window for the
+  Scale tier** — it accrues by spend history rather than by payment, nothing is accruing, and running
+  part of the eval loop against `claude-haiku-4-5` would start it *and* give regression coverage on
+  the shipped model. If that month passes with nothing accruing, the next month is the same
+  conversation.
 
 ---
 

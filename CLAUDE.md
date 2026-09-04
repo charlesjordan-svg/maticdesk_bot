@@ -28,7 +28,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D208 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D211 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -65,9 +65,22 @@ and earlier use that path; do not "fix" them, they are records.
   that is Phase 2 scope arriving through the back door**; and **D202 is proposed and awaits Charles**
   (§5.7a: step-up for vendor-grant creation, the one item D157's list missed — it gates nothing,
   because `admin_audit.step_up` is indifferent to what is on the list).
-- **Still proposed: D130–D150** (the design review) and **D202–D207**. Note that a proposed row's
+- **Still proposed: D130–D150** (the design review) and **D202–D210**. Note that a proposed row's
   status cell reads the same as a ratified set's used to — **never search-and-replace a status
   file-wide.**
+- **Q35 is ANSWERED: English only, FOR NOW** (founder, 2026-09-04 — D208, register §5.17). *"For
+  now"* is part of the decision: it licenses choosing English-only components where they are
+  cheaper, and does **not** license making a later reversal a migration rather than a redeploy.
+  `control.kb_chunks.tsv` is already `to_tsvector('english', …)`, which is now backed by a
+  decision rather than a default. Two consequences: **D209** makes the reranker pick
+  `gte-reranker-modernbert-base` (150M, int8 ONNX) over the 306M multilingual one — selecting
+  within D207's own recorded fork; and **D210 records that D199's DECIDING REASON IS SPENT**, since
+  that reason was "it removes Q35 from the critical path". D199 stands,
+  `nomic-embed-text-v1.5` (137M, same 768 dims) is the pre-argued alternative, and it is **not**
+  adopted because no latency measurement exists for either and "for now" can revert.
+- **Q35, Q9 and Q39 are cited in the register and defined nowhere in it** — their text is in
+  `ASK-IT-questionnaire.xlsx`, which has never been on disk. Same class as `D46b` / `D52a`.
+  §5.17 records what Q35 was taken to mean so its answer is unambiguous without the workbook.
 - **Do not read a built schema as evidence that the decisions behind it were ratified.** B1's
   ratified schema implemented D152–D160's shapes before those decisions were accepted. That was
   correct (D160 asked for the shapes, and they are cheap now and expensive later) and it is NOT
