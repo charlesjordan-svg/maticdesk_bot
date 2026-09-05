@@ -1281,6 +1281,33 @@ capability names and **did not hold for the sentence around them**. It is true a
   endpoint creates no sessions, so the column records that honestly rather than inventing one per
   ticket. D89's `escalated` outcome therefore still has nothing setting it.
 
+#### 5.20c The bake-off does NOT route through the classifier — the carried question, answered
+
+Two handovers carried this as an open item, because if `eval/run-bakeoff.mjs` went through D211's
+question/action classifier then the 40-case bake-off would be measuring a path that changed on
+2026-09-04, and *"no reason to expect movement"* would stop being an argument.
+
+**It calls the provider directly.** It imports `OpenAICompatibleClient`, `CloudClient` and
+`HubClient`, constructs one, and calls `client.propose(...)`. It never builds an `Agent`, so it
+never reaches `src/router/classify.js`, `src/router/social.js`, tier-0, or anything added since B0.
+
+**There is a name collision that will mislead the next person who greps for this.**
+`run-bakeoff.mjs` defines its own `classify(expected, answer)` at line 113 — that is the *scoring*
+function that grades an outcome as correct / false_action / miss. It is unrelated to the router's
+`classify(text)`. Grepping for "classify" in that file finds it and suggests the opposite of the
+truth.
+
+**So the recorded 33/40 stands and no re-run is needed.** `/v1/turn` is unmodified,
+`test/db-static.test.mjs` still pins it as reaching no database, and nothing between the bake-off's
+call and the model changed.
+
+**One thing this turned up, relevant to D218.** `run-bakeoff.mjs` has always passed
+`timeoutMs: 300000` explicitly to both clients it builds. So the correct value already existed in
+the eval harness, and **the 90-second default was wrong only in the place a user actually meets it**
+— which is also why the recorded hub bake-off numbers are unaffected by D218. A constant that is
+right in the test harness and wrong in the application is a worse failure than one that is wrong in
+both, because the harness cannot see it.
+
 ---
 
 ## 6. Conflicts
