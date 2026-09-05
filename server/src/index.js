@@ -50,6 +50,7 @@ import { turnHandler } from "./turn.js";
 import { askHandler } from "./kb/ask.js";
 import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
+import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
@@ -101,11 +102,14 @@ export function authenticate(_req) {
  * Build the server. Exported so tests can start it on an ephemeral port with a stub provider.
  * @param {{ provider: import("./providers/openai-compatible-provider.js").Provider, hubProvider?: "local" | "cloud", log?: (s: string) => void }} deps
  */
-export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true }) {
+export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true, ticketTenant = null }) {
   const handleTurn = turnHandler({ provider, hubProvider, log });
   // Built even when `kb` is false, so the route can answer 503 with a reason rather than 404 with
   // none: "this hub has no knowledge base" and "no such route" are different facts for a client.
   const handleAsk = askHandler({ provider, embedder, hubProvider, tenantLabel, log });
+  // Built unconditionally, like handleAsk: an unconfigured ticket tenant answers 503 with a reason
+  // rather than 404 with none (B6-lite, D213).
+  const handleTicket = ticketHandler({ tenantSchema: ticketTenant, log });
 
   return http.createServer(async (req, res) => {
     const send = (status, body) => {
@@ -137,6 +141,10 @@ export function createHubServer({ provider, hubProvider = "local", log = console
       if (!kb) return send(503, { ok: false, error: "this hub is running without a knowledge base (kb: false)" });
       return handleAsk(req, res, send);
     }
+    if (req.url === "/v1/ticket") {
+      if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
+      return handleTicket(req, res, send);
+    }
     if (req.url === "/v1/health" && req.method === "GET") {
       // The corpus figures are best-effort: /v1/health must answer when the database does not,
       // because "is the hub up" and "is the corpus loaded" are different questions and the second
@@ -155,6 +163,12 @@ export function createHubServer({ provider, hubProvider = "local", log = console
         provider: { name: provider.name, model: provider.model, hubProvider },
         embedder: embedder ? { name: embedder.name, model: embedder.model, dimensions: embedder.dimensions } : null,
         corpus,
+        // B6-lite (D213). `notifies` is false in EVERY build that has a ticket store, until
+        // outbound email exists (D86) — a client reading this must not conclude that filing a
+        // ticket tells anybody, because that is the one wrong thing it would be convenient to say.
+        tickets: ticketTenant
+          ? { enabled: true, tenant: ticketTenant, notifies: false, note: "stored only; there is no outbound email in this build (D86, OPEN-4)" }
+          : { enabled: false, why: "no ticket tenant is configured (MATIC_TICKET_TENANT, or a single tenant in control.tenants)" },
         // Loud, in the one response a client is most likely to read programmatically.
         rerankerPresent: false,
       });
@@ -185,6 +199,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "GET", path: "/v1/health", what: "provider, embedder, corpus counts, and which model embedded it" },
           { method: "POST", path: "/v1/ask", what: "answer a question from the knowledge base, or decline", body: { text: "string (required)", probe: "object (optional machine state; supplies the platform pre-filter)" } },
           { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
+          { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
         ],
         // The caveat that has to travel with any number this hub produces.
         rerankerPresent: false,
@@ -196,7 +211,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     return send(404, {
       ok: false,
       error: `no such route: ${req.method} ${req.url}`,
-      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn"],
+      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket"],
     });
   });
 }
@@ -212,7 +227,8 @@ if (isMain) {
   });
   const embedder = embeddingProviderFromEnv();
   const tenantLabel = process.env.MATIC_KB_TENANT_LABEL ?? null;
-  const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel });
+  const ticketTenant = await resolveTicketTenant(console.log);
+  const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel, ticketTenant });
 
   // Verify the embedder, and do not exit if it fails. A hub with no embedder still answers through
   // the lexical leg, which is the degraded mode the endpoint sees when the embedder is down (B7a

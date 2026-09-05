@@ -21,7 +21,8 @@
     "check:adapter": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-adapter-visibility.ps1",
     "show-consent": "node scripts/show-consent.mjs",
     "verify:pipe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-pipe-security.ps1",
-    "e2e:ask": "node eval/e2e-ask.mjs"
+    "e2e:ask": "node eval/e2e-ask.mjs",
+    "e2e:ticket": "node eval/e2e-ticket.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

@@ -129,6 +129,132 @@ function renderFacts(facts) {
 }
 
 /**
+ * THE TICKET REVIEW CARD (D213, 2026-09-04).
+ *
+ * The user reviews and edits the complete ticket before anything is sent. That was the founder's
+ * instruction and it is also the honest shape for an egress action: the thing you are approving
+ * should be the thing that goes, field for field, with nothing assembled afterwards.
+ *
+ * WHAT IS EDITABLE AND WHAT IS NOT, AND WHY THE DIFFERENCE IS VISIBLE.
+ *
+ *   - The reporter's details and the problem description are INPUTS. They are the user's own
+ *     facts and their own words, and if we have them wrong the ticket is wrong.
+ *   - The case note, category and suggested owner are SHOWN BUT FIXED. They are the model's
+ *     reading of the problem, and they are displayed so nothing is sent that the user has not
+ *     seen — but letting a user rewrite the case note would turn the ticket into a document with
+ *     two authors and no way to tell which sentence came from where. If the case note is wrong,
+ *     the description the user can edit is the record that says so.
+ *
+ * It resolves only on an explicit click. There is no timeout that submits, for the same reason
+ * the consent card has none.
+ *
+ * @param {object} draft
+ * @returns {Promise<object|null>} the (possibly edited) draft, or null if the user cancelled
+ */
+function reviewTicket(draft) {
+  const box = document.createElement("div");
+  box.className = "msg ticket";
+
+  const title = document.createElement("div");
+  title.className = "title";
+  title.textContent = "Review before sending";
+  const lede = document.createElement("div");
+  lede.className = "lede";
+  lede.textContent = "This is exactly what will be sent. Nothing leaves this machine until you press Send.";
+  box.append(title, lede);
+
+  const fields = document.createElement("div");
+  fields.className = "fields";
+
+  /** One editable row. Returns a getter, so the submit handler reads the DOM rather than a copy. */
+  const editable = (labelText, value, { multiline = false } = {}) => {
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    const input = document.createElement(multiline ? "textarea" : "input");
+    input.value = value ?? "";
+    fields.append(label, input);
+    return () => input.value;
+  };
+
+  /** One read-only row. Rendered in the mono style so "shown, not editable" is legible at a glance. */
+  const fixed = (labelText, value) => {
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    const span = document.createElement("div");
+    span.className = "fixed";
+    span.textContent = value;
+    fields.append(label, span);
+  };
+
+  const r = draft.reporter ?? {};
+  const getFirst = editable("First name", r.firstName);
+  const getLast = editable("Last name", r.lastName);
+  const getLocation = editable("Location", r.location);
+  const getContact = editable("Contact", r.contactId);
+  // Not editable: it is a statement about which account is running this software, and a field the
+  // user can retype is not that. It is shown because the ticket carries it.
+  fixed("OS account", `${r.osUsername ?? "unknown"}  (self-asserted — not authenticated)`);
+  fixed("Machine", draft.machineName ?? "-");
+
+  const getDescription = editable("Problem", draft.description, { multiline: true });
+
+  fixed("Category", draft.category);
+  fixed("Goes to", draft.suggestedOwner ? draft.suggestedOwner.replace(/_/g, " ") : "unrouted — IT will decide");
+  fixed("Case note", draft.summary);
+  if (draft.whatWasChecked) fixed("Already checked", draft.whatWasChecked);
+
+  box.append(fields);
+
+  const caveat = document.createElement("div");
+  caveat.className = "caveat";
+  // The line that stops the card implying more than filing achieves. This build stores tickets and
+  // emails nobody (D86) — and the moment a user reads "sent" they assume somebody was told.
+  caveat.textContent = "This is stored on the hub for IT to pick up. No email is sent in this build, so nobody is alerted automatically.";
+  box.append(caveat);
+
+  const row = document.createElement("div");
+  row.className = "row";
+  const send = document.createElement("button");
+  send.className = "primary";
+  send.textContent = "Send it";
+  const cancel = document.createElement("button");
+  cancel.className = "danger";
+  cancel.textContent = "Cancel";
+  row.append(send, cancel);
+  box.append(row);
+
+  logEl.append(box);
+  box.scrollIntoView({ block: "nearest" });
+
+  return new Promise((resolve) => {
+    const done = (result, outcomeText) => {
+      row.remove();
+      box.classList.add("resolved");
+      const outcome = document.createElement("div");
+      outcome.className = "outcome";
+      outcome.textContent = outcomeText;
+      box.append(outcome);
+      resolve(result);
+    };
+    send.onclick = () => done(
+      {
+        ...draft,
+        description: getDescription(),
+        reporter: {
+          ...r,
+          firstName: getFirst(),
+          lastName: getLast(),
+          location: getLocation(),
+          contactId: getContact(),
+        },
+      },
+      "sent by the user",
+    );
+    cancel.onclick = () => done(null, "cancelled by the user — nothing was sent");
+  });
+}
+
+/**
  * Inline consent. Rendered into the conversation so it is always the thing in front of the
  * user, and it scrolls itself into view. Resolves true only on an explicit Approve click -
  * there is no default and no timeout that proceeds.
@@ -254,21 +380,88 @@ async function handleTurn(text) {
   const res = await window.matic.propose(text);
 
   if (res.escalation) {
-    // Scenario 3. Nothing in the catalog fixes this. We show the payload that WOULD be sent
-    // and say plainly that nothing has been filed - the demo must not imply an integration
-    // that does not exist (§13).
+    // Scenario 3. Nothing in the catalog fixes this.
+    //
+    // SINCE D213 THIS BRANCH HAS TWO OUTCOMES, and the difference is `res.canFile`. The disclaimer
+    // below was correct from 2026-09-02 until today and must NOT be printed unconditionally now:
+    // saying "nothing was filed" one line before offering to file something is the mirror image of
+    // the defect it was written to prevent. What both versions share is that neither claims more
+    // than happened.
     show(proposalJson, { escalate: true, ...res.escalation });
     show(validationJson, "not applicable — no capability was proposed");
-    show(executionJson, "nothing executed — no ticket was filed. This is the payload that would be sent to the ITSM integration, which is not built.");
+    show(executionJson, res.canFile
+      ? "nothing executed — this is an escalation, not a machine change. Nothing has been SENT either: the offer is waiting for an answer."
+      : "nothing executed — no ticket was filed. This is the payload that would be sent to the ITSM integration, which is not built.");
     renderFacts(res.facts ?? {});
     bubble("no capability in the catalog covers this — escalating", "sys");
-    // The disclaimer belongs in the TRANSCRIPT, not only in the inspector panel. The avatar says
-    // "I would hand this to facilities", which an audience can hear as "a ticket has been
-    // raised" - and the next turn overwrites the panel that said otherwise. Observed on the dev
-    // box 2026-09-02. The demo must not imply an integration that does not exist.
-    bubble("nothing was filed — there is no ITSM integration in this build", "sys bad");
+    if (!res.canFile) {
+      // The original disclaimer, unchanged, for the configuration it was written for. The avatar
+      // saying "I would hand this to facilities" can be heard as "a ticket has been raised", and
+      // the next turn overwrites the panel that said otherwise. Observed on the dev box 2026-09-02.
+      bubble("nothing was filed — there is no ITSM integration in this build", "sys bad");
+    }
     setState("escalating");
     await say(res.reply, "idle");
+    return;
+  }
+
+  if (res.ticketIntake) {
+    // A question in the ticket interview, or the user declining the offer (D216). No proposal, no
+    // validation, and nothing has left the machine — branches before `res.ok` is destructured for
+    // the same reason the answer branch does.
+    show(proposalJson, {
+      ticketIntake: res.ticketIntake.stage,
+      note: res.ticketIntake.stage === "cancelled"
+        ? "the user declined. Nothing was filed and nothing was sent."
+        : `collecting "${res.ticketIntake.field}" for the ticket. Asked because it is not already known (D216).`,
+    });
+    show(validationJson, "not applicable — nothing was proposed.");
+    show(executionJson, "nothing executed, and NOTHING HAS BEEN SENT. The draft is not built until every required detail is known.");
+    renderFacts(res.facts ?? {});
+    setState("thinking");
+    await say(res.reply, "idle");
+    setState("idle");
+    return;
+  }
+
+  if (res.ticketDraft) {
+    // THE ONE PLACE USER DATA CAN LEAVE THIS ENDPOINT, and it is gated on a click on a card that
+    // shows every field being sent (D213, D217).
+    show(proposalJson, { ticketDraft: res.ticketDraft, note: "NOT YET SENT. This is what the card is showing the user." });
+    show(validationJson, "not applicable — a ticket is not a machine change, so the broker never sees it.");
+    show(executionJson, "awaiting the user's review…");
+    renderFacts(res.facts ?? {});
+    setState("thinking");
+    await say(res.reply, "idle");
+
+    const approved = await reviewTicket(res.ticketDraft);
+    if (!approved) {
+      show(executionJson, "the user cancelled. NOTHING WAS SENT and nothing was filed.");
+      bubble("cancelled — nothing left this machine", "sys");
+      setState("idle");
+      return;
+    }
+
+    setState("thinking");
+    const filed = await window.matic.fileTicket(approved);
+    if (filed.ok) {
+      show(executionJson, { reference: filed.reference, ticketId: filed.ticketId, notified: filed.notified, notifiedWhy: filed.notifiedWhy });
+      await say(`That's filed. Your reference is ${filed.reference} — quote that if you follow it up.`, "idle");
+      // `notified` IS THE HUB'S OWN FIELD AND IT IS REPEATED, NOT INTERPRETED. The hub stores
+      // tickets and emails nobody (D86). A user who hears "filed" and assumes someone was paged
+      // is the failure this line exists to prevent, and it is a `sys` line rather than the
+      // avatar's voice because it is a fact about the system, not something the assistant did.
+      if (!filed.notified) bubble(`${filed.reference} is stored for IT to pick up. No email was sent — this build has no outbound notification.`, "sys");
+    } else {
+      show(executionJson, { error: filed.error, filed: filed.filed });
+      // `filed: null` means a TIMEOUT — we genuinely do not know. Saying "nothing was filed" there
+      // would be a confident guess, and the wrong one leaves a user opening a second ticket.
+      await say(filed.error, "idle");
+      bubble(filed.filed === null
+        ? "the hub did not answer in time — whether the ticket was stored is UNKNOWN"
+        : "nothing was filed", "sys bad");
+    }
+    setState("idle");
     return;
   }
 

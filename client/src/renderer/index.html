@@ -99,6 +99,31 @@
   .todo li b { display: block; font-weight: 600; }
   .todo li span { color: var(--dim); font-size: 13px; }
   .todo .next { font-size: 13px; color: var(--fg); border-top: 1px solid #4a3d22; padding-top: 10px; }
+  /* The ticket review card (D213). Shaped like the consent card because that is already this
+     app's visual language for "this needs a decision from you", but in a DIFFERENT colour and
+     with a different title, because it is a different decision: the consent card means "change
+     something on this machine" and this one means "send this off the machine". Making them look
+     identical would blur the one distinction the user most needs to see (D198's neighbourhood). */
+  .ticket { align-self: stretch; border: 1px solid var(--ok); border-radius: 12px;
+            background: #131f1a; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .ticket .title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ok); }
+  .ticket .lede { font-size: 13px; color: var(--dim); }
+  .ticket .fields { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: 7px 12px; align-items: start; }
+  .ticket label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim);
+            padding-top: 7px; }
+  .ticket input, .ticket textarea { width: 100%; box-sizing: border-box; padding: 6px 9px;
+            background: #0d1117; color: var(--fg); border: 1px solid var(--line); border-radius: 7px;
+            font: 13px/1.45 inherit; }
+  .ticket textarea { resize: vertical; min-height: 44px; }
+  .ticket input:focus, .ticket textarea:focus { outline: none; border-color: var(--ok); }
+  .ticket .fixed { font: 12px var(--mono); color: var(--dim); padding-top: 7px; }
+  .ticket .row { display: flex; gap: 10px; }
+  .ticket .row button { flex: 1; padding: 11px; font-weight: 600; }
+  .ticket.resolved { border-color: var(--line); opacity: .75; }
+  .ticket .outcome { font: 12px var(--mono); color: var(--dim); }
+  /* The standing caveat, in the card rather than only in a log line: this is where a user decides
+     whether to send, so it is where the limits of what sending achieves have to be readable. */
+  .ticket .caveat { font-size: 12px; color: var(--warn); border-top: 1px solid #2c5c43; padding-top: 9px; }
   #devlog { max-height: 150px; overflow-y: auto; padding: 8px 11px; font: 10px/1.5 var(--mono);
             color: #6b7684; border-top: 1px solid var(--line); white-space: pre-wrap; }
 </style>

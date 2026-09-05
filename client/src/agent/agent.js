@@ -16,12 +16,22 @@ import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/
 import { classify } from "../router/classify.js";
 import { socialReply } from "../router/social.js";
 import { diagnoseOffline } from "../router/offline-guide.js";
+import { escalationReply } from "./prompt.js";
 
 export class Agent {
-  /** @param {{broker: Broker, cloud: any, onLog?: (s:string)=>void}} deps */
-  constructor({ broker, cloud, onLog = () => {} }) {
+  /**
+   * @param {{broker: Broker, cloud: any, intake?: any, onLog?: (s:string)=>void}} deps
+   *
+   * `intake` is OPTIONAL, and its absence is a supported configuration rather than an oversight.
+   * Ticket filing needs a hub (`fileTicket` exists on HubClient only) and a place to keep a
+   * profile; a headless test or a cloud-provider run has neither, and must still be able to
+   * escalate. With no intake the escalation branch behaves as it did before D216: it says what it
+   * cannot fix and offers nothing it cannot deliver.
+   */
+  constructor({ broker, cloud, intake = null, onLog = () => {} }) {
     this.broker = broker;
     this.cloud = cloud;
+    this.intake = intake;
     this.onLog = onLog;
   }
 
@@ -64,6 +74,35 @@ export class Agent {
    */
   async propose(text) {
     const { probe, summary, panel } = this.diagnose();
+
+    // ---- BEFORE EVERYTHING: is this sentence the ANSWER to a question we asked? (D216) --------
+    //
+    // AHEAD OF TIER-0, AND THAT IS THE WHOLE POINT. When the assistant has just asked "shall I
+    // open a ticket?" or "where are you based?", the next sentence means something only in that
+    // context. Running tier-0 first would route "yes please hand to it" as a fresh problem
+    // statement, which is exactly the defect observed on screen on 2026-09-04.
+    //
+    // It is safe to put this first ONLY because the intake never traps a turn: an unrecognised
+    // answer to the offer returns `passthrough` and the sentence falls through to tier-0 as if
+    // this block had not run, a cancel word cancels, and a stale intake expires. See intake.js.
+    //
+    // Note what this does NOT do: it never proposes a capability and never reaches the broker. A
+    // turn that lands here changes nothing on the machine, so D198 is not in play.
+    if (this.intake?.isPending) {
+      const step = this.intake.accept(text);
+      if (step.kind === "question") {
+        this.onLog(`[ticket] collecting ${step.field} - no provider call, NO PROPOSAL`);
+        return { ok: true, ticketIntake: { stage: "collecting", field: step.field }, facts: panel, reply: step.reply };
+      }
+      if (step.kind === "cancelled") {
+        return { ok: true, ticketIntake: { stage: "cancelled" }, facts: panel, reply: step.reply };
+      }
+      if (step.kind === "draft") {
+        this.onLog("[ticket] draft ready - awaiting the user's review. NOTHING HAS BEEN SENT");
+        return { ok: true, ticketDraft: step.draft, facts: panel, reply: step.reply };
+      }
+      // "passthrough" — deliberately falls through to the ordinary path below.
+    }
 
     // ---- Tier 0: local, deterministic, no network required ----
     const local = routeTier0(text, probe);
@@ -215,12 +254,34 @@ export class Agent {
 
     if (cloudResult.escalate) {
       // Scenario 3. Nothing in the catalog fixes this, so the honest answer is a handoff.
+      //
+      // D216: the handoff is now an OFFER THAT CAN BE ACCEPTED. `cloudResult.reply` already ends
+      // in a question (escalationReply, D214); this arms the next turn to hear the answer.
+      //
+      // `canFile` is duck-typed on the provider, exactly as the `ask` branch above is, and for the
+      // same reason: with `provider: "cloud"` there is no `fileTicket`, so the frozen demo build's
+      // escalation behaviour is unchanged BY CONSTRUCTION rather than by configuration.
+      const canFile = Boolean(this.intake) && typeof this.cloud?.fileTicket === "function";
+      if (canFile) {
+        this.intake.offer({
+          escalation: cloudResult.escalation,
+          userText: text,
+          machineName: this.identify().computer,
+        });
+      } else {
+        this.onLog("[ticket] escalated, but this configuration cannot file - offering nothing");
+      }
       return {
         ok: false,
         error: "escalation",
         escalation: cloudResult.escalation,
+        // The renderer needs to know whether the question in `reply` can actually be answered, so
+        // it can say "nothing was filed" in the one case where that is still the whole story.
+        canFile,
         facts: panel,
-        reply: cloudResult.reply,
+        // With no filing path the spoken line must not end in an offer it cannot keep. Regenerated
+        // from the same builder the provider used, rather than edited — see escalationReply.
+        reply: canFile ? cloudResult.reply : escalationReply(cloudResult.escalation, { canFile: false }),
       };
     }
 

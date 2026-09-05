@@ -161,7 +161,11 @@ console.log("=== 7. an off-list escalation owner is NOT repeated back ===");
   check("owner becomes unknown rather than invented", res.escalation.suggestedOwner === null, String(res.escalation.suggestedOwner));
   check("what the model actually said is kept, not hidden", res.escalation.offList?.suggestedOwner === "Laptop Manufacturer Support");
   check("the spoken line does not name the invented owner", !res.reply.includes("Laptop Manufacturer Support"), res.reply);
-  check("the spoken line says a person must route it", /could not work out|needs a person/i.test(res.reply), res.reply);
+  check("the spoken line says IT will route it", /let IT route it/i.test(res.reply), res.reply);
+  // D214. Pinned as a contract, not a phrase: the case note is written for the assignee and
+  // reading it aloud is what made the avatar say "The user reports a cracked screen."
+  check("D214: the assignee's case note is never spoken", !res.reply.includes(res.escalation.summary), res.reply);
+  check("D214: and the line is an offer, so it ends in a question", res.reply.trim().endsWith("?"), res.reply);
   check("the free text the model wrote is kept", res.escalation.summary === "Cracked screen.");
 }
 

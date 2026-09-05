@@ -25,13 +25,34 @@
  * @typedef {import("../broker/broker.d.ts").Capability} Capability
  */
 import { validateAgainstSchema } from "../broker/schema.js";
-import { escalationSchema, capabilityToolSchema, ESCALATION_CATEGORIES, ESCALATION_OWNERS } from "./prompt.js";
+import { escalationSchema, capabilityToolSchema, escalationReply, ESCALATION_CATEGORIES, ESCALATION_OWNERS } from "./prompt.js";
 
 export class HubClient {
   /**
    * @param {{ hubUrl: string, capabilities: Capability[], timeoutMs?: number, onLog?: (s: string) => void, fetchImpl?: typeof fetch }} deps
    */
-  constructor({ hubUrl, capabilities, timeoutMs = 90000, onLog = () => {}, fetchImpl }) {
+  /**
+   * THE DEFAULT TIMEOUT MATCHES THE HUB'S OWN, AND IT USED TO BE 90s. Changed 2026-09-04.
+   *
+   * The hub waits `MATIC_HUB_TIMEOUT_MS` (default 300000) for its model. This client waited 90000.
+   * So on any call the model could not answer inside 90 seconds, THE ENDPOINT GAVE UP 3.5 MINUTES
+   * BEFORE THE HUB DID — and a `mistral-small:24b` cold load is comfortably over 90 seconds.
+   *
+   * Found by `eval/e2e-ticket.mjs` on 2026-09-04 and then reproduced deliberately with
+   * `timeoutMs: 50`, which yields the identical reply. It matters more than a slow first turn
+   * because of WHAT THE FALLBACK SAYS: `routeByState` answers with whatever happens to be wrong on
+   * the machine, so "the screen on my laptop is cracked" was answered with "the print spooler
+   * service is stopped, I can start it again". Confident, unrelated, and with nothing in the
+   * transcript saying the model was never reached.
+   *
+   * The consequence for THIS feature is the sharp one: the first escalation after a cold start
+   * silently did not offer a ticket. That is the first turn of any demo.
+   *
+   * **This raises the ceiling; it does not fix the fallback.** A state-fallback answer to a
+   * physical-damage report is a non-sequitur whatever the timeout is, and that is a separate
+   * defect in `routeByState` that is NOT addressed here.
+   */
+  constructor({ hubUrl, capabilities, timeoutMs = 300000, onLog = () => {}, fetchImpl }) {
     this.hubUrl = String(hubUrl ?? "").replace(/\/+$/, "");
     this.capabilities = capabilities;
     this.timeoutMs = timeoutMs;
@@ -254,6 +275,65 @@ export class HubClient {
     }
   }
 
+  /**
+   * FILE A TICKET on the hub. POST /v1/ticket (D213). Added 2026-09-04.
+   *
+   * **A third method, kept separate for the same reason `ask()` is separate from `propose()`.**
+   * This one neither proposes nor answers: it SENDS THE USER'S IDENTITY AND PROBLEM OFF THE
+   * MACHINE. That is a different kind of act from the other two and it should be a different call,
+   * so that "what can leave this endpoint" is answerable by reading the method list.
+   *
+   * **The caller must already have the user's consent.** Nothing in here asks. By the time this
+   * runs the user has said yes in the conversation and pressed submit on a card showing exactly
+   * these fields — see src/ticket/intake.js and the renderer's review card.
+   *
+   * **`notified` is the hub's field and must be repeated, not interpreted.** The hub stores tickets
+   * and emails nobody (D86: without an ITSM there is no queue, so a store alone is a record). A
+   * caller that turns `ok: true` into "IT has been notified" reintroduces the exact defect this
+   * whole path exists to remove.
+   *
+   * Never throws — a hub that cannot be reached must leave the user knowing nothing was filed,
+   * not crash the turn.
+   *
+   * @param {object} draft  the POST body: description, summary, whatWasChecked, category,
+   *                        suggestedOwner, machineName, reporter
+   * @returns {Promise<{ok:boolean, reference?:string, ticketId?:string, notified?:boolean, notifiedWhy?:string, error?:string, filed?:boolean}>}
+   */
+  async fileTicket(draft) {
+    if (!this.available) return { ok: false, filed: false, error: "No hub URL is configured, so nothing was sent." };
+    try {
+      const res = await this.fetch(`${this.hubUrl}/v1/ticket`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.timeout(this.timeoutMs),
+        body: JSON.stringify(draft),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 201 && body?.ok) {
+        this.onLog(`[hub] filed ${body.reference} (nobody was emailed: notified=${body.notified})`);
+        return body;
+      }
+      const detail = body?.error ?? `HTTP ${res.status}`;
+      this.onLog(`[hub] /v1/ticket refused: ${detail}`);
+      // `filed: false` explicitly, so the caller says "nothing was filed" as a fact rather than as
+      // an inference from `ok` being false.
+      return { ok: false, filed: false, error: detail };
+    } catch (err) {
+      const timedOut = err.name === "TimeoutError" || err.name === "AbortError";
+      this.onLog(`[hub] /v1/ticket ${timedOut ? "timed out" : "failed"}: ${err.message}`);
+      return {
+        ok: false,
+        // A TIMEOUT IS THE ONE CASE WE GENUINELY DO NOT KNOW. The request may have been stored
+        // before the answer was lost. Saying "nothing was filed" would be a guess, and a confident
+        // wrong one is how a user ends up with two tickets or none.
+        filed: timedOut ? null : false,
+        error: timedOut
+          ? `The hub did not answer within ${Math.round(this.timeoutMs / 1000)}s, so I cannot tell you whether the ticket was stored. Check with IT before opening another.`
+          : `Could not reach the hub at ${this.hubUrl}: ${err.message}. Nothing was sent.`,
+      };
+    }
+  }
+
   /** A capability proposal - passed through even when invalid, to be refused and audited by the broker. */
   #capabilityProposal(name, args, violations, hubProvider) {
     const capability = this.capabilities.find((c) => c.id === name);
@@ -296,9 +376,8 @@ export class HubClient {
       suggestedOwner,
       ...(corrected ? { offList } : {}),
     };
-    const owner = suggestedOwner
-      ? `I would hand this to ${suggestedOwner.replace(/_/g, " ")}.`
-      : `I could not work out from the list who should own this, so it needs a person to route it.`;
-    return { ok: true, escalate: true, escalation, reply: `This one I can't fix from here. ${escalation.summary} ${owner}` };
+    // The spoken line is built by the shared generator and does NOT contain `escalation.summary`
+    // (D214). See escalationReply() for why that is not a style preference.
+    return { ok: true, escalate: true, escalation, reply: escalationReply(escalation) };
   }
 }

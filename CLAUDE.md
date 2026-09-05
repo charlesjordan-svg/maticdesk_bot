@@ -8,8 +8,8 @@ and blockers, and it is kept current. This file only tells you how to work here.
 | Path | What |
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
-| `server/` | The hub. **TWO ROUTES since 2026-09-04.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.13. D1–D207, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
+| `server/` | The hub. **THREE ROUTES since 2026-09-04.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.17. D1–D218, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
 | `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b7a-built.md`.** The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
@@ -28,7 +28,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D213 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D219 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -139,11 +139,17 @@ npm.cmd run kb -- retrieve "my mouse cuts out" --platform windows
 npm.cmd run kb:accept      # B7a's acceptance list end-to-end (30); needs db + Ollama. NEGATIVE TEST FIRST
 npm.cmd run kb:answer      # the answer contract against a real model (18). Ollama only, NO database
 npm.cmd run kb:floor       # is a relevance floor possible? Answer: NOT over fused RRF scores (§5.16c)
+node bin/db.mjs create-tenant devco       # REQUIRED for tickets. A fresh database has NO tenants,
+#                            and /v1/ticket answers 503 (with the fix) until one exists (D213)
+npm.cmd run tickets -- list               # B6-lite. UNTIL OUTBOUND EMAIL EXISTS, THIS IS THE QUEUE
+npm.cmd run tickets -- show MD-1000       # one ticket, including that its reporter is SELF-ASSERTED
 ollama pull snowflake-arctic-embed2:568m  # the DEV embedder. NOT D199's model - see D203
 npm.cmd start              # http://127.0.0.1:8787 - needs Ollama with mistral-small:24b resident
 # then, from client/:  MATIC_HUB_URL=http://127.0.0.1:8787 node test/hub-client.test.mjs   (adds one live turn)
 #                      MATIC_HUB_URL=http://127.0.0.1:8787 node eval/e2e-hub-consent.mjs    (three demo scenarios, hub + two-step consent, headless)
 #                      node eval/run-bakeoff.mjs --hub http://127.0.0.1:8787 mistral-small:24b
+#                      npm.cmd run e2e:ticket   (D213: escalate -> offer -> interview -> draft ->
+#                                                a REAL ticket. FILES TWO. Use a dev tenant.)
 ```
 
 - `py -3`, not `python` — `python` is not on PATH. For scripted file edits use `node`, not Python.
@@ -303,6 +309,17 @@ These are in the register, but the register is not what a session reads first. E
   ("Hello how are you?" → a `renew_dhcp` card) is the first assertion in
   `client/test/classify.test.mjs` §4. **This removed one source of unprovoked cards, not the
   general possibility** — the rule stands.
+- **Put the escalation `summary` in anything the avatar says** (**D214**, §5.20). It is schema'd as
+  a **case note for the assignee**, third person, and splicing it into the spoken reply is why the
+  avatar said *"The user reports a cracked screen."* on 2026-09-04. The spoken line comes from
+  `escalationReply()` in `client/src/agent/prompt.js` — one generator, all three providers — and
+  three test files assert the reply does not contain `summary` and does end in a question. **Pin
+  the contract, never the phrasing:** the assertions that broke when this was fixed were pinning
+  wording that had been wrong all along.
+- **Tell the user a filed ticket has reached anybody** (**D213**, `server/docs/B6-TICKET-STORE.md`).
+  There is **no outbound email**, so per D86 the store is a record and not a queue. `notified:
+  false` is on the response, `/v1/health`, the review card, the transcript and every CLI listing —
+  five surfaces, so that claiming otherwise means ignoring a value rather than not knowing one.
 - **Hand-write a list of what the assistant can do.** The capability answer is generated from
   `broker.listCapabilities()` (D165, D212): a hand-written list is a claim, a generated one is a
   fact, and with an unreadable catalog the assistant promises nothing rather than claiming from

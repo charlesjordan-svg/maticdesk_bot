@@ -15,6 +15,9 @@ import { CloudClient } from "../agent/cloud-client.js";
 import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
 import { HubClient } from "../agent/hub-client.js";
 import { Agent } from "../agent/agent.js";
+import { ProfileStore } from "../profile/profile.js";
+import { TicketIntake } from "../ticket/intake.js";
+import { EgressAudit } from "../ticket/egress-audit.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
@@ -23,6 +26,11 @@ let win = null;
 let tts = null;
 let broker = null;
 let agent = null;
+// B6-lite (D213, D215, D217). All three stay null on any build that cannot file a ticket, and the
+// ticket IPC handlers check that rather than assuming — see the wiring in whenReady.
+let profile = null;
+let egress = null;
+let hubUrlForTickets = null;
 
 const log = (line) => {
   console.log(line);
@@ -101,7 +109,13 @@ app.whenReady().then(async () => {
   let cloud;
   if (provider === "hub") {
     const hubUrl = process.env.MATIC_HUB_URL || config.hubUrl || "http://127.0.0.1:8787";
-    cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), onLog: log });
+    // Configurable, because the right value depends on the model behind the hub and the machine
+    // it runs on. The default matches the hub's own upstream timeout — see the HubClient
+    // constructor for what the old 90s mismatch did on a cold model.
+    const hubTimeoutMs = Number(process.env.MATIC_HUB_TIMEOUT_MS || config.hubTimeoutMs || 300000);
+    cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), timeoutMs: hubTimeoutMs, onLog: log });
+    hubUrlForTickets = hubUrl;
+    log(`[hub] giving the hub up to ${Math.round(hubTimeoutMs / 1000)}s to answer - a cold model load can take over a minute, and giving up early falls back to machine state, which answers the wrong question confidently`);
     log(`[hub] provider "hub" -> ${hubUrl} - sentences that tier-0 cannot resolve go to the hub; where the hub sends them next is the hub's claim`);
   } else if (provider === "local") {
     const model = process.env.MATIC_LOCAL_MODEL || localCfg.model;
@@ -126,7 +140,30 @@ app.whenReady().then(async () => {
       ? `[cloud] ${config.model} ready (key from ${keySource})`
       : "[cloud] ANTHROPIC_API_KEY not set - tier-0 router only, cloud reasoning unavailable");
   }
-  agent = new Agent({ broker, cloud, onLog: log });
+  // ---- ticket filing (B6-lite, D213/D215/D216/D217) ----
+  //
+  // WIRED ONLY WHEN THE PROVIDER CAN ACTUALLY FILE. `fileTicket` exists on HubClient and on
+  // nothing else, so `provider: "cloud"` — the frozen demo build's configuration — gets no intake
+  // and its escalation behaviour is unchanged BY CONSTRUCTION rather than by a flag someone could
+  // flip. The agent's escalation branch reads the same duck-type and withholds the offer, so no
+  // configuration can reach a state where the assistant offers a ticket it cannot open.
+  //
+  // The profile lives in Electron's per-user `userData`, which is what makes "kept locally for
+  // each user" true on a shared machine without this code knowing anything about accounts.
+  let intake = null;
+  if (typeof cloud?.fileTicket === "function") {
+    profile = new ProfileStore({ dir: app.getPath("userData"), onLog: log });
+    // NOT audit/audit.jsonl. That file is the broker's and records what CHANGED on this machine;
+    // this one records what LEFT it. See ticket/egress-audit.js.
+    egress = new EgressAudit({ path: join(ROOT, "audit/egress.jsonl"), onLog: log });
+    intake = new TicketIntake({ profile, onLog: log });
+    const gaps = profile.missing();
+    log(`[ticket] filing enabled -> ${hubUrlForTickets}/v1/ticket. Profile at ${profile.path}${gaps.length ? ` (will ask for: ${gaps.map((g) => g.label).join(", ")})` : " (complete)"}`);
+  } else {
+    log(`[ticket] filing is NOT available on provider "${provider}" - escalations will say so rather than offering`);
+  }
+
+  agent = new Agent({ broker, cloud, intake, onLog: log });
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });
 
@@ -141,6 +178,47 @@ app.whenReady().then(async () => {
       return { ok: false, error: r.error };
     }
     return { ok: true, timeline: r.timeline, audio: r.audio };
+  });
+
+  // ---- ticket filing IPC (D213). THE ONLY PATH BY WHICH USER DATA LEAVES THIS ENDPOINT. ----
+  //
+  // `ticket:file` takes the draft AS THE RENDERER HAS IT, including any edit the user made on the
+  // review card, because the whole point of the card is that the user approves what is actually
+  // sent. It is re-checked here rather than trusted: the renderer is presentation only, and a
+  // draft that arrives with a missing reporter is a bug worth catching before it becomes a 400.
+  ipcMain.handle("ticket:file", async (_e, draft) => {
+    if (typeof cloud?.fileTicket !== "function") {
+      return { ok: false, filed: false, error: "This build cannot file tickets - no hub provider is configured." };
+    }
+    if (!draft || typeof draft !== "object" || !draft.reporter) {
+      return { ok: false, filed: false, error: "The draft was incomplete, so nothing was sent." };
+    }
+
+    // Persist any edit the user made on the card, so the next ticket does not ask again for a
+    // value they have just corrected. Done BEFORE sending: if the send fails, the correction is
+    // still theirs to keep.
+    profile?.write(draft.reporter);
+
+    // Recorded BEFORE the request. An egress record written only on success would be missing
+    // exactly the case worth auditing - data that left and was not acknowledged.
+    egress?.submitted(draft, hubUrlForTickets);
+
+    const res = await cloud.fileTicket(draft);
+    if (res.ok) {
+      egress?.record("ticket.filed", { reference: res.reference, ticketId: res.ticketId, notified: res.notified });
+      log(`[ticket] ${res.reference} filed. notified=${res.notified} - do not tell the user IT has been contacted`);
+    } else {
+      egress?.record("ticket.failed", { error: res.error, filed: res.filed });
+    }
+    return res;
+  });
+
+  // Read and write the profile directly, so the user can correct it without waiting to be asked.
+  ipcMain.handle("profile:get", () => (profile ? { ok: true, path: profile.path, profile: profile.reporter() } : { ok: false, error: "no profile store on this build" }));
+  ipcMain.handle("profile:save", (_e, patch) => {
+    if (!profile) return { ok: false, error: "no profile store on this build" };
+    profile.write(patch ?? {});
+    return { ok: true, profile: profile.reporter() };
   });
 
   ipcMain.handle("broker:listCapabilities", () => broker.listCapabilities());

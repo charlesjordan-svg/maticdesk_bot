@@ -45,6 +45,7 @@ import {
   machineStateBlock,
   escalationSchema,
   capabilityToolSchema,
+  escalationReply,
   ESCALATION_DESCRIPTION,
   ESCALATION_CATEGORIES,
   ESCALATION_OWNERS,
@@ -308,11 +309,9 @@ export class OpenAICompatibleClient {
       ...(corrected ? { offList } : {}),
     };
 
-    // The transcript speaks this line. It must not name an owner the model invented.
-    const owner = suggestedOwner
-      ? `I would hand this to ${suggestedOwner.replace(/_/g, " ")}.`
-      : `I could not work out from the list who should own this, so it needs a person to route it.`;
-
-    return { ok: true, escalate: true, escalation, reply: `This one I can't fix from here. ${escalation.summary} ${owner}` };
+    // The transcript speaks this line. It must not name an owner the model invented, and since
+    // D214 it must not contain `escalation.summary` either - that is the assignee's case note and
+    // reading it aloud is how the avatar came to say "The user reports a cracked screen."
+    return { ok: true, escalate: true, escalation, reply: escalationReply(escalation) };
   }
 }

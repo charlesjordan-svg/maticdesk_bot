@@ -109,7 +109,11 @@ console.log("=== A5. an off-list escalation owner is NOT repeated back, on the h
   const res = await client(hub).propose("adobe says my licence expired", { probe: PROBE });
   check("category falls back to other, owner to null", res.escalate && res.escalation.category === "other" && res.escalation.suggestedOwner === null);
   check("what the model said is kept in offList", res.escalation.offList?.suggestedOwner === "Adobe Support");
-  check("the spoken line never names the invented owner", !/Adobe/.test(res.reply) && /needs a person to route it/.test(res.reply), res.reply);
+  check("the spoken line never names the invented owner", !/Adobe/.test(res.reply) && /let IT route it/.test(res.reply), res.reply);
+  // D214. The wording above changed on 2026-09-04; these two pin the CONTRACT rather than the
+  // phrasing, so the next rewording cannot quietly put the case note back in the avatar's mouth.
+  check("D214: the assignee's case note is never spoken", !res.reply.includes(res.escalation.summary), res.reply);
+  check("D214: and the line is an offer, so it ends in a question", res.reply.trim().endsWith("?"), res.reply);
 }
 
 console.log("=== A6. failures degrade honestly, they never throw ===");

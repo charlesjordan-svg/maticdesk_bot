@@ -5,7 +5,7 @@
   "pythonArgs": ["-3"],
   "_pythonNote": "`python` is not on PATH on this machine; `py -3` is (handover §4).",
   "model": "claude-haiku-4-5",
-  "provider": "cloud",
+  "provider": "hub",
   "hubUrl": "http://127.0.0.1:8787",
   "_providerNote": "Which provider fills the tier-1 slot: \"cloud\" (Anthropic, the default - the demo build's request is unchanged), \"local\" (the OpenAI-compatible endpoint below), or \"hub\" (POST /v1/turn on the B0 hub in server/, at hubUrl). MATIC_PROVIDER overrides for one run. Tier-0 runs first whichever is set (D46b). Added 2026-09-03.",
   "localModel": {

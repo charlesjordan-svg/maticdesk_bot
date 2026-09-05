@@ -136,8 +136,14 @@ await withServer(stubProvider({ body: toolCallBody("flush_dns", {}) }), async (b
   check("GET /v1/turn -> 405", (await fetch(`${base}/v1/turn`)).status === 405);
   check("unknown route -> 404", (await fetch(`${base}/v1/nope`)).status === 404);
   const notFound = await (await fetch(`${base}/v1/nope`)).json();
+  // Asserted by CONTENT, not by count. This was `length === 4` and broke the moment /v1/ticket was
+  // added — a count pins the number of routes, which is not the property anyone cares about, and
+  // the fix for a failing count is to bump it, which quietly asserts nothing.
   check("a 404 names the routes that DO exist, rather than only the one that does not",
-    Array.isArray(notFound.routes) && notFound.routes.length === 4);
+    Array.isArray(notFound.routes)
+      && notFound.routes.includes("POST /v1/turn")
+      && notFound.routes.includes("POST /v1/ask")
+      && notFound.routes.includes("POST /v1/ticket"));
   const health = await (await fetch(`${base}/v1/health`)).json();
   check("health says what it is and that auth is none", health.phase?.includes("B0") && health.auth === "none");
 

@@ -21,6 +21,7 @@ import {
   machineStateBlock,
   escalationSchema,
   capabilityToolSchema,
+  escalationReply,
   ESCALATION_DESCRIPTION,
 } from "./prompt.js";
 
@@ -185,9 +186,10 @@ export class CloudClient {
           escalate: true,
           escalation: e,
           usage,
-          reply:
-            `This one I can't fix from here. ${e.summary} ` +
-            `I would hand this to ${String(e.suggestedOwner).replace(/_/g, " ")}.`,
+          // D214: generated here, not read off `e.summary`, and it ends in a question because the
+          // next turn is expected to answer it. An off-list owner degrades to the no-owner wording
+          // rather than being spoken, which is the same guarantee the other two providers give.
+          reply: escalationReply(e),
         };
       }
 
