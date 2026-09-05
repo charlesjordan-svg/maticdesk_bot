@@ -215,7 +215,9 @@ export class Agent {
       // what the machine demonstrably IS. This is the only caller of routeByState, and that is
       // deliberate: a proposal made without reading the sentence must never run ahead of a model
       // that could have read it.
-      const byState = routeByState(probe, { egressFailed: cloudResult.reason === "connection" });
+      // D219: the sentence is passed now. It used to be ignored entirely, which answered "the
+      // screen on my laptop is cracked" with the print spooler's state.
+      const byState = routeByState(text, probe, { egressFailed: cloudResult.reason === "connection" });
       if (byState) {
         this.onLog(`[router] cloud unavailable (${cloudResult.error}) - nothing matched what was typed; proposing from machine state alone`);
         const validation = this.broker.validate(byState.proposal);
@@ -244,11 +246,19 @@ export class Agent {
         };
       }
 
+      // D219: this used to end "...and I cannot see anything wrong on this machine that I am able
+      // to fix", which is now reachable in a state where that claim is FALSE. A machine with a
+      // stopped spooler and a user reporting a cracked screen lands here: the router correctly
+      // declined to answer, but there IS something wrong on the machine — it is simply not what
+      // was asked about. Claiming otherwise would replace a non-sequitur with an untruth.
+      //
+      // Mentioning the unrelated fault instead would be the original defect again, so it says what
+      // it can honestly say: this was not something it can act on from here.
       return {
         ok: false,
         error: cloudResult.error,
         facts: panel,
-        reply: `I could not reach the model, nothing you described matched a local rule, and I cannot see anything wrong on this machine that I am able to fix.`,
+        reply: `I could not reach the model, and what you described is not something I can act on from this machine. The panel on the left shows what I can see; a person will be better placed to help with this one.`,
       };
     }
 

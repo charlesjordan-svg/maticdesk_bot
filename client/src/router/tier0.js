@@ -50,6 +50,111 @@ function matchSymptom(text) {
 }
 
 /**
+ * Words that carry no subject of their own. Used by `stateTopicsFor` below — see the long note
+ * there for why this is a whitelist and not a blacklist.
+ *
+ * Three groups, and the second is the one that does the interesting work:
+ *
+ *   1. Grammar and filler. In every sentence, says nothing about what is wrong.
+ *   2. Subjects that MEAN "this whole machine" or "no subject in particular" — "it", "this thing",
+ *      "my laptop", "everything". A complaint about the whole machine is a complaint that machine
+ *      state can legitimately speak to. That is the entire licence for the state fallback.
+ *   3. Complaint words with no subject attached — "broken", "slow", "useless". On their own they
+ *      are non-specific; "my CHAIR is broken" is specific because of the noun, not the adjective.
+ */
+const GENERIC_TOKENS = new Set([
+  // 1. grammar and filler
+  "i", "im", "ive", "me", "my", "mine", "we", "our", "us", "you", "your",
+  "a", "an", "the", "this", "that", "these", "those", "there", "here",
+  "is", "are", "was", "were", "be", "been", "being", "am", "do", "does", "did", "doing",
+  "have", "has", "had", "get", "gets", "getting", "got", "go", "goes", "going", "went",
+  "and", "or", "but", "so", "to", "of", "on", "in", "at", "for", "with", "from", "about",
+  "not", "never", "cant", "cannot", "dont", "doesnt", "isnt", "arent", "wont", "didnt", "wouldnt",
+  "again", "still", "keep", "keeps", "keeping", "just", "really", "very", "quite", "bit",
+  "all", "any", "now", "today", "morning", "afternoon", "please", "why", "what", "how", "when",
+  "seems", "seem", "much", "more", "ever", "anymore", "properly", "right", "much", "lot",
+  "work", "works", "working", "worked",
+  // 2. subjects that mean "the whole machine" or nothing in particular
+  "it", "thing", "things", "stuff", "computer", "machine", "laptop", "pc", "desktop", "system",
+  "everything", "anything", "something", "nothing", "no",
+  // 3. complaint words that carry no subject
+  "broken", "break", "breaks", "breaking", "broke", "useless", "rubbish", "terrible", "awful",
+  "bad", "wrong", "slow", "sluggish", "laggy", "lagging", "dead", "stuck", "frozen", "freeze",
+  "freezes", "freezing", "hang", "hangs", "hanging", "crash", "crashes", "crashing",
+  "weird", "strange", "funny", "problem", "problems", "issue", "issues", "trouble", "fault",
+  "faulty", "glitch", "glitching", "annoying", "fine", "ok", "okay", "help", "helping",
+]);
+
+/**
+ * WHICH STATE BRANCHES THIS SENTENCE ENTITLES US TO ANSWER WITH. Added 2026-09-04 (D219).
+ *
+ * ==============================================================================================
+ * THE DEFECT THIS FIXES
+ * ==============================================================================================
+ *
+ * `routeByState` used to ignore the text entirely — its own doc comment said so — and answer from
+ * whatever happened to be wrong on the machine. On a box whose print spooler is stopped, that made
+ * *"the screen on my laptop is cracked"* come back as *"the print spooler service is stopped, I
+ * can start it again."* Confident, unrelated, and with nothing saying the model was never reached.
+ *
+ * **The design already knew about this failure mode and had fixed it for exactly one branch.** The
+ * `flush_dns` branch is gated on `egressFailed` because an earlier draft fired on `probe.online`
+ * alone and answered *"my chair is broken and my monitor is cracked"* with *"I can flush your DNS
+ * cache"*. That gate is an EVIDENCE gate: it asks whether an observation supports the proposal.
+ *
+ * What no gate asked is whether the observation has anything to do with the COMPLAINT. A stopped
+ * spooler is a perfectly good observation. It is just not an answer to a cracked screen.
+ *
+ * ==============================================================================================
+ * WHY THE STATE FALLBACK IS STILL RIGHT, AND MUST NOT SIMPLY BE DELETED
+ * ==============================================================================================
+ *
+ * With the cable out there is no cloud to read the sentence, and someone who types "help" or "this
+ * thing is useless" must get a proposal rather than silence — the Day-4 exit criterion, and the
+ * one scenario that proves the local path. Ignoring the text is the right behaviour **for a
+ * sentence that has no subject in it.** It is wrong for a sentence that has one.
+ *
+ * So the question is not "should we read the text" but "does the text entitle us to ignore it":
+ *
+ *   - **The sentence names a symptom this catalog knows** (printer / sound / network) — then only
+ *     branches about THAT topic may answer. Answering "nothing prints" with "let me reset your
+ *     network adapter" is the same non-sequitur wearing different clothes.
+ *   - **The sentence names no subject at all** — "help", "nothing works", "my laptop is broken".
+ *     Machine state is the best answer available and every branch may speak. Unchanged behaviour.
+ *   - **The sentence names something else** — a screen, a chair, a ceiling light, a password.
+ *     **Nothing may answer.** The caller falls through to `diagnoseOffline()` guidance and then to
+ *     an honest "I cannot help with that from here", which is worth more than a confident answer
+ *     to a question nobody asked.
+ *
+ * ==============================================================================================
+ * IT IS A WHITELIST, AND THE DIRECTION OF THE BIAS IS THE DESIGN
+ * ==============================================================================================
+ *
+ * An unrecognised word makes a sentence SPECIFIC, so an unknown subject produces silence from this
+ * router rather than a guess. A blacklist ("don't fire when the sentence mentions a chair") would
+ * bias the other way and would need every physical object anyone might name.
+ *
+ * The cost is real and should be stated: a network complaint phrased in words `SYMPTOMS` does not
+ * know — *"I can't get to sharepoint"* — now returns null here where it once proposed
+ * `renew_dhcp`. **That is not silence.** The caller falls through to `diagnoseOffline(probe)`,
+ * which on an offline machine says what is wrong and what to check. Losing a proposal and keeping
+ * honest guidance is the trade this project has taken every other time it has come up (D205's
+ * decline, "say so; do not reach for a lever" below, "a confident wrong fix is not useful").
+ *
+ * @param {string} text
+ * @returns {Set<string> | "any" | null} the topics allowed to answer, "any", or null for none
+ */
+export function stateTopicsFor(text) {
+  const symptom = matchSymptom(text);
+  if (symptom) return new Set([symptom]);
+
+  const tokens = String(text ?? "").toLowerCase().replace(/['’]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
+  // No words at all is not a subject either, so machine state may speak.
+  if (tokens.every((t) => GENERIC_TOKENS.has(t))) return "any";
+  return null;
+}
+
+/**
  * @param {string} text  what the user typed
  * @param {ReturnType<import("../broker/capabilities/index.js").probeMachine>} probe
  * @returns {{proposal: Proposal, reply: string} | null} null means "fall through to the cloud"
@@ -183,7 +288,7 @@ export function routeTier0(text, probe) {
 }
 
 /**
- * State-only fallback (§2 of the Day-4 brief). Ignores the text entirely.
+ * State-only fallback (§2 of the Day-4 brief).
  *
  * `routeTier0` above needs a keyword to match. When someone says "this thing is useless" or just
  * "help" - which is what people actually say, and what the design partner will say if he takes the
@@ -197,21 +302,45 @@ export function routeTier0(text, probe) {
  * cloud-unavailable path, and every confidence here is below TIER0_CONFIDENCE_THRESHOLD so it
  * could not skip the cloud even if it were called earlier by mistake.
  *
+ * **IT NO LONGER IGNORES THE TEXT (D219, 2026-09-04).** It used to, and that produced a confident
+ * non-sequitur: a cracked screen answered with the print spooler's state. `stateTopicsFor` above
+ * says which branches a given sentence entitles us to answer with, and the whole of that decision
+ * — including why deleting this function instead would be wrong — is documented there.
+ *
  * The link-state gating from the keyword router is reused unchanged, via `probe.actionable`: an
  * idle Bluetooth PAN or Wi-Fi Direct adapter is still not something to renew a lease on.
  *
+ * @param {string} text  what the user typed. **Required**, and the first parameter, so it matches
+ *   `routeTier0(text, probe)` — the old signature took the probe first, and a caller that was not
+ *   updated would otherwise pass a probe as the text and get a silently narrower answer instead of
+ *   an error. This file has been bitten by silent wrong answers often enough; it throws instead.
  * @param {ReturnType<import("../broker/capabilities/index.js").probeMachine>} probe
  * @param {{egressFailed?: boolean}} [evidence] `egressFailed` means the cloud request never left
  *   this machine (an APIConnectionError, not an API rejection). On a box that is otherwise
  *   routing, that is the only observation available here that points at name resolution.
- * @returns {{proposal: Proposal, reply: string} | null} null means "the machine looks fine, or
- *   there is no lever in the catalog for what is wrong" - in which case say so, do not invent.
+ * @returns {{proposal: Proposal, reply: string} | null} null means "the machine looks fine, there
+ *   is no lever in the catalog for what is wrong, or what was described is not something machine
+ *   state can speak to" - in which case say so, do not invent.
  */
-export function routeByState(probe, { egressFailed = false } = {}) {
+export function routeByState(text, probe, { egressFailed = false } = {}) {
+  if (typeof text !== "string") {
+    throw new TypeError("routeByState(text, probe, evidence): `text` must be a string. The signature changed in D219 - the probe is now the SECOND argument.");
+  }
+
+  // Which branches this sentence lets us answer with. `null` means none of them: the user named
+  // something machine state cannot be about, and the honest answer is to say nothing here.
+  const allowed = stateTopicsFor(text);
+  if (allowed === null) return null;
+  const may = (topic) => allowed === "any" || allowed.has(topic);
+
   const preface = "I didn't catch which part is failing, so I looked at the machine itself.";
 
   // ---- 1. Not routing. The hardest fact on offer, and the Scenario 2 case. ----
-  if (!probe.online) {
+  //
+  // Everything in this block is a NETWORK answer, so it is gated once here rather than four times
+  // below. "Nothing prints" must not be answered with "I can reset your network adapter", even
+  // when the adapter genuinely has no address — that is a true observation about the wrong thing.
+  if (!probe.online && may("network")) {
     const candidates = probe.actionable ?? [];
 
     // Link gone, but the adapter still holds an address - it was working moments ago, so the
@@ -287,11 +416,16 @@ export function routeByState(probe, { egressFailed = false } = {}) {
   // ---- 2. A stopped service is observed, not inferred. ----
   // Both entries are the same rule over the same capability, so the audio one costs nothing and
   // covers `inject-fault.ps1 -Fault sound`.
+  //
+  // `topic` is what each service ANSWERS, and it is the field that stops a stopped spooler being
+  // offered as the explanation for a cracked screen. That was the observed defect (D219): the
+  // observation was true, well-evidenced, and about something else entirely.
   const STOPPED_SERVICES = [
-    { key: "spooler", label: "The print spooler service", effect: "nothing will print" },
-    { key: "audiosrv", label: "The Windows Audio service", effect: "nothing will play sound" },
+    { key: "spooler", topic: "printer", label: "The print spooler service", effect: "nothing will print" },
+    { key: "audiosrv", topic: "sound", label: "The Windows Audio service", effect: "nothing will play sound" },
   ];
-  for (const { key, label, effect } of STOPPED_SERVICES) {
+  for (const { key, topic, label, effect } of STOPPED_SERVICES) {
+    if (!may(topic)) continue;
     const svc = probe.services?.[key];
     if (!svc || svc.error || svc.stateName !== "STOPPED") continue;
     return {
@@ -313,7 +447,14 @@ export function routeByState(probe, { egressFailed = false } = {}) {
   // come back as "I can flush your DNS cache". That is the failure mode this whole design is
   // supposed to avoid, and an existing test caught it. A route plus a request that never left
   // the machine IS an observation about name resolution; "the machine looks fine" is not.
-  if (probe.online && egressFailed) {
+  //
+  // TWO GATES NOW, and they ask different questions. `egressFailed` asks whether an observation
+  // supports this proposal; `may("network")` asks whether the observation is about what the user
+  // reported. The first was added when this branch answered "my monitor is cracked" with "I can
+  // flush your DNS cache" — but a machine that IS failing to get requests out still should not
+  // offer name resolution to someone reporting a cracked monitor, and only the second gate stops
+  // that. Neither subsumes the other.
+  if (probe.online && egressFailed && may("network")) {
     return {
       proposal: {
         capabilityId: "flush_dns",

@@ -9,7 +9,7 @@ and blockers, and it is kept current. This file only tells you how to work here.
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
 | `server/` | The hub. **THREE ROUTES since 2026-09-04.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.17. D1–D218, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.18. D1–D219, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
 | `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b7a-built.md`.** The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
@@ -28,7 +28,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D219 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D220 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -309,6 +309,13 @@ These are in the register, but the register is not what a session reads first. E
   ("Hello how are you?" → a `renew_dhcp` card) is the first assertion in
   `client/test/classify.test.mjs` §4. **This removed one source of unprovoked cards, not the
   general possibility** — the rule stands.
+- **Let `routeByState` answer a complaint it was not about** (**D219**, §5.21). It reads the
+  sentence now — not to route on it, but to decide whether it is ENTITLED to ignore it, which it is
+  only when the sentence has no subject in it ("help", "nothing works"). Ignoring the text is right
+  for that case and is the Day-4 exit criterion; it is how "my laptop screen is cracked" came back
+  as "the print spooler service is stopped". **Its signature is `routeByState(text, probe, evidence)`
+  and it THROWS on a non-string**, because a caller passing the probe first would otherwise get a
+  silently narrower answer. A new state branch needs a `topic`, or it can never fire.
 - **Put the escalation `summary` in anything the avatar says** (**D214**, §5.20). It is schema'd as
   a **case note for the assignee**, third person, and splicing it into the spoken reply is why the
   avatar said *"The user reports a cracked screen."* on 2026-09-04. The spoken line comes from

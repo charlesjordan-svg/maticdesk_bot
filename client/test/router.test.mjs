@@ -8,7 +8,7 @@
  *
  * Run: node test/router.test.mjs
  */
-import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../src/router/tier0.js";
+import { routeTier0, routeByState, stateTopicsFor, TIER0_CONFIDENCE_THRESHOLD } from "../src/router/tier0.js";
 
 let pass = 0;
 let fail = 0;
@@ -210,6 +210,12 @@ check("no proposal escapes the catalog or mislabels its source", allValid);
 const STATE_KNOWN = new Set(["restart_service", "flush_dns", "renew_dhcp", "reset_adapter"]);
 const routed = adapter({ ip: "192.168.50.20", hasIp: true, gateway: "192.168.50.1", hasGateway: true });
 
+// D219 gates the state fallback on the sentence. These tests exercise the STATE LADDER, so they
+// hand it a complaint with no subject in it - which is precisely the case the fallback exists for
+// and the one that keeps its old "ignore the text" behaviour. What a sentence WITH a subject does
+// is the section at the bottom of this file.
+const NO_SUBJECT = "this thing is useless";
+
 console.log("=== off-script phrasing with no cloud to fall back on ===");
 {
   // The Day-4 exit criterion: with the cable out, complaints that match no keyword must still
@@ -219,55 +225,55 @@ console.log("=== off-script phrasing with no cloud to fall back on ===");
   let covered = 0;
   for (const text of offScript) {
     const keyword = routeTier0(text, cableOut);
-    const state = routeByState(cableOut);
+    const state = routeByState(text, cableOut);
     if (keyword === null && state?.proposal.capabilityId === "renew_dhcp") covered++;
     else console.log("        MISS: \"" + text + "\" -> keyword " + (keyword?.proposal.capabilityId ?? "none") +
                      ", state " + (state?.proposal.capabilityId ?? "none"));
   }
   check("all " + offScript.length + " off-script complaints get a proposal instead of silence",
     covered === offScript.length, covered + " covered");
-  console.log("        reply: " + routeByState(cableOut).reply);
+  console.log("        reply: " + routeByState(offScript[0], cableOut).reply);
 }
 
 console.log("=== the state-only ladder ===");
 {
   const dark = adapter({ ip: "192.168.50.20", hasIp: true, gateway: "192.168.50.1", hasGateway: true, linkUp: false });
-  const r = routeByState(probe({ adapters: [dark], online: false }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [dark], online: false }));
   check("configured adapter with a dead link proposes reset_adapter",
     r?.proposal.capabilityId === "reset_adapter", JSON.stringify(r?.proposal));
   check("reset_adapter is targeted by GUID, not index", r?.proposal.parameters.adapterId === "{TEST-GUID}");
   check("the reply warns that connections will drop", /drop/i.test(r?.reply ?? ""), r?.reply);
 }
 {
-  const r = routeByState(probe({ adapters: [adapter({ ip: "0.0.0.0" })], online: false }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [adapter({ ip: "0.0.0.0" })], online: false }));
   check("link up but no lease proposes renew_dhcp", r?.proposal.capabilityId === "renew_dhcp", JSON.stringify(r?.proposal));
   check("renew_dhcp is targeted by index", r?.proposal.parameters.adapterIndex === 4);
 }
 {
-  const r = routeByState(probe({ adapters: [routed], online: false }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [routed], online: false }));
   check("addressed but not routing proposes reset_adapter", r?.proposal.capabilityId === "reset_adapter", JSON.stringify(r?.proposal));
 }
 {
-  const r = routeByState(probe({ adapters: [routed], online: true, services: { spooler: svc("spooler", "STOPPED") } }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [routed], online: true, services: { spooler: svc("spooler", "STOPPED") } }));
   check("a stopped spooler beats the DNS guess",
     r?.proposal.capabilityId === "restart_service" && r?.proposal.parameters.serviceName === "spooler", JSON.stringify(r?.proposal));
 }
 {
-  const r = routeByState(probe({ adapters: [routed], online: true, services: { audiosrv: svc("audiosrv", "STOPPED") } }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [routed], online: true, services: { audiosrv: svc("audiosrv", "STOPPED") } }));
   check("a stopped audio service is caught the same way",
     r?.proposal.parameters.serviceName === "audiosrv", JSON.stringify(r?.proposal));
 }
 {
   // A route, no service down, and a request that never left the machine: that combination is
   // evidence about name resolution, and the only thing here that justifies flush_dns.
-  const r = routeByState(probe({ adapters: [routed], online: true }), { egressFailed: true });
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [routed], online: true }), { egressFailed: true });
   check("routing but unable to get a request out offers the resolver cache",
     r?.proposal.capabilityId === "flush_dns", JSON.stringify(r?.proposal));
 
   // Without that evidence there is nothing observably wrong, so nothing may be proposed. An
   // earlier draft fired flush_dns on `online` alone and answered "my monitor is cracked" with
   // "I can flush your DNS cache"; broker.test.mjs case 10 caught it.
-  const healthy = routeByState(probe({ adapters: [routed], online: true }));
+  const healthy = routeByState(NO_SUBJECT, probe({ adapters: [routed], online: true }));
   check("a machine with nothing observably wrong proposes nothing at all",
     healthy === null, JSON.stringify(healthy?.proposal));
 }
@@ -276,16 +282,16 @@ console.log("=== the link-state gating is preserved, not re-invented ===");
 {
   // Same trap as the keyword router: an idle Bluetooth PAN adapter is DHCP-enabled and has no IP
   // forever, and must never be mistaken for an unplugged Ethernet port.
-  const r = routeByState(probe({ adapters: [virtualAdapter], online: false }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [virtualAdapter], online: false }));
   check("not routing, with only an idle virtual adapter, proposes nothing", r === null, JSON.stringify(r?.proposal));
 }
 {
-  const r = routeByState(probe({ adapters: [virtualAdapter, routed], online: true }), { egressFailed: true });
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [virtualAdapter, routed], online: true }), { egressFailed: true });
   check("does not renew DHCP on an idle virtual adapter", r?.proposal.capabilityId === "flush_dns", JSON.stringify(r?.proposal));
 }
 {
   // Offline and nothing to act on network-side, but a service IS down - keep looking.
-  const r = routeByState(probe({
+  const r = routeByState(NO_SUBJECT, probe({
     adapters: [virtualAdapter], online: false, services: { spooler: svc("spooler", "STOPPED") },
   }));
   check("not routing with no usable adapter still finds the stopped spooler",
@@ -295,7 +301,7 @@ console.log("=== the link-state gating is preserved, not re-invented ===");
   // Disabling the only NIC removes it from GetAdaptersInfo entirely. There is then no lever in
   // the catalog, and the honest answer is to say so - see DEMO-RUNBOOK.md on choosing which
   // Scenario 2 fault to inject on a single-adapter machine.
-  const r = routeByState(probe({ adapters: [], online: false }));
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [], online: false }));
   check("not routing with no adapters at all proposes nothing", r === null, JSON.stringify(r?.proposal));
 }
 
@@ -312,7 +318,7 @@ console.log("=== the state-only fallback must never pre-empt a reachable model =
   let allBelow = true;
   let allValid = true;
   for (const state of everyState) {
-    const r = routeByState(state, { egressFailed: true });
+    const r = routeByState(NO_SUBJECT, state, { egressFailed: true });
     if (!r) continue;
     if (r.proposal.confidence >= TIER0_CONFIDENCE_THRESHOLD) allBelow = false;
     if (!STATE_KNOWN.has(r.proposal.capabilityId) || r.proposal.source !== "tier0-state") allValid = false;
@@ -322,10 +328,101 @@ console.log("=== the state-only fallback must never pre-empt a reachable model =
 }
 {
   // A proposal built without reading the sentence must not imply that it read the sentence.
-  const r = routeByState(probe({ adapters: [routed], online: true }), { egressFailed: true });
+  const r = routeByState(NO_SUBJECT, probe({ adapters: [routed], online: true }), { egressFailed: true });
   check("the reply admits it did not understand the complaint", /didn't catch/i.test(r?.reply ?? ""), r?.reply);
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// D219. THE STATE FALLBACK MUST NOT ANSWER A QUESTION NOBODY ASKED.
+//
+// Observed on 2026-09-04 by eval/e2e-ticket.mjs, then reproduced deliberately: on a machine whose
+// print spooler is stopped, "the screen on my laptop is cracked" came back as "the print spooler
+// service is stopped, I can start it again". The observation was true and well-evidenced. It was
+// about something else.
+//
+// The section above pins that a SUBJECT-FREE complaint still gets a proposal, which is the Day-4
+// exit criterion. This one pins the other half: a complaint WITH a subject must not.
+// ---------------------------------------------------------------------------------------------
+console.log("=== D219: a complaint about something else gets no state proposal ===");
+{
+  // The worst case for this: a machine with plenty observably wrong, so every branch has a true
+  // fact it could offer. None of them is an answer to any of these sentences.
+  const plentyWrong = probe({
+    adapters: [adapter({ ip: "169.254.10.22", hasIp: true, isApipa: true })],
+    online: false,
+    services: { spooler: svc("spooler", "STOPPED"), audiosrv: svc("audiosrv", "STOPPED") },
+  });
+  const notOurProblem = [
+    "the screen on my laptop is cracked right across the bottom",
+    "my desk phone has no dial tone at all this morning",
+    "the ceiling light above my desk keeps flickering",
+    "my chair is broken",
+    "I forgot my password",
+    "outlook keeps crashing",
+    "my monitor has a dead pixel in the corner",
+  ];
+  let clean = true;
+  for (const text of notOurProblem) {
+    const r = routeByState(text, plentyWrong, { egressFailed: true });
+    if (r) { clean = false; console.log(`        NON-SEQUITUR: "${text}" -> ${r.proposal.capabilityId}`); }
+  }
+  check("none of the 7 unrelated complaints produces a state proposal", clean);
+
+  // THE EXACT SENTENCE FROM THE OBSERVED DEFECT, against the exact machine state that produced it.
+  const spoolerDown = probe({ adapters: [routed], online: true, services: { spooler: svc("spooler", "STOPPED") } });
+  check("THE OBSERVED DEFECT: a cracked screen is not answered with the print spooler",
+    routeByState("the screen on my laptop is cracked right across the bottom", spoolerDown) === null);
+  check("and the same machine still answers a subject-free complaint",
+    routeByState("help", spoolerDown)?.proposal.parameters.serviceName === "spooler");
+}
+
+console.log("=== D219: a complaint about ONE thing is not answered with another ===");
+{
+  const everythingDown = probe({
+    adapters: [adapter({ ip: "169.254.10.22", hasIp: true, isApipa: true })],
+    online: false,
+    services: { spooler: svc("spooler", "STOPPED"), audiosrv: svc("audiosrv", "STOPPED") },
+  });
+  // A printer complaint on a machine that is also offline with no sound. Only the spooler answers.
+  const print = routeByState("nothing comes out of the printer", everythingDown);
+  check("a printer complaint gets the spooler, not the network",
+    print?.proposal.parameters.serviceName === "spooler", JSON.stringify(print?.proposal));
+  // A sound complaint on the same machine. Only audio answers.
+  const sound = routeByState("I can't hear anything", everythingDown);
+  check("a sound complaint gets audio, not the spooler and not the network",
+    sound?.proposal.parameters.serviceName === "audiosrv", JSON.stringify(sound?.proposal));
+  // A network complaint on the same machine. Only the network branch answers, even though two
+  // services are stopped and would otherwise be reached first.
+  const net = routeByState("the wifi keeps dropping", everythingDown);
+  check("a network complaint gets the adapter, not either stopped service",
+    net?.proposal.capabilityId === "renew_dhcp", JSON.stringify(net?.proposal));
+}
+
+console.log("=== D219: the entitlement rule itself ===");
+{
+  for (const t of ["help", "nothing works", "this thing is useless", "it is broken again", "why is this so slow", "my laptop isn't working", "everything is really slow today"]) {
+    check(`"${t}" has no subject, so any branch may answer`, stateTopicsFor(t) === "any", JSON.stringify(stateTopicsFor(t)));
+  }
+  for (const [t, topic] of [["nothing prints", "printer"], ["I can't hear anything", "sound"], ["the internet is down", "network"]]) {
+    const got = stateTopicsFor(t);
+    check(`"${t}" is a ${topic} complaint, so only ${topic} may answer`, got instanceof Set && got.has(topic) && got.size === 1, JSON.stringify([...(got ?? [])]));
+  }
+  for (const t of ["my chair is broken", "the ceiling light keeps flickering", "my screen is cracked"]) {
+    check(`"${t}" names something else, so nothing may answer`, stateTopicsFor(t) === null, JSON.stringify(stateTopicsFor(t)));
+  }
+  // The whitelist bias, stated as a test rather than only in a comment: an unrecognised subject
+  // makes a sentence SPECIFIC, so this router falls silent instead of guessing.
+  check("an unknown subject is treated as specific, not as filler",
+    stateTopicsFor("my flurgle is bent") === null);
+}
+
+console.log("=== D219: the signature change fails loudly, never silently ===");
+{
+  let threw = false;
+  try { routeByState(probe({ online: true })); } catch (err) { threw = err instanceof TypeError; }
+  check("passing the probe first throws instead of quietly narrowing the answer", threw);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
