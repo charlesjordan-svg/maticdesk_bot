@@ -33,4 +33,9 @@ if (-not (Test-Path $electron)) {
 Write-Host "Launching Matic Desk elevated from $root ..." -ForegroundColor Cyan
 Write-Host "  (accept the UAC prompt - without it the four privileged primitives report" -ForegroundColor DarkGray
 Write-Host "   'this needs the broker' instead of acting, which is correct but not what you want here)" -ForegroundColor DarkGray
-Start-Process -FilePath $electron -ArgumentList '.' -WorkingDirectory $root -Verb RunAs
+# THE APP PATH IS ABSOLUTE, NOT '.'. Observed 2026-09-05 from the Desktop launcher: "Unable to find
+# Electron app at C:\Windows\System32". A process started with -Verb RunAs from an UNELEVATED window
+# begins life in System32 regardless of -WorkingDirectory, so `electron .` resolved to the wrong
+# folder. It had only ever been run from an already-elevated window, where no UAC hop happens and
+# the working directory survives - which is why it looked fine on 2026-09-03.
+Start-Process -FilePath $electron -ArgumentList ('"' + $root + '"') -WorkingDirectory $root -Verb RunAs
