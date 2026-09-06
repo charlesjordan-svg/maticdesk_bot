@@ -9,11 +9,12 @@ and blockers, and it is kept current. This file only tells you how to work here.
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
 | `server/` | The hub. **THREE ROUTES since 2026-09-04.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.18. D1–D219, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.19. D1–D220, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
 | `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b7a-built.md`.** The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
 | `docs/kb/` | The generic knowledge base (`generic-kb-v2.json`) and its rules (D162). An article never names a capability or says what the bot does. Also the schema findings and **the KB architecture document** — retrieval, authoring UX and client UI, merged into the register as D167–D192. **Every D-number written inside that document is void**; it carries a banner saying so. |
+| `tools/launchers/` | **Stage tooling, not product (D220, 2026-09-05).** `start-hub.cmd`/`.ps1` preflights (Docker, Postgres, migrations, tenant, **corpus chunk count**, Ollama, exact model tags, VRAM, port), starts the hub in its own window, warms both models and one turn on each route, prints READY. `start-agent.cmd`/`.ps1` checks the hub first, then runs `client/scripts/start-elevated.ps1`. `install-shortcuts.ps1` puts both on the Desktop. `docs/DEMO-DAY.md` is the one-page recovery card; `client/docs/DEMO-CLICKTHROUGH.md` is the hub-mode click-through Charles runs. |
 | `Projects/`, `.obsidian/` | The founder's Obsidian notes. Not product code. |
 
 The client used to live at `Projects/Ai Chat Bot -Matic/matic-desk-demo`. Handovers dated 2026-09-02
@@ -28,7 +29,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D220 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D221 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -145,6 +146,10 @@ npm.cmd run tickets -- list               # B6-lite. UNTIL OUTBOUND EMAIL EXISTS
 npm.cmd run tickets -- show MD-1000       # one ticket, including that its reporter is SELF-ASSERTED
 ollama pull snowflake-arctic-embed2:568m  # the DEV embedder. NOT D199's model - see D203
 npm.cmd start              # http://127.0.0.1:8787 - needs Ollama with mistral-small:24b resident
+# OR, for the demo: double-click the Desktop icons, or from anywhere (PowerShell):
+#   powershell -ExecutionPolicy Bypass -File C:\Users\Charles\Downloads\maticdesk_bot\tools\launchers\start-hub.ps1 -CheckOnly
+# A cold mistral-small:24b load is ~15 s with the GPU FREE and 190-265 s with a game holding VRAM (§5.22a).
+# OLLAMA_KEEP_ALIVE=24h is a user env var on this machine; Ollama reads it at START (quit and restart the tray app).
 # then, from client/:  MATIC_HUB_URL=http://127.0.0.1:8787 node test/hub-client.test.mjs   (adds one live turn)
 #                      MATIC_HUB_URL=http://127.0.0.1:8787 node eval/e2e-hub-consent.mjs    (three demo scenarios, hub + two-step consent, headless)
 #                      node eval/run-bakeoff.mjs --hub http://127.0.0.1:8787 mistral-small:24b
@@ -235,6 +240,13 @@ These are in the register, but the register is not what a session reads first. E
   Sequential-if-success in PowerShell 5.1 is `A; if ($?) { B }`, and unconditional is `A; B` — but
   separate lines are clearer and there is no reason to chain an interactive command anyway.
   `npm.cmd start` blocks, so anything after it never runs regardless.
+- **A `cd` THAT FAILS IN A CHAINED COMMAND SILENTLY RUNS THE REST IN THE WRONG DIRECTORY.** Hit twice
+  on 2026-09-05: a `cd` to a path that did not exist (the worktree had been created relative to a
+  shell sitting in `client/`, so it landed INSIDE the repo) let `npm.cmd install` run at the vault
+  root — exactly what `PROJECT_START_HERE.md` §3 forbids — and `npm.cmd test` report green from
+  the wrong folder. Caught by `git status`, not by the output. **Guard every directory change:**
+  `Set-Location -LiteralPath $d; if ((Get-Location).Path -ne $d) { throw }` in PowerShell, `cd x || exit 1`
+  in the Bash tool, and absolute paths for `git worktree add`. Same class as the pipe and `&&` rules.
 - **A chat-produced document is not on disk until you have looked.** `ls` the path at the start of
   the session and say what you found. **Never reconstruct a missing one** — from memory or from the
   register's summary of it.

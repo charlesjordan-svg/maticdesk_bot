@@ -19,3 +19,6 @@
 *.png   binary
 *.webp  binary
 *.wav   binary
+
+# Double-click launchers (tools/launchers/) are batch files; cmd.exe wants CRLF.
+*.cmd   text eol=crlf

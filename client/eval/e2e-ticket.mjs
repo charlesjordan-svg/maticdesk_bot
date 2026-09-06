@@ -205,7 +205,7 @@ console.log("  alone is a record. `bin/tickets.mjs` is how anyone finds out a ti
 console.log("");
 console.log("  NOT COVERED HERE: the review card itself. This script approves the draft in code;");
 console.log("  whether the card renders its fields correctly on a screen is a click-through, and");
-console.log("  client/docs/HUB-MODE-RENDERER-CHECK.md is where that is recorded.");
+console.log("  client/docs/DEMO-CLICKTHROUGH.md step 6 is where that is recorded.");
 
 try { rmSync(profileDir, { recursive: true, force: true }); } catch { /* windows file locks */ }
 // exitCode rather than exit(): the broker holds koffi handles, and process.exit() while libuv
