@@ -1,0 +1,36 @@
+// @ts-check
+/**
+ * The sign-in page. Email, password and authenticator code on ONE form (D156: TOTP is mandatory,
+ * so there is no reason to ask for it on a second screen — and a single form means a password
+ * alone never produces a partially-authenticated state to reason about).
+ *
+ * It says, in the page, what the console is and is not: loopback-only, auth not yet reviewed.
+ * That is exit criterion 8 and it is the same discipline as the hub's index page.
+ */
+import { html } from "../html.js";
+
+/** @param {{ error?: string|null, email?: string }} p */
+export function loginPage({ error = null, email = "" }) {
+  return html`
+<div class="login">
+  <div class="panel">
+    <h1>Sign in</h1>
+    <p class="lede">Matic Desk admin console</p>
+    ${error ? html`<div class="error">${error}</div>` : ""}
+    <form method="post" action="/admin/login" autocomplete="on">
+      <label for="email">Email</label>
+      <input id="email" type="email" name="email" value="${email}" required autofocus autocomplete="username">
+      <label for="password">Password</label>
+      <input id="password" type="password" name="password" required autocomplete="current-password">
+      <label for="code">Authenticator code</label>
+      <input id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" placeholder="6 digits">
+      <p><button class="primary" type="submit">Sign in</button></p>
+    </form>
+  </div>
+  <div class="notyet">
+    <h2>What this console is, today</h2>
+    <p><strong>Loopback only.</strong> The hub refuses any connection that is not from this machine, and this console inherits that. It stays so until the sign-in and session code has had a security review.</p>
+    <p>Accounts are local (email, password, authenticator). There is no single sign-on yet (D159). An account is created with <span class="mono">node bin/admin.mjs create-user</span>, not here.</p>
+  </div>
+</div>`;
+}

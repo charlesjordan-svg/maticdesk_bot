@@ -2,7 +2,7 @@
   "name": "matic-desk-hub",
   "version": "0.0.1",
   "private": true,
-  "description": "Matic Desk hub - B0 walking skeleton (POST /v1/turn, stateless, no authentication, loopback only), the B1 control-plane schema and migration path, and the B7a knowledge base (POST /v1/ask: hybrid retrieval over the generic KB, and a decline when it is not covered), and the B6-lite ticket store (POST /v1/ticket: stored only, no outbound email).",
+  "description": "Matic Desk hub - B0 walking skeleton (POST /v1/turn, stateless, no authentication, loopback only), the B1 control-plane schema and migration path, and the B7a knowledge base (POST /v1/ask: hybrid retrieval over the generic KB, and a decline when it is not covered), the B6-lite ticket store (POST /v1/ticket: stored only, no outbound email), and the B2 admin console (/admin: server-rendered HTML, local accounts with TOTP, roles, audit).",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -20,7 +20,8 @@
     "kb:answer": "node test/kb-answer-live.mjs",
     "kb:floor": "node bin/kb-floor.mjs",
     "tickets": "node bin/tickets.mjs",
-    "tickets:list": "node bin/tickets.mjs list"
+    "tickets:list": "node bin/tickets.mjs list",
+    "admin": "node bin/admin.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"
