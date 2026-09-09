@@ -76,6 +76,8 @@ Docker Desktop was started by this session (it was down).
 
 ## 5. Next, in the handover's order
 
+0. **The design pass has started.** Charles clicked through on 2026-09-09 and signed in as the dev owner; the brief for Claude Design is [`../../server/docs/2026-09-09-admin-console-design-brief.md`](../../server/docs/2026-09-09-admin-console-design-brief.md) and the canvas (eleven artboards, every screen as served, asks pinned beside them) is linked from it.
+
 1. **Charles clicks through** (`B2-ADMIN-CONSOLE.md` §7, ten minutes). Findings go in a handover, not
    into the list.
 2. **KB ingestion and search in the console** — upload or point at a bundle, chunk, embed, **report
