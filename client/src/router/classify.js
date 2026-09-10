@@ -178,6 +178,16 @@ function hasMarker(paddedText, marker) {
 const FILLER = ["there", "please", "mate", "buddy", "again", "quickly", "just", "so", "ok", "okay", "well", "um", "uh", "hi", "hey"];
 
 /**
+ * The assistant's own name, used as a vocative. "hello matic how are you?" is a greeting addressed
+ * to the assistant, not a greeting plus a one-word complaint about something called matic — but
+ * that is exactly how residue() read it until 2026-09-10, when Charles typed it on the first run of
+ * the new avatar and it went to the hub, cost a cold model load, and came back as "I could not reach
+ * the model" (D198's defect, through the residue test rather than the ordering). Removed as whole
+ * phrases, longest first. NOT "desk" alone: "my desk phone is dead" is a complaint.
+ */
+const VOCATIVES = ["matic desk", "matic"];
+
+/**
  * What is left of an utterance once the social markers and filler are taken out.
  *
  * The residue is what decides whether a greeting was the whole message or the doormat in front of a
@@ -192,6 +202,10 @@ export function residue(t) {
   // there " leaves " hi there " on a single pass, because the two markers overlap on one space.
   for (const m of ALL_SOCIAL_MARKERS) {
     while (hasMarker(r, m)) r = r.split(` ${m} `).join(" ");
+  }
+  // The assistant's name is not a subject. Same whole-word treatment as the markers.
+  for (const v of VOCATIVES) {
+    while (r.includes(` ${v} `)) r = r.split(` ${v} `).join(" ");
   }
   const words = r.split(/\s+/).filter((w) => w && !FILLER.includes(w));
   return words.join(" ");

@@ -34,7 +34,9 @@ else in this system is slow.
 
 | You see (from the chair) | It is | Fix |
 |---|---|---|
-| Avatar answers a cracked screen with the spooler, or says *"I could not reach the model"* | **Hub not running**, or Ollama down | Hub icon again. It tells you which. Do not touch the agent |
+| Avatar says *"I could not reach the service desk"*, and the pill under the voice pill is red `hub: UNREACHABLE` | **Hub not running** | Hub icon again. The pill goes green within about a minute of the hub coming back; nothing to do on the agent |
+| Avatar says *"The service desk answered, but its model did not give me anything I can act on"*, pill green | Hub up, **Ollama down or the model cold** — the dev log shows `HTTP 502 ... no tool call` or a timeout | Hub icon; wait for READY. A first turn on a cold model can take minutes (§5.22a) — the avatar is waiting on the hub, not lost |
+| Avatar answers a cracked screen with the spooler | The fallback answered from machine state (D219 narrowed it; still possible) | Say the problem again in a full sentence |
 | First turn silent 15 s+, then fine | **Model was evicted** (keep-alive lost) | Live with it once; it is resident after. Never restart Ollama on stage |
 | Every turn slow, 10–30 s | **Model split CPU/GPU** — something else holds VRAM | Close it. After the demo: `ollama stop mistral-small:24b`, hub icon again |
 | Every question declined, politely | **Empty corpus** — looks correct, is not | `cd server`, `npm.cmd run kb:ingest`. Hub launcher would have caught it |

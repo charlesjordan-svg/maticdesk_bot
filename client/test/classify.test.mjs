@@ -169,6 +169,16 @@ check("ONE leftover word is already enough to not be social",
   classify("hello printer").kind !== "social",
   "a single noun is often the whole complaint from someone who does not want to type");
 
+console.log("\n  -- the assistant's own name is a vocative, not a subject (2026-09-10) --");
+// Observed on the first run of the new avatar: "hello matic how are you?" left the residue "matic",
+// went to the hub, waited on a cold model, and came back as a 502. The name is not a complaint.
+check("\"hello matic how are you?\" is social (howareyou)", classify("hello matic how are you?").subkind === "howareyou", classify("hello matic how are you?").why);
+check("\"hi matic\" is social (greeting)", classify("hi matic").kind === "social", classify("hi matic").why);
+check("\"hello matic desk\" is social", classify("hello matic desk").kind === "social", classify("hello matic desk").why);
+check("residue strips the name", residue("hello matic how are you") === "", residue("hello matic how are you"));
+check("BUT \"hey matic, my printer is broken\" is still an action", classify("hey matic, my printer is broken").kind === "action");
+check("and \"my desk phone is dead\" keeps its desk (only the full name is a vocative)", residue("my desk phone is dead") === "my desk phone is dead");
+
 console.log("\n  -- every subkind classify() emits has a template, and vice versa --");
 {
   const emitted = new Set();

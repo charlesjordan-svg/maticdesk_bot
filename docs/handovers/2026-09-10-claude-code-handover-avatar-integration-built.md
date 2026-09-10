@@ -227,6 +227,33 @@ revoked device would go.
 
 ---
 
+## 7a. Charles's first run, the same morning — two defects, fixed
+
+Charles launched the app against a live hub and typed *"hello matic how are you?"*. Screenshot:
+the new face rendered, the pill read `hub: reachable · last ok 7:39:45 AM`, the dev log showed
+`[hub-link] checking -> reachable` and then `[hub] HTTP 502 ... the model returned no tool call
+(finish_reason stop)`, and after a long wait the avatar said *"I could not reach the model…"*.
+Charles read that as "doesn't see the hub". It did see the hub — the pill and the log say so — and
+two things were wrong on the client:
+
+1. **The greeting left the machine.** `residue("hello matic how are you")` was `"matic"` — one
+   word, over the social threshold — so D198's defect returned through the residue test rather than
+   the ordering: a greeting cost a hub call, a cold model load, and a 502 when the model answered in
+   prose. Fix: `classify.js` treats the assistant's own name (`matic`, `matic desk`) as a vocative and
+   strips it before the residue test; `"hey matic, my printer is broken"` is still an action and
+   `"my desk phone is dead"` keeps its desk. Six new cases in `test/classify.test.mjs`.
+2. **The fallback sentence was untrue.** `agent.js`'s last resort said *"I could not reach the
+   model"* for every non-ok result, including a 502 — where the hub answered and the model behind it
+   did not. `HubClient` already keeps that distinction (`reason: "connection"` only on transport
+   failure); the sentence now does too: *"I could not reach the service desk…"* versus *"The service
+   desk answered, but its model did not give me anything I can act on…"*. The renderer shows
+   `apologising` there instead of `idle`. `docs/DEMO-DAY.md`'s recovery row is split the same way.
+
+**The wait itself was the hub waiting on its model** (§5.22a: a cold `mistral-small:24b` load is
+15 s with the GPU free and minutes with a game holding VRAM), and the client is right to wait —
+D218 is why it no longer gives up first. What was wrong is that a greeting should never have started
+that clock.
+
 ## 8. The tray status dot — scoped, not built (handover §6)
 
 There is no Electron `Tray`. Building one is: `new Tray(nativeImage)` in `main.js`; a 16/24px icon

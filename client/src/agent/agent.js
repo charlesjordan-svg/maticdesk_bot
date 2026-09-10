@@ -258,7 +258,16 @@ export class Agent {
         ok: false,
         error: cloudResult.error,
         facts: panel,
-        reply: `I could not reach the model, and what you described is not something I can act on from this machine. The panel on the left shows what I can see; a person will be better placed to help with this one.`,
+        // TWO DIFFERENT FACTS, TWO SENTENCES (2026-09-10). `reason: "connection"` is the transport
+        // failing to deliver. Anything else here means the hub ANSWERED and what it said was not
+        // usable - a 502 for a model that returned prose instead of a tool call, for instance. On
+        // the first run of the new avatar this line said "I could not reach the model" over a 502
+        // while the connectivity pill beside it said "hub: reachable", and Charles read the reply as
+        // the hub being down. HubClient already keeps the distinction (no `reason` on a 5xx); the
+        // sentence now keeps it too.
+        reply: cloudResult.reason === "connection"
+          ? `I could not reach the service desk, and what you described is not something I can act on from this machine on its own. The panel on the left shows what I can see; a person will be better placed to help with this one.`
+          : `The service desk answered, but its model did not give me anything I can act on, and what you described is not something I can fix from this machine on its own. The panel on the left shows what I can see; a person will be better placed to help with this one.`,
       };
     }
 

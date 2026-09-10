@@ -566,7 +566,8 @@ async function handleTurn(text) {
       todoCard(res.guidance);
       return;
     }
-    setState("idle");
+    // The last resort: it tried and could not help. That is `apologising`, not `idle` (D232 / v7).
+    setState("apologising");
     await say(res.reply ?? "I could not work out a safe next step for that.", "idle");
     return;
   }
