@@ -22,3 +22,9 @@
 
 # Double-click launchers (tools/launchers/) are batch files; cmd.exe wants CRLF.
 *.cmd   text eol=crlf
+
+# The avatar delivery (client/src/renderer/avatar/, 2026-09-10): the generated assets module is
+# built from these bytes and checked by test, so every checkout must see the same line endings.
+*.svg   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
