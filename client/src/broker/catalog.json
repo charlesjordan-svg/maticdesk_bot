@@ -37,6 +37,7 @@
         "advapi32!CloseServiceHandle"
       ],
       "plain": {
+        "helpsWith": "a printer or another background Windows service has got stuck and needs a nudge",
         "what": "Stops one background Windows program and starts it again. Only that one - nothing else on the machine is touched, and nothing you have open is closed.",
         "why": "Background services get stuck. Starting one again clears the stuck state, without restarting the whole machine.",
         "notice": "Whatever that service does pauses for a second or two. For the print spooler, anything waiting to print stays waiting until it is back.",
@@ -60,6 +61,7 @@
         "dnsapi!DnsFlushResolverCache"
       ],
       "plain": {
+        "helpsWith": "websites or company servers won't load because this machine is remembering old addresses",
         "what": "Empties this machine's memory of recent website-name lookups. It does not touch your files, settings, passwords, bookmarks or browsing history.",
         "why": "Windows remembers the address behind a name for a while. If that address has changed, or was saved while the network was broken, the stale entry keeps failing. Clearing it forces a fresh look-up.",
         "notice": "The next few pages may take a fraction longer to load while the list fills up again. That is all.",
@@ -99,6 +101,7 @@
         "iphlpapi!IpRenewAddress"
       ],
       "plain": {
+        "helpsWith": "the network connection has dropped out or this machine has lost its address",
         "what": "Hands back this machine's network address and asks the network for a new one.",
         "why": "If the machine never got a proper address, or is holding one that no longer works, asking again is usually all that is needed.",
         "notice": "The network drops for a few seconds while the new address arrives. Anything downloading or any call in progress may be interrupted.",
@@ -130,6 +133,7 @@
         "TODO(phase1): WMI Win32_NetworkAdapter.Disable/Enable via IWbemServices"
       ],
       "plain": {
+        "helpsWith": "the network adapter itself needs switching off and on again",
         "what": "Switches the network adapter off and straight back on - the software equivalent of unplugging the network cable and plugging it back in.",
         "why": "When an adapter has an address but nothing is getting through, the adapter itself is often stuck. Turning it off and on clears that.",
         "notice": "EVERY network connection on this machine drops for several seconds, including any remote session, call or download. It can take 10 to 30 seconds to come back, and it may have no address at first while the network gives it a new one.",
@@ -159,6 +163,7 @@
       "summary": "You will notice this happen. Read what it does before approving."
     }
   },
+  "_helpsWithNote": "plain.helpsWith is the situation the capability helps with, IN THE USER'S WORDS - what they have, not what it does. The capability answer (src/router/social.js, D165/D235) is generated from it, so it is catalog data like plain/*: reviewable, signable, never model-authored. A capability without one is read out by its title, which sounds like a sysadmin.",
   "_plainNote": "plain/* and tiers/* are what the CONSENT PROMPT shows. They are catalog data on purpose: the text a user consents to must not be written by the model that is asking for the consent. Reviewable, signable with the rest of the catalog, and identical whether or not the cloud is reachable.",
   "_requiresNote": "requires/* are preconditions on observed machine state, checked by the broker before any consent prompt. Deliberately a tiny grammar - a named fact and an expected boolean - because this file is the trust root (H3d). Added 2026-09-02 after every model tested, cloud included, proposed reset_adapter on a healthy machine when a user asked for it by name.",
   "_whenNotToUseNote": "whenNotToUse is appended to the tool description sent to the model. Model-facing guidance only - it is NOT consent text, which stays in plain/* and is never authored or influenced by the model (H3e). Added 2026-09-02 as a measured experiment against over-calling."

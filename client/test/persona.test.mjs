@@ -61,7 +61,10 @@ const socialLines = [
   ...Object.values(persona.social).flat(),
   persona.capability.consent, persona.capability.boundary, persona.capability.noCatalog,
   ...Object.values(persona.fallback),
+  persona.tickets.some, persona.tickets.none, persona.tickets.unavailable,
 ];
+check("tickets.some/none/unavailable/item exist (D235)", ["some", "none", "unavailable", "item"].every((k) => typeof persona.tickets[k] === "string"));
+check("every tickets line says status lookup is not built, in some words", [persona.tickets.some, persona.tickets.none, persona.tickets.unavailable].every((l) => /isn't built|isn't something I can do|can't check|can't look up|can't see/.test(l)));
 for (const line of socialLines) {
   const hit = [...capWords].find((w) => new RegExp(`\\b${w}\\b`, "i").test(line));
   check(`no capability word in: "${line.slice(0, 60)}…"`, !hit, `names "${hit}"`);
@@ -85,8 +88,13 @@ resetRotation();
 check("rotation wraps", (() => { const n = persona.social.thanks.length; for (let i = 0; i < n; i++) socialReply("thanks"); return socialReply("thanks") === persona.social.thanks[0]; })());
 check("pickVariant on an empty list is null, not a crash", pickVariant("x", []) === null);
 check("capability reply with no catalog is the persona's noCatalog line", capabilityReply({ capabilities: [] }) === persona.capability.noCatalog);
-const capReply = capabilityReply({ capabilities: caps.map((c) => ({ id: c.id, title: c.title, tierInfo: { label: c.tier === "R2" ? "disruptive" : "" } })) });
-check("capability reply names every catalog title", caps.every((c) => capReply.toLowerCase().includes(String(c.title).toLowerCase().slice(1))), capReply);
+const capReply = capabilityReply({ capabilities: caps.map((c) => ({ id: c.id, title: c.title, plain: c.plain, tierInfo: { label: c.tier === "R2" ? "disruptive" : "" } })) });
+// D235: the list is built from the catalog's plain.helpsWith - what the user HAS, not the mechanism.
+check("every catalog capability has a plain.helpsWith (or it is read out by its title, which sounds like a sysadmin)", caps.every((c) => typeof c.plain?.helpsWith === "string" && c.plain.helpsWith.length > 10), caps.filter((c) => !c.plain?.helpsWith).map((c) => c.id).join(","));
+check("capability reply contains every helpsWith phrase", caps.every((c) => capReply.includes(c.plain.helpsWith)), capReply);
+check("helpsWith phrases are in the user's words: no 'DHCP', no 'DNS', no 'service' jargon", caps.every((c) => !/\b(dhcp|dns|tsv|api|spooler)\b/i.test(c.plain.helpsWith)), caps.map((c) => c.plain.helpsWith).join(" | "));
+check("the disruptive one is still NAMED by its precise title (that is what the consent card will say)", /disable and re-enable a network adapter/.test(capReply));
+check("without a helpsWith the title is the fallback, not silence", capabilityReply({ capabilities: [{ id: "x", title: "Rotate the frobnicator" }] }).includes("rotate the frobnicator"));
 check("capability reply contains the persona's consent line", capReply.includes(persona.capability.consent));
 check("no unfilled placeholder leaks", !/\{(abilities|disruptive)\}/.test(capReply));
 

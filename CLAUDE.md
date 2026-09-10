@@ -110,7 +110,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 746 assertions across 14 files (2026-09-10).
+#                            headless, no key, no admin, no hub: 797 assertions across 15 files (2026-09-10).
 npm.cmd run avatar:build   # regenerate src/renderer/avatar/matic-avatar.assets.js from the delivered SVG + CSS.
 #                            NEVER hand-edit the generated file; avatar.test.mjs fails while it is stale.
 npm.cmd run avatar:check   # is it stale? (exit 1 if so)
@@ -449,6 +449,13 @@ These are in the register, but the register is not what a session reads first. E
   answers) is H5-attributed and is not the persona's to rewrite.
 - **Send to `win.webContents` without `isDestroyed()`.** The Piper worker's exit line arrives after
   the window is gone and produced an uncaught-exception dialog on every close (2026-09-10).
+- **Add a capability to `catalog.json` without a `plain.helpsWith`** (**D235**) — the phrase, in
+  the user's words, that the capability answer is generated from ("a printer or another background
+  Windows service has got stuck and needs a nudge", not "restart a Windows service").
+  `test/persona.test.mjs` fails on a capability without one. And **do not answer "where's my
+  ticket?" from the hub on a self-asserted `osUsername`** — the endpoint answers from its own egress
+  record and says status lookup is not built; a hub-side lookup by a name the client typed is D54's
+  user identity through the back door.
 - **Hand-write a list of what the assistant can do.** The capability answer is generated from
   `broker.listCapabilities()` (D165, D212): a hand-written list is a claim, a generated one is a
   fact, and with an unreadable catalog the assistant promises nothing rather than claiming from

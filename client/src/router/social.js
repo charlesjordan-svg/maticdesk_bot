@@ -102,13 +102,18 @@ export function capabilityReply({ capabilities = [] } = {}) {
     return P.noCatalog;
   }
 
-  const titles = capabilities.map((c) => midSentence(c.title ?? c.id));
+  // WHAT IT HELPS WITH, in the user's words, from the catalog's `plain.helpsWith` (D235) - the same
+  // family as the consent text: catalog data, reviewable, never model-authored. The title is the
+  // fallback for a capability that has not been given one, so a new entry is never silent; it just
+  // sounds like a sysadmin until someone writes its helpsWith. "Restart a Windows service" is what
+  // it DOES; "a printer or another background service has got stuck" is what the user HAS.
+  const phrases = capabilities.map((c) => c.plain?.helpsWith?.trim() || midSentence(c.title ?? c.id));
   const disruptive = capabilities.filter((c) => (c.tierInfo?.label ?? "").toLowerCase().includes("disruptive"));
 
   // The SENTENCES are persona data; the LIST inside them is the catalog. That split is the whole
   // point: warmth is editable, the claim is generated.
   const parts = [
-    P.intro.replace("{abilities}", andList(titles)),
+    P.intro.replace("{abilities}", andList(phrases)),
     P.consent,
   ];
   if (disruptive.length) {
@@ -119,6 +124,46 @@ export function capabilityReply({ capabilities = [] } = {}) {
   }
   parts.push(P.boundary);
   return parts.join(" ");
+}
+
+/**
+ * "Where's my ticket?" (D235). Generated from the endpoint's own egress record, and honest about
+ * the one thing it cannot do: see the hub's ticket table.
+ *
+ * @param {Array<{reference:string, filedAt:string, description:string}>|null} filed  null when this
+ *   build cannot file tickets at all (no hub provider), [] when it can but has filed none
+ * @param {{ now?: Date }} [opts]
+ */
+export function ticketStatusReply(filed, { now = new Date() } = {}) {
+  const T = persona.tickets;
+  if (filed === null) return T.unavailable;
+  if (filed.length === 0) return T.none;
+  const items = filed.slice(0, 3).map((f) => T.item
+    .replace("{reference}", f.reference)
+    .replace("{when}", whenSpoken(f.filedAt, now))
+    .replace("{description}", spokenDescription(f.description)));
+  const more = filed.length > 3 ? ` and ${filed.length - 3} more before that` : "";
+  return T.some.replace("{list}", andList(items) + more);
+}
+
+/** "today at 9:14", "yesterday at 16:02", "on Saturday 6 September" - spoken, not ISO. */
+function whenSpoken(iso, now) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const dayMs = 86_400_000;
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(d)) / dayMs);
+  if (days <= 0) return `today at ${time}`;
+  if (days === 1) return `yesterday at ${time}`;
+  return `on ${d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
+}
+
+/** The user's own words, trimmed to a spoken clause: first sentence, at most ~80 characters. */
+function spokenDescription(text) {
+  const first = String(text ?? "").replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  const clipped = first.length > 80 ? `${first.slice(0, 77).replace(/\s+\S*$/, "")}…` : first;
+  return clipped.replace(/[.!?…]+$/, "") || "a problem you described";
 }
 
 /**

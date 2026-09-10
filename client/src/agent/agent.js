@@ -14,7 +14,7 @@ import os from "node:os";
 import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
 import { classify } from "../router/classify.js";
-import { socialReply } from "../router/social.js";
+import { socialReply, ticketStatusReply } from "../router/social.js";
 import persona from "../router/persona.json" with { type: "json" };
 import { diagnoseOffline } from "../router/offline-guide.js";
 import { escalationReply } from "./prompt.js";
@@ -29,10 +29,12 @@ export class Agent {
    * escalate. With no intake the escalation branch behaves as it did before D216: it says what it
    * cannot fix and offers nothing it cannot deliver.
    */
-  constructor({ broker, cloud, intake = null, onLog = () => {} }) {
+  constructor({ broker, cloud, intake = null, egress = null, onLog = () => {} }) {
     this.broker = broker;
     this.cloud = cloud;
     this.intake = intake;
+    // The egress log, READ here for "where's my ticket?" (D235). Null on a build that cannot file.
+    this.egress = egress;
     this.onLog = onLog;
   }
 
@@ -149,6 +151,26 @@ export class Agent {
       // classify() and the template table disagreed. Fall through rather than say nothing — and the
       // log says so, because a silent disagreement between those two is a bug worth seeing.
       this.onLog(`[router] classified as social/${kind.subkind} but no template exists - falling through`);
+    }
+
+    // ---- D235: "where's my ticket?" is answered from this machine's own egress record. ---------
+    //
+    // Not the knowledge base (it declined "what is the status of my open tickets?" as a gap in
+    // company guidance, 2026-09-10) and not the model (nothing to propose). The endpoint knows
+    // exactly one thing about tickets: which ones IT filed and got a reference back for. It says
+    // that, and says plainly that the hub's ticket table is not something it can see - a status
+    // lookup needs a route and a user identity (D54, D68/D69) that are not built. `egress` is null
+    // on a build that cannot file at all, and the reply is different for that case.
+    if (kind.kind === "tickets") {
+      const filed = this.egress ? this.egress.filedFromThisMachine() : null;
+      const reply = ticketStatusReply(filed);
+      this.onLog(`[router] ${kind.why} - ${filed === null ? "no ticket store on this build" : `${filed.length} filed from this machine`}; no provider call, NO PROPOSAL`);
+      return {
+        ok: true,
+        ticketStatus: { filed: filed ?? [], canFile: filed !== null, canQueryHub: false },
+        facts: panel,
+        reply,
+      };
     }
 
     // ---- D211: a question goes to the knowledge base, not to a proposal. ---------------------

@@ -36,7 +36,7 @@
  * privileged change to this machine", and D198 is about not diluting it. Routing a non-machine
  * action through it would make the broker an authority on something it has no business validating.
  */
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -103,5 +103,52 @@ export class EgressAudit {
       // between "our metadata" and "what we sent" is.
       payload: draft,
     });
+  }
+
+  /**
+   * The tickets THIS MACHINE has filed, newest first, read back from the log. Added 2026-09-10
+   * (D235) so "where's my ticket?" gets an answer from something the endpoint actually knows.
+   *
+   * WHAT THIS IS AND IS NOT. It is the endpoint's own record that a `ticket.submitted` was followed
+   * by a `ticket.filed` with a reference — the hub said it stored it (and, per D213, notified
+   * nobody). It is NOT the ticket's current status: nothing on the endpoint can see the hub's
+   * ticket table, that needs a route and a user identity that do not exist (D54, D68/D69), and
+   * the reply that uses this list says so. A `submitted` with no `filed` after it is not listed -
+   * it either failed (its own line says so) or the answer never came back (`filed: null`), and
+   * listing it would claim a filing the hub never confirmed.
+   *
+   * Never throws. No file, an unreadable line, or a half-written last line all degrade to "fewer
+   * rows", never to an exception in a conversational turn.
+   *
+   * @returns {Array<{ reference: string, ticketId: string|null, filedAt: string, submittedAt: string|null, description: string, category: string|null, suggestedOwner: string|null, notified: boolean }>}
+   */
+  filedFromThisMachine() {
+    let text;
+    try { text = readFileSync(this.path, "utf8"); } catch { return []; }
+    const out = [];
+    let pending = null;
+    for (const raw of text.split("\n")) {
+      if (!raw.trim()) continue;
+      let line;
+      try { line = JSON.parse(raw); } catch { continue; }
+      if (line.event === "ticket.submitted") {
+        pending = line;
+      } else if (line.event === "ticket.filed" && line.reference) {
+        out.push({
+          reference: String(line.reference),
+          ticketId: line.ticketId ?? null,
+          filedAt: line.at,
+          submittedAt: pending?.at ?? null,
+          description: String(pending?.payload?.description ?? "").trim(),
+          category: pending?.payload?.category ?? null,
+          suggestedOwner: pending?.payload?.suggestedOwner ?? null,
+          notified: line.notified === true,
+        });
+        pending = null;
+      } else if (line.event === "ticket.failed") {
+        pending = null;
+      }
+    }
+    return out.reverse();
   }
 }

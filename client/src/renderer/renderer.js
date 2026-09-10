@@ -490,6 +490,24 @@ async function handleTurn(text) {
     return;
   }
 
+  if (res.ticketStatus) {
+    // D235. "Where's my ticket?" answered from this machine's egress record. No proposal, no
+    // validation, nothing sent, and - shown here as well as spoken - NO status lookup: the hub's
+    // ticket table is not visible from the endpoint in this build.
+    show(proposalJson, {
+      ticketStatus: res.ticketStatus.filed.map((f) => ({ reference: f.reference, filedAt: f.filedAt, notified: f.notified })),
+      canFile: res.ticketStatus.canFile,
+      canQueryHub: res.ticketStatus.canQueryHub,
+      note: "from audit/egress.jsonl - what THIS machine filed and got a reference for. Current status is NOT known: a hub-side lookup is not built (D54, D68/D69).",
+    });
+    show(validationJson, "not applicable — nothing was proposed.");
+    show(executionJson, "nothing executed, and nothing was sent. This answer came from a local record.");
+    renderFacts(res.facts ?? {});
+    setState("thinking");
+    await say(res.reply, "idle");
+    return;
+  }
+
   if (res.social) {
     // D165 / D198. A greeting, a "what can you do", a thanks, a goodbye, or something plainly
     // off-topic. Answered from a client-shipped template with NO provider call and NO PROPOSAL.

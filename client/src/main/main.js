@@ -180,7 +180,9 @@ app.whenReady().then(async () => {
     log(`[ticket] filing is NOT available on provider "${provider}" - escalations will say so rather than offering`);
   }
 
-  agent = new Agent({ broker, cloud, intake, onLog: log });
+  // `egress` is read by the D235 ticket-status branch (what THIS machine filed); null on a build
+  // that cannot file, and the reply says so.
+  agent = new Agent({ broker, cloud, intake, egress, onLog: log });
   hubLink ??= new HubLink({ onLog: log }); // standalone: no URL, never probes
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });

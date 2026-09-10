@@ -300,6 +300,30 @@ and after; with `sys.stdin.reconfigure(encoding="utf-8")` the dash is a pause (`
 `aɪm`. Pinned in `test/avatar.test.mjs` (all three streams). It had been there since the voice
 shipped; the persona's warmer lines simply use more dashes, which is how it surfaced.
 
+**7d. "Currently unable to check status of open tickets" and "a better summary for capabilities" (D235).**
+*"what is the status of my open tickets?"* and *"i opened a ticket already what is the status?"* both went to
+the knowledge base and came back as *"I do not have company guidance covering this"* — the wrong
+kind of no. The endpoint cannot see the hub's ticket table (no route, no user identity: D54,
+D68/D69), but it knows what it filed. Now: `classify()` recognises a question about an existing
+ticket (complete phrases; "raise a ticket" and friends veto it), `EgressAudit.filedFromThisMachine()`
+reads the egress log back as the list of tickets that got a reference (a failed or unanswered filing
+is never listed), and the reply names them — *"From this machine I've filed MD-1042, today at 11:00,
+about Wifi keeps dropping in the meeting room…"* — and says in every variant that checking progress
+with the service desk is not built. The renderer shows the same in the inspector.
+`test/ticket-status.test.mjs` (36) pins all of it. **The hub-side lookup is the next slice and it is
+not innocent:** a `GET /v1/tickets?osUsername=…` on a self-asserted name lets anyone read anyone's
+tickets, which is D54's user identity arriving through the back door. Record that before building it.
+
+The capability answer read catalog titles aloud ("restart a Windows service; flush the DNS resolver
+cache…"). It is still generated from the catalog (D165 — a hand-written list is a claim), but from a
+new per-capability field, `plain.helpsWith`, written as what the user HAS rather than what the
+primitive DOES: *"On this machine I can step in when a printer or another background Windows service
+has got stuck and needs a nudge; websites or company servers won't load because this machine is
+remembering old addresses; the network connection has dropped out…"*. A capability with no
+`helpsWith` falls back to its title, so a new tool is never silent — it just sounds like a sysadmin
+until someone writes its phrase, and `test/persona.test.mjs` fails until they do. The disruptive one
+is still named by its exact title, because that is what its consent card says.
+
 **Still hub-authored, and still flat:** the decline prose (*"I do not have company guidance covering
 this. I can raise a ticket for you."*) comes from the hub's answer tool and is attributed (H5); the
 persona does not and must not rewrite it. If it should be warmer, that is a change to the hub's

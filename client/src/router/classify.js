@@ -180,6 +180,37 @@ const SOCIAL = [
 /** Every marker, longest first, so "how are you" is stripped before "hi". */
 const ALL_SOCIAL_MARKERS = SOCIAL.flatMap((s) => s.markers).sort((a, b) => b.length - a.length);
 
+/**
+ * "Where's my ticket?" — a question about a ticket that already exists. D235, 2026-09-10.
+ *
+ * Observed: "what is the status of my open tickets?" and "i opened a ticket already what is the
+ * status?" both went to the knowledge base and were declined, because the endpoint had no idea
+ * what a ticket-status question was. It still cannot see the hub's ticket table, but it CAN say
+ * what it filed from this machine (the egress log) and say plainly that checking status is not
+ * built - which beats a decline about "company guidance".
+ *
+ * COMPLETE PHRASES, like the off-topic markers, and for the same reason: "ticket" alone is in
+ * "please raise a ticket". The ASKING-FOR-A-NEW-TICKET phrases below veto the match, so "can you
+ * raise my ticket now" is not read as a status question either.
+ */
+const TICKET_STATUS_MARKERS = [
+  "my ticket", "my tickets", "my open ticket", "my open tickets", "my existing ticket", "open tickets",
+  "ticket status", "status of my ticket", "status of the ticket", "status of that ticket", "status on my ticket",
+  "where is my ticket", "wheres my ticket", "hows my ticket", "how is my ticket",
+  "update on my ticket", "update on the ticket", "any news on my ticket", "any update on the ticket",
+  "ticket i opened", "ticket i raised", "ticket i filed", "ticket i submitted",
+  "i opened a ticket", "i raised a ticket", "i filed a ticket", "i submitted a ticket", "i already opened a ticket",
+  "has my ticket", "did my ticket", "track my ticket", "check my ticket", "check on my ticket", "check the ticket",
+  "what happened to my ticket", "what happened to the ticket", "is my ticket",
+];
+const NEW_TICKET_PHRASES = ["raise a ticket", "raise my ticket", "open a ticket", "open a new ticket", "create a ticket", "file a ticket", "log a ticket", "new ticket", "submit a ticket", "make a ticket"];
+
+/** @param {string} padded  normalise()d text */
+function isTicketStatusQuestion(padded) {
+  if (NEW_TICKET_PHRASES.some((p) => hasMarker(padded, p))) return null;
+  return TICKET_STATUS_MARKERS.find((m) => hasMarker(padded, m)) ?? null;
+}
+
 /** True when `marker` appears in `text` as a whole word or phrase. */
 function hasMarker(paddedText, marker) {
   return paddedText.includes(` ${marker} `);
@@ -245,7 +276,7 @@ export function residue(t) {
 const MAX_SOCIAL_RESIDUE_WORDS = 0;
 
 /**
- * @typedef {"social" | "question" | "action"} InputKind
+ * @typedef {"social" | "tickets" | "question" | "action"} InputKind
  */
 
 /**
@@ -258,6 +289,13 @@ export function classify(text) {
   const t = String(text ?? "").toLowerCase().trim();
   if (!t) return { kind: "action", why: "empty input - the existing path already handles it" };
   const padded = normalise(text);
+
+  // ---- D235: a question about an EXISTING ticket. Before the social layer (it is not a pleasantry)
+  // and before the question/action split (it is not for the knowledge base or the model).
+  const ticketHit = isTicketStatusQuestion(padded);
+  if (ticketHit) {
+    return { kind: "tickets", why: `asks about an existing ticket ("${ticketHit}") - answered from this machine's own egress record, not the knowledge base (D235)` };
+  }
 
   // ---- D165's social layer, FIRST. D198 requires it ahead of the state fallback; it is ahead of
   // every provider call too, because a greeting should not cost a model call either.

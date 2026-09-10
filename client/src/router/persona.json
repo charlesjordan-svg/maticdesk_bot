@@ -50,12 +50,20 @@
   },
 
   "capability": {
-    "intro": "Glad you asked. On this machine I can {abilities}.",
+    "intro": "Glad you asked. On this machine I can step in when {abilities}.",
     "consent": "I'll always show you exactly what I'm about to do and wait for you to approve it — nothing changes until you say so.",
     "noticeOne": "One of those — {disruptive} — you'll notice happen, so I'll flag it before asking.",
     "noticeSome": "Some of those — {disruptive} — you'll notice happen, so I'll flag them before asking.",
     "boundary": "Anything beyond that list I can't do myself — but I can look for your company's guidance on it, or hand it to IT with everything I've already checked.",
     "noCatalog": "I can't see my own list of actions right now, so I'd rather not promise anything I can't back up. Tell me what's wrong and I'll either find company guidance for it or pass it to IT."
+  },
+
+  "tickets": {
+    "$comment": "D235. Answers 'where is my ticket?' from THIS MACHINE'S egress record. {list} is filled with one `item` per filed ticket, joined with 'and'. Status lookup is NOT built and every line says so - a reader must never come away thinking the assistant checked with the service desk.",
+    "item": "{reference}, {when}, about {description}",
+    "some": "From this machine I've filed {list}. I can't see how they're getting on yet — checking a ticket's progress with the service desk isn't something I can do in this build — so please quote the reference if you follow it up. If it's still a problem, tell me and I'll take another look.",
+    "none": "I haven't filed any tickets from this machine, and I can't look up tickets raised elsewhere yet — that part isn't built. If something's still broken, tell me what's happening and I can open one for you.",
+    "unavailable": "I can't check on tickets from here — this machine isn't connected to a service desk. If something's still broken, tell me what's happening and I'll see what I can do on the machine itself."
   },
 
   "fallback": {
