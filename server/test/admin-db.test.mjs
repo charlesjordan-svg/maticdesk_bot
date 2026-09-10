@@ -57,6 +57,7 @@ import { createTicket } from "../src/tickets/file.js";
 import { listTickets, getTicket } from "../src/tickets/query.js";
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { corpusStatus } from "../src/kb/ingest.js";
+import { gapFeed } from "../src/admin/queries.js";
 import { lexicalLeg } from "../src/kb/retrieve.js";
 import { verifyPassword } from "../src/admin/auth.js";
 import { revokeUserSessions } from "../src/admin/session.js";
@@ -582,9 +583,16 @@ try {
       home.text.match(/href="\/admin\/knowledge\/search[^"]*"/)?.[0] ?? "no link");
     check("the question text is escaped in the link and in the row — it is an employee's own words",
       !/<b>vpn<\/b>/.test(home.text) && /&lt;b&gt;vpn&lt;\/b&gt;/.test(home.text));
+    // The page is hub-wide (gaps are not tenant-scoped), so a real hub running alongside this suite
+    // can add its own gap rows with text — asserting a hardcoded link count would then be testing
+    // whatever else happened to be in the database. gapFeed() is the same function the page calls
+    // (review.js), grouped exactly as it groups, so the expected count is ground truth rather than
+    // an assumption about how quiet the database is.
+    const gaps = await gapFeed({ limit: 50 });
+    const expectedLinks = gaps.filter((g) => g.queryText).length;
     const links = (home.text.match(/\/admin\/knowledge\/search\?q=/g) ?? []).length;
-    check("the gap WITHOUT text gets no link — there is nothing to search for",
-      links === 1, `${links} search link(s) for 1 logged gap and 1 unlogged`);
+    check("every gap WITH text gets exactly one link, and a gap WITHOUT text gets none",
+      links === expectedLinks, `${links} search link(s) for ${expectedLinks} gap(s) with text (of ${gaps.length} gaps)`);
     check("the disabled answer form is STILL disabled — answering a gap is the editor's job, not this pass's",
       /name="title" type="text" value="[^"]*" disabled="disabled"/.test(home.text)
       && /<textarea [^>]*disabled="disabled"/.test(home.text)

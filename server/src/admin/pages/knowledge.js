@@ -73,20 +73,15 @@ import { corpusStatus, ingestAndEmbed, parseBundle } from "../../kb/ingest.js";
  * that the search page and the corpus page cannot carry different versions of them, and so that
  * deleting one is a visible act.
  */
-const RETRIEVAL_CAVEATS = html`<strong>Every ordering below is a floor, not a measurement of the design.</strong>
-  There is <strong>no cross-encoder reranker</strong> (D207) — it is retrieved and deliberately not
-  picked, because a cross-encoder costs per-query × per-candidate and no latency measurement exists.
-  The development embedder is <strong>not the model D199 chose</strong> (D203): it is the L variant,
-  1.9× the parameters, so dev quality is an optimistic proxy and dev latency a pessimistic one.
-  And <strong>no relevance threshold is drawn on these scores, because one cannot be</strong> — a
-  fused RRF score is <span class="mono">2/61</span> or <span class="mono">1/(60+rank)</span>, so it
-  encodes rank and leg agreement and carries no similarity magnitude at all (register §5.16c,
-  measured by <span class="mono">npm.cmd run kb:floor</span>).`;
+const RETRIEVAL_CAVEATS = html`<strong>Every ordering below is a floor, not a measurement.</strong>
+  No cross-encoder reranker (D207); the dev embedder is not D199's chosen model (D203); and
+  <strong>no relevance threshold is drawn on these scores</strong> — a fused RRF score is
+  <span class="mono">2/61</span> or <span class="mono">1/(60+rank)</span> and carries no similarity
+  magnitude (§5.16c).`;
 
 const CROSS_TENANT = html`<strong>Cross-tenant: this changes what EVERY tenant's assistant answers.</strong>
-  The corpus is <span class="mono">control.kb_*</span> and generic by decision (D45), so an article
-  ingested here is not scoped to your tenant. Whether tenant-specific articles should exist is a
-  decision nobody has taken.`;
+  The corpus (<span class="mono">control.kb_*</span>) is generic by decision (D45) — not scoped to
+  your tenant.`;
 
 // ---- shared form -------------------------------------------------------------------------------
 
@@ -103,8 +98,7 @@ function searchForm({ query = "", platform = "any" } = {}) {
     <select name="platform" aria-label="Platform pre-filter">${SEARCH_PLATFORMS.map((p) => html`<option value="${p}" ${p === platform ? html`selected=""` : ""}>${p === "any" ? "any machine" : p}</option>`)}</select>
     <button class="primary" type="submit">Search</button>
   </div>
-  <p class="hint">Both retrieval legs, unfused, then the fusion — the same functions <span class="mono">/v1/ask</span> calls. The platform pre-filter applies inside each leg (D162), exactly as a real question's does.</p>
-  <p class="hint"><strong>“any machine” matches articles marked <span class="mono">any</span> and nothing else.</strong> A <span class="mono">windows</span> or <span class="mono">macos</span> article is invisible under it — deliberately, because that is what a machine whose platform probe failed sees, and admitting everything on an unknown platform is how a macOS article reaches a Windows user. Pick the platform to see those articles.</p>
+  <p class="hint">The same retrieval <span class="mono">/v1/ask</span> runs (D162). <span class="mono">"any machine"</span> matches only <span class="mono">any</span>-platform articles — pick <span class="mono">windows</span>/<span class="mono">macos</span> to see the rest.</p>
 </form>`;
 }
 
@@ -127,17 +121,16 @@ function ingestForm(ctx, status) {
   return html`
 <div class="panel">
   <h2>Ingest a bundle</h2>
-  <p class="muted">Paste a bundle's JSON — the same shape as <span class="mono">docs/kb/generic-kb-v2.json</span>: an object with a <span class="mono">bundleId</span> and an <span class="mono">articles</span> array. Validated whole before anything is written, so a bad article anywhere means nothing lands.</p>
+  <p class="muted">Paste a bundle's JSON — the shape of <span class="mono">docs/kb/generic-kb-v2.json</span>. Validated whole before anything is written: a bad article anywhere means nothing lands.</p>
   ${limit(CROSS_TENANT)}
   ${status.models.length === 1
-    ? html`<p class="muted">This corpus is embedded by <span class="mono">${status.models[0].model}</span>. If this hub's embedder is a different model the ingest still lands and <strong>the embedding step is refused</strong>, because two models are two vector spaces and retrieval is then confidently wrong for part of the corpus.</p>`
+    ? html`<p class="muted">Embedded by <span class="mono">${status.models[0].model}</span> — a different embedder is refused at the embed step (two models are two vector spaces).</p>`
     : ""}
   <form method="post" action="/admin/knowledge/ingest">
     ${csrfField(ctx.csrf)}
     <label for="bundle">Bundle JSON</label>
     <textarea id="bundle" name="bundle" rows="10" placeholder='{ "bundleId": "my-bundle", "articles": [ { "id": "…", "type": "troubleshooting", "title": "…", "symptoms": [], "guidance": [] } ] }' style="max-width:100%;min-height:180px;font-family:var(--mono);font-size:13px"></textarea>
-    <p class="hint">Up to ${kb} kB of form body. A bigger bundle belongs on disk: <span class="mono">node bin/kb.mjs ingest &lt;bundle.json&gt;</span> from <span class="mono">server/</span>.</p>
-    <p class="hint">There is <strong>no file picker</strong>: this console has no multipart parser and D221 forbids adding a dependency for one. A file upload is a second form here once one is written.</p>
+    <p class="hint">Up to ${kb} kB — bigger, or from a file: <span class="mono">node bin/kb.mjs ingest &lt;bundle.json&gt;</span> from <span class="mono">server/</span> (no file picker here; D221).</p>
     <div class="row">
       <button class="primary" type="submit">Validate, ingest and embed</button>
       <span class="muted" style="font-size:13px">Recorded in the audit log with who did it, the counts and the model — never the article text.</span>
@@ -201,11 +194,9 @@ ${stats.body}
 
 ${ingestForm(ctx, status)}
 
-<p class="muted"><strong>D230, 2026-09-09:</strong> the editor is the structured form above the article
-  table and behind "New article" — plain fields and one-line-per-entry lists, no markdown, no
-  sanitiser, no new dependency. The one markdown field the schema carries (<span class="mono">body</span>,
-  <span class="mono">type: "reference"</span> only) stays out of the console; it is shown, unedited,
-  on the edit page. The review queue's answer form is a separate, still-undrawn stub.</p>
+<p class="muted"><strong>D230:</strong> the editor is plain fields and one-line-per-entry lists — no markdown,
+  no sanitiser. <span class="mono">body</span> (<span class="mono">type: "reference"</span> only) stays
+  uneditable, shown as stored on the edit page.</p>
 <p class="muted">The same corpus, from a terminal: <span class="mono">npm.cmd run kb:status</span> (server/).</p>`;
   await ctx.render(error ? 400 : 200, body, { title: "Knowledge", current: "/admin/knowledge" });
 }
@@ -340,9 +331,9 @@ function editorForm(ctx, { editing, values, error = null }) {
   const v = values;
   const idField = editing
     ? html`<input type="hidden" name="id" value="${v.id}"><p class="mono">${v.id}</p>
-        <p class="hint">The id is the citation key and is not editable once an article exists.</p>`
+        <p class="hint">The citation key — not editable once an article exists.</p>`
     : html`<input id="id" name="id" type="text" value="${v.id ?? ""}" required placeholder="a-short-stable-slug" style="max-width:420px">
-        <p class="hint">Stable and human-readable — this is what a citation names. Cannot be changed after this save.</p>`;
+        <p class="hint">Stable and human-readable. Cannot be changed after this save.</p>`;
 
   return html`
 <div class="panel">
@@ -378,8 +369,8 @@ function editorForm(ctx, { editing, values, error = null }) {
         <input id="environment" name="environment" type="text" value="${v.environment ?? ""}" style="max-width:220px">
       </div>
     </div>
-    <p class="hint"><strong>Platform: only <span class="mono">any</span>, <span class="mono">windows</span>, <span class="mono">macos</span> and <span class="mono">linux</span> are ever matched</strong> (D162 — the only values a real machine's probe can produce). Anything else is stored and indexed and <strong>retrieved by nothing</strong> — a warning on save, not a refusal, same rule as pasting a bundle.</p>
-    ${v.type === "reference" ? html`<p class="hint">Reference articles are one markdown table in <span class="mono">body</span>, which this editor does not offer (D230) — <span class="mono">cause</span> and <span class="mono">guidance</span> are not used for this type.</p>` : ""}
+    <p class="hint">Only <span class="mono">any</span>/<span class="mono">windows</span>/<span class="mono">macos</span>/<span class="mono">linux</span> match (D162); anything else is stored but <strong>retrieved by nothing</strong> — a warning on save, not a refusal.</p>
+    ${v.type === "reference" ? html`<p class="hint">Reference: <span class="mono">body</span> is one markdown table, not editable here (D230) — <span class="mono">cause</span>/<span class="mono">guidance</span> unused for this type.</p>` : ""}
 
     <label for="problem">Problem <span class="muted" style="text-transform:none;letter-spacing:0">— one or two sentences, the user's framing</span></label>
     <textarea id="problem" name="problem" rows="2" style="max-width:100%">${v.problem ?? ""}</textarea>
@@ -408,10 +399,10 @@ function editorForm(ctx, { editing, values, error = null }) {
       <button class="primary" type="submit">Save (as unvalidated)</button>
       <a href="/admin/knowledge" class="btn">Cancel</a>
     </div>
-    <p class="hint">Saved as <span class="mono">unvalidated</span> regardless of what it held before — new content is untested content.</p>
+    <p class="hint">Saved as <span class="mono">unvalidated</span>, regardless of what it held before.</p>
   </form>
 </div>
-${editing ? html`<p class="muted">Try a question against the saved corpus: <a href="/admin/knowledge/search?q=${encodeURIComponent(v.problem || v.title || "")}">search</a> — the same retrieval <span class="mono">/v1/ask</span> uses. <strong>This previews retrieval only.</strong> The model's own answer is not previewed here: that needs the completion provider threaded into the console, which today gets only the embedder (<span class="mono">src/admin/router.js</span>), and wiring it in is a decision this pass did not make.</p>` : ""}`;
+${editing ? html`<p class="muted"><a href="/admin/knowledge/search?q=${encodeURIComponent(v.problem || v.title || "")}">Try a question</a> against the saved corpus — retrieval only; the model's own answer isn't previewed here (needs the completion provider wired into the console, not done).</p>` : ""}`;
 }
 
 // ---- routes ------------------------------------------------------------------------------------
@@ -578,7 +569,7 @@ async function searchPage(ctx) {
   const body = html`
 <p><a href="/admin/knowledge">← Knowledge</a></p>
 <h1>Search the corpus</h1>
-<p class="lede">The retrieval the assistant runs, with its two legs pulled apart. If you cannot find an article here, neither can the assistant — and the legs say which half is failing.</p>
+<p class="lede">The retrieval the assistant runs, legs pulled apart. If an article is missing here, it's missing for the assistant too.</p>
 
 <div class="panel">${searchForm({ query, platform })}</div>
 
@@ -621,13 +612,13 @@ function searchResults(r, status) {
 </div>
 
 ${r.scope.eligible < r.scope.total
-  ? html`<p class="muted"><strong>${r.scope.eligible} of ${r.scope.total} chunks were eligible</strong> under the <span class="mono">${r.platform}</span> pre-filter; the other ${r.scope.total - r.scope.eligible} belong to articles for a different platform and neither leg saw them. If an article you expected is missing, check its platform on the Knowledge page before concluding it is not there.</p>`
-  : html`<p class="muted">All ${r.scope.total} chunks were eligible under the <span class="mono">${r.platform}</span> pre-filter, so nothing was withheld before the legs ran.</p>`}
+  ? html`<p class="muted"><strong>${r.scope.eligible} of ${r.scope.total} chunks were eligible</strong> under <span class="mono">${r.platform}</span>; the other ${r.scope.total - r.scope.eligible} are a different platform's and check that first if one's missing.</p>`
+  : html`<p class="muted">All ${r.scope.total} chunks were eligible under <span class="mono">${r.platform}</span> — nothing withheld before the legs ran.</p>`}
 
-${r.legs.semanticRan ? "" : html`<div class="error"><strong>Half of retrieval did not run.</strong> The semantic leg ${semanticNote}. What you see below is the lexical leg alone, which is a real degraded mode of the hub (the endpoint's alternative is no answer at all) — but it is <strong>not</strong> what a working system returns, so do not read a missing article as an absent article until this is fixed.</div>`}
+${r.legs.semanticRan ? "" : html`<div class="error"><strong>Half of retrieval did not run.</strong> The semantic leg ${semanticNote}. Below is the lexical leg alone — a real degraded mode, <strong>not</strong> what a working system returns.</div>`}
 
-${noAgreement ? limit(html`<strong>The lexical leg found nothing, so these rows are the dense leg alone — and a dense leg has no “no match”.</strong>
-  It returns its nearest neighbours for any question at all, so chunks are still marked “sent” below and the top score is still <span class="mono">1/61</span>. <strong>This is what an uncovered question looks like</strong>, and it is indistinguishable by score from a covered question whose phrasing shares no terms with its article — which is why no threshold is drawn here and why the decline is the prompt's job (D205, §5.16c). Read the “both” column and the cosine values on the semantic leg, not the ordering.`) : ""}
+${noAgreement ? limit(html`<strong>The lexical leg found nothing — these rows are the dense leg alone, and a dense leg has no “no match”.</strong>
+  Top score is still <span class="mono">1/61</span>; this is what an uncovered question looks like, indistinguishable by score from a covered one with no shared vocabulary (D205, §5.16c). Read “both” and the semantic cosine, not the ordering.`) : ""}
 
 <h2>What came back<span class="count">${r.byArticle.length} article(s), ${r.fused.length} chunk(s)</span></h2>
 ${r.fused.length === 0
@@ -654,29 +645,26 @@ ${r.fused.length === 0
     c.sentText ? html`<tr><td></td><td colspan="7"><blockquote>${c.sentText}</blockquote></td></tr>` : "",
   ]))}</tbody>
 </table>
-<p class="muted"><strong>The quoted text is what the model was given, and only that.</strong> A chunk
-  below the top ${r.params.topK} shows its ranks and its score and not its text (D226, founder
-  2026-09-09: the sent set is the text that produced or failed to produce an answer, and it is the
-  smallest disclosure that answers the question this screen exists to answer). Read it against
-  D53's rule that chunk text does not leave the hub: this page IS the hub, and the article text is
-  already readable through <span class="mono">node bin/kb.mjs</span> — but the corpus is
-  cross-tenant (D45), so this is every tenant's article text, and a page is easier to screenshot
-  than a terminal. It is not rendered as markdown; it is the chunk, escaped, exactly as stored.</p>
-<p class="muted"><strong>“Both” is the column worth reading.</strong> A chunk found by both legs gets both RRF terms, and that agreement is the property that makes hybrid retrieval work — it is also the honest form of the relevance signal a score threshold would be approximating (§5.16c). The score itself is <span class="mono">Σ weight/(${r.params.rrfK}+rank)</span> and nothing else: it is not a similarity.</p>`}
+<p class="muted"><strong>The quoted text is what the model was given, and only that</strong> (D226): the sent
+  set is the text that produced or failed to produce an answer. D53 says chunk text does not leave
+  the hub; this page IS the hub, escaped and unrendered as markdown.</p>
+<p class="muted"><strong>“Both” is the column worth reading</strong> — the agreement that makes hybrid
+  retrieval work, and the honest form of what a score threshold would approximate (§5.16c). The
+  score is <span class="mono">Σ weight/(${r.params.rrfK}+rank)</span>, not a similarity.</p>`}
 
 <h2>The two legs, unfused</h2>
-<p class="muted">Shown separately because a fusion of one working leg and one dead leg returns plausible results in a plausible order and looks like a working system (B7a spec §9). Each leg's score is its own and the two are <strong>not comparable</strong> — that is why fusion uses rank.</p>
+<p class="muted">Shown apart because a fusion with one dead leg still looks like a working system (B7a §9). Scores are <strong>not comparable</strong> across legs — fusion uses rank.</p>
 <div class="cols">
-  ${legPanel("Lexical", "ts_rank over the generated tsvector, GIN indexed. websearch_to_tsquery, so quoted phrases and -exclusions work as a user expects.", r.legs.lexical, "ts_rank")}
+  ${legPanel("Lexical", "ts_rank, GIN indexed, websearch_to_tsquery (quoted phrases and -exclusions work).", r.legs.lexical, "ts_rank")}
   ${r.legs.semanticRan
-    ? legPanel("Semantic", `cosine similarity over pgvector, HNSW indexed, query embedded by ${r.embedder?.model} with arctic's "query: " prefix. This score IS a magnitude in [-1, 1] — it is the one place a relevance floor could ever live (§5.16c), and no floor is set here either.`, r.legs.semantic, "cosine")
-    : html`<div class="panel"><h2>Semantic</h2><p class="muted">Did not run: ${r.legs.semanticError}</p><p class="muted">${status.embedded} of ${status.chunks} chunks have a vector. With no semantic leg, a question whose phrasing shares no words with its article cannot be found at all.</p></div>`}
+    ? legPanel("Semantic", `cosine over pgvector/HNSW, embedded by ${r.embedder?.model}. A real magnitude in [-1, 1] — the one place a floor could live (§5.16c), and none is set.`, r.legs.semantic, "cosine")
+    : html`<div class="panel"><h2>Semantic</h2><p class="muted">Did not run: ${r.legs.semanticError}</p><p class="muted">${status.embedded} of ${status.chunks} chunks have a vector.</p></div>`}
 </div>
 
 ${notYet({
   heading: "The text of a chunk the model did NOT receive",
   missing: "A chunk below the top " + r.params.topK + " shows its ranks and its score, and not its text.",
-  why: "D226 was decided narrower than it was proposed (founder, 2026-09-09): the sent set is exactly the text that produced or failed to produce an answer, so it is the smallest disclosure that answers the question this screen exists to answer, and D53's rule against chunk text leaving the hub is respected everywhere else. If you need the rest, node bin/kb.mjs legs <query> prints every candidate's text in a terminal, where it cannot be screenshot out of context as easily — and the article itself is on the Knowledge page.",
+  why: "D226, decided narrower than proposed: the sent set is the smallest disclosure that answers what this screen is for, and D53's rule against chunk text leaving the hub holds everywhere else. node bin/kb.mjs legs <query> prints the rest in a terminal.",
   arrives: "nothing — this is the decided shape, not a gap",
 })}`;
 }
