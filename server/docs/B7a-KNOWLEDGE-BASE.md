@@ -345,3 +345,52 @@ model, no tenancy and no retention policy to constrain it with.
   **inference, not retrieved**. The observable facts are retrieved; the causal link is ours.
 - `whenNotToUse` moving every model in the bake-off is the one measured prompt result this design
   leans on. It is one machine and 40 hand-written cases.
+
+
+---
+
+## 11. Retrieval has a face now (2026-09-09) — and what it made visible
+
+The admin console's Knowledge destination surfaces this file's read path in a browser:
+`GET /admin/knowledge/search` runs **both legs unfused and the fusion** and shows all three, and
+`POST /admin/knowledge/ingest` puts a bundle in through the same `ingestAndEmbed()` that
+`node bin/kb.mjs ingest` uses (register §5.24, **D226–D229**;
+[`B2-ADMIN-CONSOLE.md`](B2-ADMIN-CONSOLE.md) §10 is the document). Nothing in `src/kb/` changed
+shape for it: `src/admin/kb-search.js` **composes** `lexicalLeg`, `semanticLeg` and `fuseRRF`
+and writes no retrieval SQL of its own, which is what keeps the console evidence about `/v1/ask`
+rather than a second implementation with its own opinions.
+
+Three things this file already said became visible for the first time when a person could look at
+them, and all three are consequences rather than news:
+
+- **Searching "any machine" cannot return the Windows reference article.** `platformClause()`
+  admits `platform = 'any'` only when no platform is supplied, which is the conservative direction
+  D162 chose — an unknown platform admitting everything is how a macOS article reaches a Windows
+  user. On a page this reads as a missing article, so the page says it in words and reports how many
+  chunks were eligible under the filter at all.
+- **An uncovered question still fills the top five.** The dense leg has no notion of "no match": it
+  returns its nearest neighbours whatever you ask, so five chunks are marked *would reach the model*
+  for a question nothing covers, and the decline is the prompt's job alone (D205). This is §5.16c's
+  arithmetic seen from the front, and it is why the page draws **no** threshold.
+- **An article's `platform` is unvalidated by the schema.** `migrations/control/002-generic-kb.sql`
+  has no `CHECK` on it, so an article stamped `Windows 11` is written, indexed, embedded and
+  **matched by nothing** — the pre-filter compares the column to `'any'` or to the probe's exact
+  word, and `windows 11` is a value no machine can ever ask for. Found by ingesting one on purpose.
+  `bundleWarnings()` in `src/kb/ingest.js` now reports it at ingest time; **enforcing** it would be
+  a migration and therefore a decision, and that decision is not taken.
+
+**Both decisions about this corpus were answered on 2026-09-09, and neither as asked** (§5.24):
+
+- **D226 — chunk text on the console page: YES, NARROWED.** The search results quote the text of the
+  chunks `/v1/ask` would send, and of no others. That set is exactly the text that produced or
+  failed to produce an answer, which is the question the screen exists to answer; every chunk below
+  `DEFAULT_TOP_K` shows its ranks and its score and no text, and `node bin/kb.mjs legs` remains
+  the way to read the rest. D53's rule holds everywhere else, and the narrowing is structural:
+  `src/admin/kb-search.js` sets `sentText` only for a sent chunk and strips `text` from the legs,
+  the fusion and the sent list before they leave the module.
+- **D227 — `MATIC_KB_LOG_QUERIES` on the dev and demo hubs: DEFERRED behind D229**, a retention
+  policy for logged question text. The founder's reasoning: a table of what employees typed needs a
+  keeping rule *before* it has rows in it. So the switch stays off, `query_text` is null on all 33
+  rows, and the review queue keeps showing declines without their text — a named cost, not an
+  oversight. **D229 is cheap to answer precisely because nothing has been logged yet**: no
+  migration and no deletion is needed to comply with whatever it says.

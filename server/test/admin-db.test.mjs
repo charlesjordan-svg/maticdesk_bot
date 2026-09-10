@@ -16,6 +16,27 @@
  *   6. The five stub destinations each state what is missing and why.
  *   7. The console does not appear in GET /'s route list.
  *   8. The console refuses non-loopback (inherited; tested in turn.test.mjs) and says so.
+ *
+ * ===============================================================================================
+ * AND, SINCE 2026-09-09, THE KNOWLEDGE PASS'S EIGHT (handover §3)
+ * ===============================================================================================
+ *
+ *   1. A pasted bundle lands, and the page's counts equal what `node bin/kb.mjs status` prints.
+ *   2. An ingest with the embedder DOWN succeeds, says the chunks are lexical-only, and a later
+ *      embed completes them.
+ *   3. An ingest that would introduce a SECOND embedding model is refused, with the reason, and
+ *      the corpus still has one model.
+ *   4. `kb.ingest` is in admin_audit with actor, counts and model — and no article text.
+ *   5. A search shows the same chunks at the same ranks as `bin/kb.mjs legs`, and an uncovered
+ *      query draws NO threshold.
+ *   6. An `auditor` cannot open the search or the ingest; an `it_agent` can do both.
+ *   7/8. Escaping, CSRF, no script — asserted in test/admin-static.test.mjs and here.
+ *
+ * THE KNOWLEDGE BASE IS CONTROL-PLANE AND CROSS-TENANT (D45), SO IT HAS NO TEST NAMESPACE.
+ * This suite therefore ingests articles whose ids all start `b2test-` and deletes them BY ID in
+ * teardown — dropping the tenant does not touch them, because they were never in it. Everything
+ * this suite embeds is embedded under THE MODEL NAME THE CORPUS ALREADY USES (see `stubEmbedder`),
+ * so it can never introduce the second model whose absence it is also asserting.
  */
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -26,7 +47,10 @@ import { createTenant, dropTenantForTests } from "../src/db/tenants.js";
 import { getPool, closePool, withControl } from "../src/db/pool.js";
 import { createTicket } from "../src/tickets/file.js";
 import { listTickets, getTicket } from "../src/tickets/query.js";
-import { createAdminUser, setAdminStatus } from "../src/admin/users.js";
+import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
+import { corpusStatus } from "../src/kb/ingest.js";
+import { lexicalLeg } from "../src/kb/retrieve.js";
+import { verifyPassword } from "../src/admin/auth.js";
 import { revokeUserSessions } from "../src/admin/session.js";
 import { totpCode, totpStep } from "../src/admin/auth.js";
 import { resetLoginThrottle } from "../src/admin/router.js";
@@ -43,7 +67,63 @@ function check(label, cond, extra = "") {
 const stubProvider = { name: "stub", model: "stub", async complete() { return { status: 200, body: {}, ms: 1 }; } };
 const slug = `b2-test-${Math.random().toString(36).slice(2, 8)}`;
 let schema, tenantId, server, base;
-const made = { owner: null, auditor: null, vendor: null };
+const made = { owner: null, auditor: null, agent: null, vendor: null };
+
+/** Article ids this suite creates. Deleted by id in teardown — the corpus is cross-tenant (D45). */
+const KB_IDS = ["b2test-vpn", "b2test-badplat", "b2test-down"];
+
+/**
+ * A DETERMINISTIC STUB EMBEDDER, and two things about it that are deliberate.
+ *
+ * (1) `model` is set in setup() to WHATEVER MODEL THE CORPUS ALREADY USES. That looks like a lie
+ * and is the only safe choice: `embedPending()` re-embeds every chunk whose model differs from the
+ * current embedder's, so a stub with its own name would either be refused (correct, and then the
+ * happy path is untestable) or, without the refusal, would overwrite the REAL corpus's 18 vectors
+ * with stub ones. Borrowing the name confines this suite's writes to its own chunks. The
+ * second-model refusal is then tested by temporarily setting `model` to something else, which
+ * cannot write anything, because being refused is the assertion.
+ *
+ * (2) `mode = "down"` throws, which is the embedder outage the two-pass ingest exists for.
+ *
+ * The vectors are meaningless as similarity and that is fine here: this suite asserts that the
+ * pipeline ran and reported itself honestly. Retrieval QUALITY is kb.test.mjs's job, against the
+ * real embedder.
+ */
+const stubEmbedder = {
+  name: "stub",
+  model: "unset",
+  mode: "ok",
+  vector(text) {
+    // A cheap deterministic unit-ish vector of the width migration 002 declared.
+    let h = 2166136261;
+    for (const ch of String(text)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    const out = new Array(1024);
+    for (let i = 0; i < 1024; i++) { h = Math.imul(h ^ i, 16777619); out[i] = ((h >>> 8) % 2000 - 1000) / 1000; }
+    const norm = Math.sqrt(out.reduce((a, b) => a + b * b, 0)) || 1;
+    return out.map((x) => x / norm);
+  },
+  async embed(texts) {
+    if (this.mode === "down") throw new Error("stub embedder is down");
+    return texts.map((t) => this.vector(t));
+  },
+  async embedQuery(text) {
+    if (this.mode === "down") throw new Error("stub embedder is down");
+    return this.vector(text);
+  },
+  async verify() { return this.mode === "down" ? { ok: false, error: "stub embedder is down" } : { ok: true, dimensions: 1024 }; },
+};
+
+/** A valid CSRF token from the it_agent's session, so §2 can prove a token is not a permission. */
+let agentCsrf = null;
+
+const bundleJson = (articles) => JSON.stringify({ bundleId: "b2test-bundle", articles });
+const VPN_ARTICLE = {
+  id: "b2test-vpn", type: "troubleshooting", title: "B2TEST VPN certificate expired",
+  problem: "The VPN refuses to connect and names a certificate.",
+  symptoms: ["b2testvpnphrase will not connect", "certificate expired on the vpn"],
+  guidance: ["1. Sign out and back in to fetch a new certificate."],
+  platform: "any",
+};
 
 /** fetch that does not follow redirects and carries a cookie jar of one. */
 function client() {
@@ -65,6 +145,8 @@ function client() {
   };
 }
 const csrfOf = (html) => html.match(/name="_csrf" value="([^"]+)"/)?.[1] ?? null;
+/** The console's own escaping (src/admin/html.js), so a text assertion compares like with like. */
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 /** The audit rows for this tenant, newest first. */
 async function auditRows() {
   const { rows } = await getPool().query(
@@ -84,12 +166,18 @@ async function setup() {
   schema = t.schemaName; tenantId = t.id;
   made.owner = await createAdminUser({ tenantId, email: `owner@${slug}.test`, roleName: "tenant_owner", password: "owner-password-12" });
   made.auditor = await createAdminUser({ tenantId, email: `auditor@${slug}.test`, roleName: "auditor", password: "auditor-password-12" });
+  made.agent = await createAdminUser({ tenantId, email: `agent@${slug}.test`, roleName: "it_agent", password: "agent-password-12" });
   made.vendor = await createAdminUser({ tenantId: null, email: `vendor@${slug}.test`, roleName: "vendor_staff", password: "vendor-password-12" });
   await createTicket(schema, {
     description: "the <b>screen</b> is cracked & flickering", summary: "The user reports a cracked screen.", whatWasChecked: "online", machineName: "TEST-PC",
     category: "hardware", suggestedOwner: "desktop_support", reporter: { osUsername: "tester", firstName: "Ada", lastName: "Lovelace", location: "Floor 2", contactId: "ada@example.test" },
   });
-  server = createHubServer({ provider: stubProvider, log: () => {}, kb: false, ticketTenant: schema });
+  // Borrow the corpus's own embedding-model name — see stubEmbedder's comment for why that is the
+  // safe choice rather than the dishonest one. An empty corpus gets an arbitrary name.
+  const existing = await corpusStatus();
+  stubEmbedder.model = existing.models[0]?.model ?? "b2test-stub-embedder";
+  stubEmbedder.mode = "ok";
+  server = createHubServer({ provider: stubProvider, log: () => {}, kb: false, ticketTenant: schema, embedder: stubEmbedder });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${server.address().port}`;
 }
@@ -99,6 +187,10 @@ async function teardown() {
   await withControl(async (c) => {
     await c.query("DELETE FROM control.admin_audit WHERE tenant_id = $1 OR admin_user_id IN (SELECT id FROM control.admin_users WHERE email LIKE $2)", [tenantId, `%@${slug}.test`]);
     await c.query("DELETE FROM control.admin_users WHERE email LIKE $1", [`%@${slug}.test`]); // cascades sessions and grants
+    // THE KB IS CROSS-TENANT, so dropping the tenant leaves these behind. Delete by id; chunks go
+    // with them by ON DELETE CASCADE (migration 002). Also the retrieval-log row §gaps inserted.
+    await c.query("DELETE FROM control.kb_articles WHERE id = ANY($1)", [KB_IDS]);
+    await c.query("DELETE FROM control.kb_retrieval_log WHERE tenant_label = $1", [`b2test-${slug}`]);
   });
   await dropTenantForTests(slug);
 }
@@ -193,7 +285,13 @@ try {
     check("Metrics: 200, real question counts, deflection explained as not computable", metrics.status === 200 && /asked, all time/.test(metrics.text) && /cannot be computed/.test(metrics.text));
     check("Metrics: the tenant's tickets by category are real (hardware: 1)", /<td>hardware<\/td><td>1<\/td>/.test(metrics.text));
     const knowledge = await owner.go("/admin/knowledge");
-    check("Knowledge: 200 with corpus figures and the search/ingest stubs", knowledge.status === 200 && /articles<\/div>/.test(knowledge.text) && /Search as the assistant searches/.test(knowledge.text));
+    // Was: "…and the search/ingest stubs". Both are real since 2026-09-09; the editor is the stub
+    // that remains, and it names the sanitiser decision that supplies it.
+    check("Knowledge: 200 with corpus figures, a real search form and a real ingest form",
+      knowledge.status === 200 && /articles<\/div>/.test(knowledge.text)
+      && /action="\/admin\/knowledge\/search"/.test(knowledge.text) && /action="\/admin\/knowledge\/ingest"/.test(knowledge.text));
+    check("Knowledge: the article EDITOR is still an honest stub, naming the sanitiser",
+      /Write and edit articles here/.test(knowledge.text) && /sanitiser/.test(knowledge.text));
     const settings = await owner.go("/admin/settings");
     check("Settings: 200, lists both admins with roles and no secrets", settings.status === 200 && settings.text.includes(made.owner.email) && settings.text.includes(made.auditor.email) && !/scrypt\$/.test(settings.text) && !/totp_secret/.test(settings.text));
     check("Settings: names the CLI as the way to add an admin", /bin\/admin\.mjs create-user/.test(settings.text));
@@ -240,6 +338,266 @@ try {
     check("the CLI sees the change through the same query layer", cliShow.status === 0 && new RegExp(`${ref}\\s+open`).test(cliShow.stdout));
   }
 
+  console.log("\n=== KB-1. a pasted bundle lands, and the page's counts equal bin/kb.mjs status ===");
+  {
+    const before = await corpusStatus();
+    const page = await owner.go("/admin/knowledge");
+    const token = csrfOf(page.text);
+    check("the Knowledge page draws the search form and the ingest form", /action="\/admin\/knowledge\/search"/.test(page.text) && /action="\/admin\/knowledge\/ingest"/.test(page.text));
+    check("…and states, in words, that the corpus is cross-tenant (D45)", /Cross-tenant: this changes what EVERY tenant/.test(page.text));
+    check("the ingest form carries a CSRF token", Boolean(token));
+
+    const noCsrf = await owner.go("/admin/knowledge/ingest", { method: "POST", form: { bundle: bundleJson([VPN_ARTICLE]) } });
+    check("POST /admin/knowledge/ingest without the token -> 403, and nothing landed",
+      noCsrf.status === 403 && (await corpusStatus()).articles === before.articles);
+
+    // A bad article in position TWO refuses the whole bundle. Verified against a live database,
+    // which is the honesty-ledger item the handover left open.
+    const bad = await owner.go("/admin/knowledge/ingest", { method: "POST", form: {
+      _csrf: token,
+      bundle: bundleJson([VPN_ARTICLE, { id: "b2test-nope", type: "howto", title: "Wrong type" }]),
+    } });
+    check("a bad type in the SECOND article refuses the WHOLE bundle -> 400, naming the article",
+      bad.status === 400 && /b2test-nope/.test(bad.text) && /nothing was written/.test(bad.text), String(bad.status));
+    check("…and the corpus did not move — a partial corpus is the state that looks loaded",
+      (await corpusStatus()).articles === before.articles);
+    check("…and the refusal was audited (kb.ingest.refused) with the reason and no article text",
+      (await auditRows()).some((r) => r.action === "kb.ingest.refused" && /b2test-nope/.test(JSON.stringify(r.detail)) && !/certificate expired/.test(JSON.stringify(r))));
+
+    const notJson = await owner.go("/admin/knowledge/ingest", { method: "POST", form: { _csrf: token, bundle: "{ nope" } });
+    check("text that is not JSON -> 400 naming the position, not 'invalid'", notJson.status === 400 && /not valid JSON/.test(notJson.text));
+    const emptyBox = await owner.go("/admin/knowledge/ingest", { method: "POST", form: { _csrf: token, bundle: "  " } });
+    check("an empty box -> 400 saying so, rather than an ingest of nothing", emptyBox.status === 400 && /the bundle box was empty/.test(emptyBox.text));
+
+    // The real thing. Two articles, one of them with a platform the pre-filter cannot match.
+    const ok = await owner.go("/admin/knowledge/ingest", { method: "POST", form: {
+      _csrf: token,
+      bundle: bundleJson([VPN_ARTICLE, { id: "b2test-badplat", type: "reference", title: "B2TEST wrong platform", body: "x", platform: "Windows 11" }]),
+    } });
+    const after = await corpusStatus();
+    check("a good bundle -> 200 with a report naming the bundle", ok.status === 200 && /b2test-bundle/.test(ok.text), String(ok.status));
+    check("the report says 2 articles inserted", /<div class="n">2<\/div><div class="l">articles inserted/.test(ok.text));
+    check("THE PAGE'S COUNTS EQUAL corpusStatus() — the same function bin/kb.mjs status reads (exit criterion 1)",
+      ok.text.includes(`<strong>${after.articles}</strong> articles`) && ok.text.includes(`<strong>${after.chunks}</strong> chunks`) && ok.text.includes(`<strong>${after.embedded}</strong> embedded`),
+      `page vs ${JSON.stringify({ a: after.articles, c: after.chunks, e: after.embedded })}`);
+    check("the corpus grew by exactly the two articles", after.articles === before.articles + 2);
+    check("the chunks were embedded, by the model named on the page", after.embedded === after.chunks && ok.text.includes(stubEmbedder.model));
+    check("a legal-but-unretrievable platform is REPORTED, not refused — 'RETRIEVED BY NOTHING'",
+      /RETRIEVED BY NOTHING/.test(ok.text) && /b2test-badplat/.test(ok.text));
+    const cli = spawnSync(process.execPath, [join(SERVER, "bin/kb.mjs"), "status"], { encoding: "utf8" });
+    check("bin/kb.mjs status prints the same three numbers (exit criterion 1, independently)",
+      cli.status === 0 && new RegExp(`articles\\s+${after.articles}`).test(cli.stdout) && new RegExp(`chunks\\s+${after.chunks}\\s+\\(${after.embedded} embedded\\)`).test(cli.stdout),
+      cli.stdout.slice(0, 300));
+
+    // Exit criterion 4.
+    const row = (await auditRows()).find((r) => r.action === "kb.ingest");
+    check("kb.ingest is audited with the actor, the counts and the model (exit criterion 4)",
+      Boolean(row) && row.email === made.owner.email && row.subject === "b2test-bundle"
+      && row.detail.articles.inserted === 2 && row.detail.embedded > 0 && row.detail.model === stubEmbedder.model,
+      JSON.stringify(row?.detail));
+    check("…and NO article text is in the audit row",
+      !/certificate|Sign out and back in|wrong platform/i.test(JSON.stringify(row)));
+
+    // Re-ingest. source_hash makes it a no-op, and the counts must say so honestly: "0 inserted,
+    // 0 updated, 2 unchanged" beside "0 chunks written". Reporting the bundle's existing chunk
+    // count as "written" was a real defect here, found on 2026-09-09 by reading the page.
+    const again = await owner.go("/admin/knowledge/ingest", { method: "POST", form: {
+      _csrf: token,
+      bundle: bundleJson([VPN_ARTICLE, { id: "b2test-badplat", type: "reference", title: "B2TEST wrong platform", body: "x", platform: "Windows 11" }]),
+    } });
+    check("a re-ingest of the identical bundle reports 2 unchanged and 0 written", /<div class="n">2<\/div><div class="l">unchanged/.test(again.text) && /<div class="n">0<\/div><div class="l">chunks written/.test(again.text));
+    check("…and adds nothing to the corpus", JSON.stringify(await corpusStatus()) === JSON.stringify(after));
+  }
+
+  console.log("\n=== KB-2. the embedder is down: the ingest still lands, lexical only, and says so ===");
+  {
+    stubEmbedder.mode = "down";
+    const page = await owner.go("/admin/knowledge");
+    const token = csrfOf(page.text);
+    const res = await owner.go("/admin/knowledge/ingest", { method: "POST", form: {
+      _csrf: token,
+      bundle: bundleJson([{ id: "b2test-down", type: "reference", title: "B2TEST embedder was down", body: "b2testdownphrase is in this body" }]),
+    } });
+    const status = await corpusStatus();
+    check("the ingest SUCCEEDS with the embedder down -> 200", res.status === 200, String(res.status));
+    check("the article and its chunks are written", status.chunks > status.embedded);
+    check("the page says embedding did not run, names the error, and says the chunks retrieve LEXICALLY ONLY",
+      /Embedding did not run/.test(res.text) && /stub embedder is down/.test(res.text) && /lexical leg only/.test(res.text));
+    check("…and names the command that finishes the job", /node bin\/kb\.mjs embed/.test(res.text));
+    check("the lexical leg DOES find it with no vector at all — this is the degraded mode, working",
+      (await lexicalLeg({ query: "b2testdownphrase", platform: null })).some((c) => c.articleId === "b2test-down"));
+    check("the audit row records the embed error rather than claiming a clean ingest",
+      (await auditRows()).some((r) => r.action === "kb.ingest" && /stub embedder is down/.test(String(r.detail?.embedError))));
+
+    // A later embed completes them, exactly as the CLI would.
+    stubEmbedder.mode = "ok";
+    const { embedPending } = await import("../src/kb/ingest.js");
+    const done = await embedPending({ embedder: stubEmbedder });
+    const final = await corpusStatus();
+    check("a later embed completes them (exit criterion 2)", done.embedded > 0 && final.embedded === final.chunks, JSON.stringify({ done: done.embedded, final }));
+    check("…and the corpus still holds exactly ONE embedding model", final.models.length === 1, JSON.stringify(final.models));
+  }
+
+  console.log("\n=== KB-3. an ingest that would add a SECOND embedding model is refused (exit criterion 3) ===");
+  {
+    const beforeModels = (await corpusStatus()).models;
+    const real = stubEmbedder.model;
+    stubEmbedder.model = "b2test-a-different-model";
+    const page = await owner.go("/admin/knowledge");
+    const token = csrfOf(page.text);
+    const res = await owner.go("/admin/knowledge/ingest", { method: "POST", form: {
+      _csrf: token,
+      bundle: bundleJson([{ ...VPN_ARTICLE, title: "B2TEST VPN certificate expired, edited" }]),
+    } });
+    const after = await corpusStatus();
+    check("the ingest lands (200) and the page says THE EMBEDDING STEP WAS REFUSED",
+      res.status === 200 && /THE EMBEDDING STEP WAS REFUSED/.test(res.text), String(res.status));
+    check("…the reason names both models and points at reembed",
+      res.text.includes(real) && /b2test-a-different-model/.test(res.text) && /node bin\/kb\.mjs reembed/.test(res.text));
+    check("THE CORPUS STILL HAS ONE MODEL, and it is the one it had", after.models.length === 1 && after.models[0].model === real, JSON.stringify(after.models));
+    check("the edited article's chunks were rewritten and are now unembedded — the honest half-state",
+      after.embedded < after.chunks);
+    check("the refusal is on the audit row", (await auditRows()).some((r) => r.action === "kb.ingest" && /different-model/.test(String(r.detail?.embedRefused))));
+    // Put the corpus back the way it was.
+    stubEmbedder.model = real;
+    const { embedPending } = await import("../src/kb/ingest.js");
+    await embedPending({ embedder: stubEmbedder });
+    const restored = await corpusStatus();
+    check("re-embedding with the corpus's own model restores it to one model, fully embedded",
+      restored.models.length === 1 && restored.embedded === restored.chunks && restored.models[0].model === beforeModels[0]?.model);
+  }
+
+  console.log("\n=== KB-4. search: the console and bin/kb.mjs legs agree, and no threshold is drawn ===");
+  {
+    const res = await owner.go("/admin/knowledge/search?q=b2testvpnphrase&platform=any");
+    check("GET /admin/knowledge/search -> 200", res.status === 200, String(res.status));
+    check("the three caveats travel with the results (D207, D203, §5.16c)",
+      /D207/.test(res.text) && /D203/.test(res.text) && /5.16c/.test(res.text) && /no relevance threshold is drawn/.test(res.text));
+    check("the matched article is on the page, and the table has a rank column per leg",
+      /b2test-vpn/.test(res.text) && /<th>Lex<\/th><th>Sem<\/th>/.test(res.text) && /<th>RRF score<\/th>/.test(res.text));
+    check("both legs are shown unfused", /The two legs, unfused/.test(res.text) && /Lexical<span class="count">/.test(res.text));
+    check("the page says how many chunks were eligible under the pre-filter",
+      /chunks were eligible/.test(res.text));
+
+    // EXIT CRITERION 5, the half that matters: the same ranks as the CLI, from the same functions.
+    const legs = await lexicalLeg({ query: "b2testvpnphrase", platform: null });
+    check("the lexical leg found the article (so the comparison below is not vacuous)", legs.some((c) => c.articleId === "b2test-vpn"), JSON.stringify(legs.map((c) => c.articleId)));
+    check("EVERY lexical candidate appears on the page at ITS OWN RANK (exit criterion 5)",
+      legs.every((c) => new RegExp(`<td class="mono">${c.rank}</td>\\s*<td><a href="/admin/knowledge#${c.articleId}"`).test(res.text)),
+      legs.map((c) => `${c.rank}:${c.articleId}`).join(","));
+    const cli = spawnSync(process.execPath, [join(SERVER, "bin/kb.mjs"), "legs", "b2testvpnphrase"], { encoding: "utf8" });
+    check("…and bin/kb.mjs legs prints the same article in the lexical leg", cli.status === 0 && /b2test-vpn/.test(cli.stdout), cli.stdout.slice(0, 400));
+
+    // D226, AS DECIDED: the text of a chunk the model receives is on the page; the text of a chunk
+    // below DEFAULT_TOP_K is not. Asserted from the RESULT rather than from the markup, so the two
+    // halves cannot both be satisfied by an empty page.
+    {
+      const { searchCorpus } = await import("../src/admin/kb-search.js");
+      const model = await searchCorpus({ query: "b2testvpnphrase", platform: "any", embedder: stubEmbedder });
+      const sent = model.byArticle.flatMap((a) => a.chunks).filter((c) => c.forModel);
+      const unsent = model.byArticle.flatMap((a) => a.chunks).filter((c) => !c.forModel);
+      check("the search returned both sent and unsent chunks, so the next two checks are not vacuous",
+        sent.length > 0 && unsent.length > 0, `${sent.length} sent, ${unsent.length} unsent`);
+      check("EVERY SENT chunk's text is quoted on the page, escaped (D226)",
+        sent.every((c) => c.sentText && res.text.includes(escapeHtml(c.sentText))),
+        sent.filter((c) => !c.sentText || !res.text.includes(escapeHtml(c.sentText))).map((c) => c.kind).join(","));
+      check("NO UNSENT chunk carries text at all — the view model has none to render (D226's narrowing)",
+        unsent.every((c) => c.sentText === null));
+      check("…and the legs, the fusion and the sent list carry no `text` field out of the module",
+        [...model.legs.lexical, ...model.legs.semantic, ...model.fused, ...model.forModel].every((c) => !("text" in c)));
+      check("the page says what is shown and what is not, citing D226 and D53", /D226/.test(res.text) && /D53/.test(res.text));
+    }
+
+    // An uncovered query: no threshold, and the page says the rows are the dense leg's neighbours.
+    const miss = await owner.go("/admin/knowledge/search?q=zzqqxx+nothing+matches+this&platform=any");
+    check("an uncovered query -> 200 and draws no threshold line",
+      miss.status === 200 && !/threshold of|below the floor|relevance floor of/i.test(miss.text), String(miss.status));
+    check("…and says the rows are the dense leg alone, which has no 'no match'",
+      /a dense leg has no/.test(miss.text));
+    check("a platform the pre-filter cannot match -> 400 rather than an empty result",
+      (await owner.go("/admin/knowledge/search?q=x&platform=Windows+11")).status === 400);
+    check("a search is NOT audited — it names nobody (see pages/knowledge.js)",
+      !(await auditRows()).some((r) => /^kb\.search/.test(r.action)));
+  }
+
+  console.log("\n=== KB-5. the review queue's gap row links into the search, when there is text ===");
+  {
+    await withControl((c) => c.query(
+      `INSERT INTO control.kb_retrieval_log (tenant_label, query_text, platform, retrieved, top_score, answered, model)
+       VALUES ($1, $2, 'windows', '[]'::jsonb, 0.0164, false, 'stub')`,
+      [`b2test-${slug}`, "why does my <b>vpn</b> certificate expire"],
+    ));
+    await withControl((c) => c.query(
+      `INSERT INTO control.kb_retrieval_log (tenant_label, query_text, platform, retrieved, top_score, answered, model)
+       VALUES ($1, NULL, 'windows', '[]'::jsonb, 0.0164, false, 'stub')`,
+      [`b2test-${slug}`],
+    ));
+    const home = await owner.go("/admin");
+    check("the gap WITH text carries a link into the search, with the question and platform prefilled",
+      /href="\/admin\/knowledge\/search\?q=why%20does%20my%20%3Cb%3Evpn%3C%2Fb%3E%20certificate%20expire&amp;platform=windows"/.test(home.text),
+      home.text.match(/href="\/admin\/knowledge\/search[^"]*"/)?.[0] ?? "no link");
+    check("the question text is escaped in the link and in the row — it is an employee's own words",
+      !/<b>vpn<\/b>/.test(home.text) && /&lt;b&gt;vpn&lt;\/b&gt;/.test(home.text));
+    const links = (home.text.match(/\/admin\/knowledge\/search\?q=/g) ?? []).length;
+    check("the gap WITHOUT text gets no link — there is nothing to search for",
+      links === 1, `${links} search link(s) for 1 logged gap and 1 unlogged`);
+    check("the disabled answer form is STILL disabled — answering a gap is the editor's job, not this pass's",
+      /name="title" type="text" value="[^"]*" disabled="disabled"/.test(home.text)
+      && /<textarea [^>]*disabled="disabled"/.test(home.text)
+      && (home.text.match(/type="submit" name="action" value="\w+" disabled="disabled"/g) ?? []).length >= 3);
+
+    // The link is drawn on permission, not on role name: an auditor has neither review.read nor
+    // knowledge.read, so the it_agent is the interesting case and it is covered in KB-6.
+    const searchFromLink = await owner.go("/admin/knowledge/search?q=why%20does%20my%20%3Cb%3Evpn%3C%2Fb%3E%20certificate%20expire&platform=windows");
+    check("following the link renders a search for that question, escaped", searchFromLink.status === 200 && /&lt;b&gt;vpn&lt;\/b&gt;/.test(searchFromLink.text) && !/<b>vpn<\/b>/.test(searchFromLink.text));
+  }
+
+  console.log("\n=== KB-6. an it_agent can search AND ingest (exit criterion 6; the auditor half is in §2) ===");
+  // ONE SIGN-IN PER ACCOUNT IN THIS FILE. A TOTP code is single-use inside its 30-second step
+  // (RFC 6238 §5.2, and the replay is asserted above), so a second `login()` for the same account
+  // in the same step is refused — which looks exactly like a permission bug. The it_agent's
+  // session is created here and reused by KB-7; the auditor's is created in §2 and its Knowledge
+  // refusals are asserted there.
+  const agent = client();
+  {
+    check("the it_agent signs in", (await login(agent, made.agent)).status === 303);
+    const kb = await agent.go("/admin/knowledge");
+    check("it_agent: GET /admin/knowledge -> 200 with the ingest form drawn", kb.status === 200 && /action="\/admin\/knowledge\/ingest"/.test(kb.text));
+    check("it_agent: GET /admin/knowledge/search -> 200", (await agent.go("/admin/knowledge/search?q=b2testvpnphrase")).status === 200);
+    const ingest = await agent.go("/admin/knowledge/ingest", { method: "POST", form: { _csrf: csrfOf(kb.text), bundle: bundleJson([VPN_ARTICLE]) } });
+    check("it_agent: POST the ingest -> 200 (knowledge.write)", ingest.status === 200, String(ingest.status));
+    check("…audited as that person", (await auditRows()).some((r) => r.action === "kb.ingest" && r.email === made.agent.email));
+    // A token from ANOTHER session must not open this route either — kept here because the
+    // it_agent's token is the only valid one in hand, and reused by §2's auditor assertions.
+    agentCsrf = csrfOf(kb.text);
+  }
+
+  console.log("\n=== KB-7. bin/admin.mjs reset: new password, new secret, sessions gone (Task 5) ===");
+  {
+    const live = agent; // the session KB-6 created; a second login() would hit the TOTP replay guard
+    check("the it_agent's session from KB-6 is live", (await live.go("/admin/knowledge")).status === 200);
+    const { rows: [pre] } = await getPool().query("SELECT password_hash, totp_secret, totp_last_step FROM control.admin_users WHERE id = $1", [made.agent.id]);
+    check("…and totp_last_step is set from that login (the replay defence)", pre.totp_last_step !== null);
+
+    const fresh = await resetAdminCredentials({ adminUserId: made.agent.id });
+    const revoked = await revokeUserSessions(made.agent.id);
+    const { rows: [post] } = await getPool().query("SELECT password_hash, totp_secret, totp_last_step, status FROM control.admin_users WHERE id = $1", [made.agent.id]);
+    check("the password hash changed and the new password verifies against it",
+      post.password_hash !== pre.password_hash && verifyPassword(fresh.password, post.password_hash));
+    check("the old password no longer verifies", !verifyPassword("agent-password-12", post.password_hash));
+    check("the TOTP secret is a NEW one", !Buffer.from(post.totp_secret).equals(Buffer.from(pre.totp_secret)));
+    check("totp_last_step is CLEARED — a step number from the old secret would refuse the first new code",
+      post.totp_last_step === null);
+    check("the live session was revoked", revoked >= 1);
+    check("the revoked session is sent back to sign-in", (await live.go("/admin/knowledge")).status === 303);
+    const back = client();
+    check("the person signs in with the new password and the new authenticator",
+      (await back.go("/admin/login", { method: "POST", form: { email: made.agent.email, password: fresh.password, code: totpCode(fresh.totpSecret) } })).status === 303);
+    check("the row kept its id, so the audit trail is still that person's", post.status === "active");
+    const cliUsage = spawnSync(process.execPath, [join(SERVER, "bin/admin.mjs")], { encoding: "utf8" });
+    check("bin/admin.mjs lists reset in its usage", /admin\.mjs reset/.test(cliUsage.stdout));
+  }
+
   console.log("\n=== 2. a read-only role cannot reach a page its role forbids ===");
   const auditor = client();
   {
@@ -250,6 +608,18 @@ try {
     check("the refusal was audited (access.denied, needs review.read)", (await auditRows()).some((r) => r.action === "access.denied" && r.email === made.auditor.email && r.detail?.needs === "review.read"));
     const kb = await auditor.go("/admin/knowledge");
     check("GET /admin/knowledge -> 403", kb.status === 403);
+    // Exit criterion 6's other half: the auditor can open neither the search nor the ingest.
+    const aSearch = await auditor.go("/admin/knowledge/search?q=anything");
+    check("GET /admin/knowledge/search -> 403, naming knowledge.read", aSearch.status === 403 && /knowledge\.read/.test(aSearch.text), String(aSearch.status));
+    const aIngest = await auditor.go("/admin/knowledge/ingest", { method: "POST", form: { _csrf: agentCsrf, bundle: bundleJson([VPN_ARTICLE]) } });
+    check("POST /admin/knowledge/ingest -> 403 (knowledge.write) even with a CSRF token from another session — a token is not a permission",
+      aIngest.status === 403, String(aIngest.status));
+    check("…and both refusals were audited with the permission that was missing",
+      (await auditRows()).filter((r) => r.action === "access.denied" && r.email === made.auditor.email && /^knowledge\./.test(String(r.detail?.needs))).length >= 2);
+    check("the permission check runs BEFORE the CSRF check, so the auditor's refusal is access.denied and not csrf.refused",
+      (await auditRows()).some((r) => r.action === "access.denied" && r.email === made.auditor.email && r.detail?.needs === "knowledge.write"));
+    check("the corpus still holds exactly one embedding model and nothing the auditor sent landed",
+      (await corpusStatus()).models.length === 1);
     const agents = await auditor.go("/admin/agents");
     check("GET /admin/agents -> 403", agents.status === 403);
     const tickets = await auditor.go("/admin/tickets");

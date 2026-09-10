@@ -8,10 +8,10 @@ and blockers, and it is kept current. This file only tells you how to work here.
 | Path | What |
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
-| `server/` | The hub. **THREE API ROUTES since 2026-09-04, plus the admin console at `/admin` since 2026-09-09.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** **B2 admin console** (D221–D224, 2026-09-09): `GET /admin` — server-rendered HTML in the same process, **no framework, no build step, no new dependency**; local accounts with scrypt + **mandatory TOTP**, roles carrying permissions (`control.admin_role_permissions`, migration `control/003`), admin-action audit from the first request, server-side sessions. **Home is the review queue** (D177). Tickets fully working through `src/tickets/query.js`, **which the CLI also reads** (D224); five honest stubs. **Wears the Industry design system since 2026-09-09 (D225)** — one stylesheet in `src/admin/html.js`, registration marks reserved for the gap card and the honest stub, the three Barlow faces self-hosted from `/admin/assets/` (allow-listed in `src/admin/assets.js`; never fetched, never inlined). `src/admin/`, `bin/admin.mjs`. **It is not in `GET /`'s route list and must not be added to it.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`, `server/docs/B2-ADMIN-CONSOLE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.21. D1–D225, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
+| `server/` | The hub. **THREE API ROUTES since 2026-09-04, plus the admin console at `/admin` since 2026-09-09.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** **B2 admin console** (D221–D224, 2026-09-09): `GET /admin` — server-rendered HTML in the same process, **no framework, no build step, no new dependency**; local accounts with scrypt + **mandatory TOTP**, roles carrying permissions (`control.admin_role_permissions`, migration `control/003`), admin-action audit from the first request, server-side sessions. **Home is the review queue** (D177). Tickets fully working through `src/tickets/query.js`, **which the CLI also reads** (D224). **Knowledge is real since 2026-09-09 (D226–D229):** `GET /admin/knowledge/search` runs BOTH retrieval legs unfused plus the fusion (`src/admin/kb-search.js`, composing `src/kb/retrieve.js` — it writes no retrieval SQL of its own), and `POST /admin/knowledge/ingest` pastes a bundle in through `ingestAndEmbed()`, **the same function `bin/kb.mjs ingest` calls**, which refuses the embed step rather than put a second embedding model in the corpus. **Chunk text is shown for the chunks the model actually receives, and for no others** (**D226**, decided narrower than asked; the narrowing is structural — `sentText` is null below the top 5 and the legs are stripped of text before they leave `kb-search.js`). `MATIC_KB_LOG_QUERIES` **stays off**: **D227 is deferred behind D229, a retention policy for logged question text** — so every gap row still reads "Question text was not logged", and that is a named cost, not an oversight. The article editor and the review queue answer form remain honest stubs — both need a markdown sanitiser first. **Wears the Industry design system since 2026-09-09 (D225)** — one stylesheet in `src/admin/html.js`, registration marks reserved for the gap card and the honest stub, the three Barlow faces self-hosted from `/admin/assets/` (allow-listed in `src/admin/assets.js`; never fetched, never inlined). `src/admin/`, `bin/admin.mjs`. **It is not in `GET /`'s route list and must not be added to it.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`, `server/docs/B2-ADMIN-CONSOLE.md`. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.22. D1–D228, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
-| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-09-claude-code-handover-kb-ingestion-and-search.md`** — the next engineering pass (Knowledge: ingestion and search in the console), written after B2 merged to `main`. Before it: `2026-09-09-claude-code-handover-admin-console-scaffold-built.md` (B2 built; it answers `2026-09-05-claude-code-handover-admin-console-scaffold.md`), and Claude Design's `2026-09-09-claude-design-handback-admin-console.md`. Before those: `2026-09-05-claude-code-handover-demo-prep-done.md`, then `2026-09-04-claude-code-handover-b7a-built.md`. The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
+| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-09-claude-code-handover-kb-ingestion-and-search-built.md`** — Knowledge ingestion and search BUILT, and **two founder questions open as proposed decisions D226/D227** (chunk text on the page; question logging on the dev hub). It answers `2026-09-09-claude-code-handover-kb-ingestion-and-search.md`, which set the five tasks. Before those: `2026-09-09-claude-code-handover-admin-console-scaffold-built.md` (B2 built; it answers `2026-09-05-claude-code-handover-admin-console-scaffold.md`), and Claude Design's `2026-09-09-claude-design-handback-admin-console.md`. Before those: `2026-09-05-claude-code-handover-demo-prep-done.md`, then `2026-09-04-claude-code-handover-b7a-built.md`. The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
 | `docs/kb/` | The generic knowledge base (`generic-kb-v2.json`) and its rules (D162). An article never names a capability or says what the bot does. Also the schema findings and **the KB architecture document** — retrieval, authoring UX and client UI, merged into the register as D167–D192. **Every D-number written inside that document is void**; it carries a banner saying so. |
 | `tools/launchers/` | **Stage tooling, not product (D220, 2026-09-05).** `start-hub.cmd`/`.ps1` preflights (Docker, Postgres, migrations, tenant, **corpus chunk count**, Ollama, exact model tags, VRAM, port), starts the hub in its own window, warms both models and one turn on each route, prints READY. `start-agent.cmd`/`.ps1` checks the hub first, then runs `client/scripts/start-elevated.ps1`. `install-shortcuts.ps1` puts both on the Desktop. `docs/DEMO-DAY.md` is the one-page recovery card; `client/docs/DEMO-CLICKTHROUGH.md` is the hub-mode click-through Charles runs. |
@@ -29,7 +29,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D226 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D229 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -129,16 +129,26 @@ npm.cmd run verify:pipe    # D201: reads the DACL Windows gives a Node pipe and 
 cd ../server
 npm.cmd install            # pg - the only dependency
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            B0 hub (33) + B1 source rules (43) + B7a source rules (93)
-#                            + B2 console pure parts (65) + B2 source rules (70) = 323
+#                            B0 hub (49) + B1 source rules (46) + B7a source rules (112)
+#                            + B2 console pure parts (65) + B2 source rules (94) = 366
 npm.cmd run db:up          # PostgreSQL 17 + pgvector in Docker, loopback, port 5433 (D197)
 npm.cmd run migrate        # control plane + every tenant schema in one run
 npm.cmd run test:db        # the files that need the database: B1's six exit criteria (56) + B7a retrieval (52)
-#                            + B2 console end to end (85: login+TOTP, roles, CSRF, audit, tickets vs the CLI, self-hosted fonts) = 193
+#                            + B2 console end to end (160: login+TOTP, roles, CSRF, audit, tickets vs the CLI,
+#                              self-hosted fonts, and the Knowledge pass - ingest, embedder-down, the
+#                              second-model refusal, search vs `kb.mjs legs`, the gap link, admin reset) = 268
+#                            THE KB IS CROSS-TENANT (D45), so admin-db.test.mjs ingests articles with
+#                            `b2test-` ids and DELETES THEM BY ID: dropping its tenant would not.
 npm.cmd run kb:ingest      # the six generic articles -> control.kb_* , then embed them
 npm.cmd run kb:status      # what is loaded, and WHICH MODEL embedded it (two models = two spaces)
 npm.cmd run kb -- legs "DisplayLink"      # the two retrieval legs, side by side, UNFUSED
 npm.cmd run kb -- retrieve "my mouse cuts out" --platform windows
+#                            The console shows exactly this at /admin/knowledge/search — same
+#                            functions, same ranks, and that equality is a test (admin-db KB-4).
+node bin/kb.mjs ingest <bundle.json>      # validate WHOLE, write, refuse a second embedding model,
+#                            embed, report. The console's POST /admin/knowledge/ingest calls the
+#                            SAME function (D228), which is what makes "the page agrees with
+#                            kb:status" a real check rather than two hopeful implementations.
 npm.cmd run kb:accept      # B7a's acceptance list end-to-end (30); needs db + Ollama. NEGATIVE TEST FIRST
 npm.cmd run kb:answer      # the answer contract against a real model (18). Ollama only, NO database
 npm.cmd run kb:floor       # is a relevance floor possible? Answer: NOT over fused RRF scores (§5.16c)
@@ -149,6 +159,9 @@ npm.cmd run tickets -- show MD-1000       # one ticket, including that its repor
 node bin/admin.mjs create-user devco you@example.com --role tenant_owner
 #                            B2. Prints the initial password and the TOTP secret ONCE. No sign-up page exists.
 node bin/admin.mjs users devco            # who can sign in; `roles` lists the five D152 roles and their permissions
+node bin/admin.mjs reset devco you@example.com  # NEW PASSWORD AND NEW TOTP SECRET, printed once; the
+#                            replay state cleared and every live session revoked. The remedy for a lost
+#                            authenticator secret; it keeps the row, so the audit trail stays that person's.
 node bin/admin.mjs audit devco --limit 50 # every console action, refusal and record view (D156)
 # then http://127.0.0.1:8787/admin/login in a browser. LOOPBACK ONLY; the login page says so.
 ollama pull snowflake-arctic-embed2:568m  # the DEV embedder. NOT D199's model - see D203
@@ -329,6 +342,28 @@ These are in the register, but the register is not what a session reads first. E
   session auth, not an API, and the route lists exist to state what carries
   `x-matic-hub-auth: none`. `html\`…\`` escapes every interpolation; `raw()` stays unused until a
   markdown sanitiser exists, because article content is admin-authored text shown to OTHER admins.
+- **Let the console write to `control.kb_*` by any route but `ingestAndEmbed()`** (D228,
+  `server/src/kb/ingest.js`), or give the console's search its own SQL over `kb_chunks` instead of
+  composing `src/kb/retrieve.js`'s three exported functions. Same argument as D224 one layer over:
+  exit criterion 1 is "the page's counts equal what `kb:status` prints", which tests nothing unless
+  both read the same function. `test/admin-static.test.mjs` §5a fails if either drifts. And the
+  embed step is **refused**, never converged, when a second embedding model would appear —
+  `node bin/kb.mjs reembed` is the deliberate way to change models.
+- **Draw a threshold, floor or "good match" line on the console's search results** (§5.16c). The
+  screen shows both legs' ranks, the fused score and whether both legs agreed, and says in words
+  that the score carries no similarity magnitude. The semantic leg's cosine IS a magnitude and is
+  shown on the leg, where it means something.
+- **Show a retrieved chunk's TEXT on a console page for a chunk the model did NOT receive**
+  (**D226**, decided 2026-09-09 narrower than it was asked; D53). The sent set — the top
+  `DEFAULT_TOP_K` — is quoted on the search page; everything below that line shows ranks and score
+  and no text. Do not "improve" this by rendering `text` from the legs or the fusion: those arrays
+  are stripped of it in `src/admin/kb-search.js` on purpose, so the rule cannot be broken by
+  forgetting a condition, and `test/admin-static.test.mjs` §5a fails if the strip is removed. It is
+  not markdown; `raw()` stays unused.
+- **Turn `MATIC_KB_LOG_QUERIES` on before D229 is answered** (D227, deferred behind it by the
+  founder on 2026-09-09). A table of what employees typed needs a retention rule before it has rows
+  in it. The cost of the deferral is real and is stated where it lands: every gap row in the review
+  queue reads "Question text was not logged".
 - **Write SQL against `tickets` anywhere but `server/src/tickets/`** (D224). The CLI and the console
   read through `query.js`; when the console is doubted the CLI is what gets trusted, and that only
   proves something if the two cannot disagree.

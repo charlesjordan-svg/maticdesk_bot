@@ -5,6 +5,11 @@ Handover it answers: [`../../docs/handovers/2026-09-05-claude-code-handover-admi
 
 > ## STATUS — BUILT AND RUN. All eight exit criteria pass against PostgreSQL 17.
 >
+> **SINCE 2026-09-09, LATER STILL: Knowledge is real — ingestion and search from the browser.**
+> That pass has its own section and its own exit criteria: **§10**, register §5.24, D226–D229. The
+> assertion counts below are the scaffold's on the day it was built; the current totals are
+> **`npm.cmd test` 366** and **`npm.cmd run test:db` 268**.
+>
 > **`npm.cmd test`: 296 assertions, 0 failures, no database** — the 169 that were there plus 65 for
 > the console's pure parts (`test/admin.test.mjs`: TOTP against RFC 6238's published vectors,
 > scrypt, base32, escaping, cookies, CSRF, D154's tier function) and 62 source rules
@@ -93,11 +98,12 @@ owner@devco.test`) rather than trying to recover them.
 | `src/admin/permissions.js` | the permission vocabulary and the six destinations with the permission that opens each |
 | `src/admin/tiers.js` | D154's three transcript tiers as a function nothing calls yet — §6 |
 | `src/admin/queries.js` | control-plane reads: the gap feed, question counts, the corpus listing, the tenant row |
+| `src/admin/kb-search.js` | **the console's search**, composed from `src/kb/retrieve.js`'s three exported functions (both legs, then the fusion) and writing no retrieval SQL of its own — §10.1 |
 | `src/admin/router.js` | the front door: session → user → permissions → tenant; login/logout; the permission check, then the CSRF check, then the handler; CSP and the other headers |
 | `src/admin/html.js` | the `html` tagged template that **escapes every interpolation by default**, the page shell, `notYet()` for stubs |
 | `src/admin/pages/` | `login`, `review` (home), `tickets`, `knowledge`, `agents`, `metrics`, `settings` (+ `/admin/settings/audit`) |
 | `src/tickets/query.js` | **the shared ticket query layer** — list, count by state, count by category, one ticket, set state, reporters. `bin/tickets.mjs` holds no SQL of its own any more |
-| `bin/admin.mjs` | `create-user`, `users`, `roles`, `disable`, `enable`, `audit`, `totp` |
+| `bin/admin.mjs` | `create-user`, `users`, `roles`, **`reset`** (§10.6), `disable`, `enable`, `audit`, `totp` |
 | `src/index.js` | mounts the console after the loopback refusal and before the API routes; `GET /` names it in a `console` field, **not** in `routes` |
 
 ### Roles and permissions (D152), as seeded
@@ -246,8 +252,28 @@ No session can see a screen, and this one would not type a password into one. Te
    been emailed". Open MD-1006. Expect the reporter block to say **self_asserted — not
    authenticated**. Move it to `open`. Expect a green "State changed to open" and the CLI to agree:
    `npm.cmd run tickets -- show MD-1006`.
-6. **Knowledge.** Expect 6 articles / 18 chunks / 18 embedded by `snowflake-arctic-embed2:568m`, and
-   two "not yet" boxes (search; ingest and edit).
+6. **Knowledge.** Expect 6 articles / 18 chunks / 18 embedded by `snowflake-arctic-embed2:568m`, a
+   **search box at the top**, an **ingest form** near the bottom, and ONE "not yet" box (the editor).
+   Then, and this is the part worth the time (§10):
+   - Search **my mouse keeps cutting out**. Expect the bluetooth article first, `#1` in **both**
+     legs, a **yes** in the "both" column, `0.032787` as its score (that is `2/61` — both legs
+     agreed at rank 1), and the two legs shown side by side below with their own scores. Compare
+     with `npm.cmd run kb -- legs "my mouse keeps cutting out"` from `server/`: **same articles,
+     same ranks, same numbers.** If they differ, that is the finding.
+   - Search something nothing covers, e.g. **how do I order a new laptop battery**. Expect zero
+     lexical candidates, the dense leg returning everything anyway, five chunks still marked
+     **sent**, and a sentence saying exactly that. **Expect no threshold line anywhere.**
+   - Switch the platform to **windows** and search **keyboard shortcuts**. Expect the Windows
+     reference article, which "any machine" hides on purpose.
+   - Paste this into **Bundle JSON** and press the button — it is deliberately broken:
+     `{ "articles": [ { "id": "a", "type": "howto", "title": "x" } ] }`. Expect a refusal naming
+     `"a"` and its bad type, and the corpus figures unchanged.
+   - Then paste a real one-article bundle (copy the shape from `docs/kb/generic-kb-v2.json`).
+     Expect a report: inserted / updated / unchanged, chunks written, chunks embedded, the model
+     name, and the corpus totals. Check those totals against `npm.cmd run kb:status`.
+   - **A test article you ingest stays in the corpus**, and the console has no delete — that is the
+     editor's, and the editor needs the sanitiser decision. Remove it by id in `psql`, or give it
+     an id you will recognise later.
 7. **Agents.** Expect no numbers at all — two boxes saying enrollment is B3.
 8. **Metrics.** Expect real question counts, tickets by category, and "Deflection cannot be computed"
    with the D89/D90 reason.
@@ -263,8 +289,11 @@ adjusting the list.
 
 ## 8. Honesty ledger
 
-- **Never seen in a browser.** Every assertion above ran over HTTP from Node. The HTML was read and
-  rendered from files; the live site was not clicked. §7 is the check.
+- ~~**Never seen in a browser.**~~ **Superseded 2026-09-09:** Charles clicked through the scaffold
+  the day it was built, and the Knowledge screens were driven in a real browser later the same day
+  (§10). The line is kept rather than deleted because the *reason* it was written still holds — the
+  session that builds a screen cannot type a password into it, so its own checks run over HTTP from
+  Node, and a page can pass every assertion and still be unreadable.
 - **Nothing is measured.** No latency, no scrypt timing, no page weight.
 - **The retrieval log is hub-wide, not tenant-scoped**, because `tenant_label` is a development
   label (D61/D132 unbuilt). The gap feed and the question counts are for the hub; the pages say so.
@@ -277,7 +306,9 @@ adjusting the list.
 - **The failed-login throttle is per process.** A restart clears it.
 - **The auditor can read escalated tickets** (§6). Within D154's letter; revisit at assignment.
 - **The review queue can show gaps and cannot act on them.** D177's one-click approve is article
-  authoring, which is the next pass. A visible gap is still D160a's value.
+  authoring, which needs the markdown sanitiser decision (§10.7). A gap row *can* now be searched
+  for (§10.1) — but only when its question text was logged, and **today none is** (D227). A visible
+  gap is still D160a's value.
 - **Vendor accounts exist as rows and can do nothing**, which is the intended state until D153's
   grant evaluation is built. The CLI will create one (`--role vendor_staff` with no tenant is not a
   CLI path; the live test creates one directly) so the refusal could be tested.
@@ -348,3 +379,188 @@ they were done here rather than sent back to design:
 
 Verified by the existing suites (`npm.cmd test` 323, `npm.cmd run test:db` 193) and by paging the dev
 tenant's seven tickets three at a time from a script.
+
+---
+
+## 10. Knowledge, made real: ingestion and search (2026-09-09, later still)
+
+**Register:** [`../../docs/decisions/DECISION-REGISTER.md`](../../docs/decisions/DECISION-REGISTER.md) §5.24, **D226–D229**.
+**Handover it answers:** [`../../docs/handovers/2026-09-09-claude-code-handover-kb-ingestion-and-search.md`](../../docs/handovers/2026-09-09-claude-code-handover-kb-ingestion-and-search.md).
+
+> **STATUS — BUILT AND RUN, including in a browser.** `npm.cmd test` **366**, `npm.cmd run test:db`
+> **268**, 0 failures, both run twice. The screens were driven in a real browser on 2026-09-09: a
+> gap's "Search the corpus for this" link followed, a bundle pasted and ingested, a refusal read.
+> **Both founder questions were answered the same day, and neither as asked.** **D226: yes,
+> narrowed** — the search page quotes the text of the chunks `/v1/ask` would send and of no others,
+> and it was built the same day the answer came. **D227: deferred behind a new D229**, a retention
+> policy for logged question text, so `MATIC_KB_LOG_QUERIES` stays off and every gap row still
+> reads "Question text was not logged". Nothing here is measured — no ingest timing, no search
+> latency.
+
+Knowledge had two honest stubs. It now has two working screens and one honest stub (the editor).
+
+### 10.1 The three routes
+
+| Route | Permission | What it does |
+|---|---|---|
+| `GET /admin/knowledge` | `knowledge.read` | The corpus: article, chunk and embedded counts, one row per article, **the search form**, and **the ingest form** (drawn only with `knowledge.write`). |
+| `GET /admin/knowledge/search?q=…&platform=…` | `knowledge.read` | Both retrieval legs **unfused**, then the fusion. Ranks per leg, the fused RRF score, whether both legs agreed, and which chunks `/v1/ask` would actually send. |
+| `POST /admin/knowledge/ingest` | `knowledge.write` | Validate the pasted bundle whole, write, refuse a second embedding model, embed, **report every count**. |
+
+`src/admin/kb-search.js` composes `lexicalLeg`, `semanticLeg` and `fuseRRF` from `src/kb/retrieve.js`
+and writes no retrieval SQL of its own. `POST .../ingest` calls `ingestAndEmbed()` in
+`src/kb/ingest.js` — **the same function `node bin/kb.mjs ingest` calls** (D228). Both are the D224
+argument one layer over: when the browser is doubted the terminal is what gets trusted, and that
+only proves something if the two cannot disagree.
+
+**The console's embedder is the endpoint's embedder.** `src/index.js` passes one provider instance to
+both `askHandler()` and `adminHandler()`. A console that searched with a different embedder would be
+a confident report about a pipeline nobody runs.
+
+### 10.2 Why the search page shows three things instead of one
+
+B7a's spec (§9 item 4) said to test each leg alone before fusing, because **a fusion of one working
+leg and one dead leg returns plausible results in a plausible order and looks like a working
+system.** The same is true of a search box. So the page carries:
+
+- **the lexical leg alone** — `ts_rank` over the generated `tsvector`, GIN indexed. The leg that
+  finds `DisplayLink` and `0x80070005`, which a dense embedder cannot.
+- **the semantic leg alone** — cosine over pgvector, HNSW indexed, with the query embedded by the
+  hub's own embedder. Its score **is** a magnitude in [-1, 1] and is shown as one.
+- **the fusion**, grouped by article, with each chunk's rank in each leg, the fused score, a
+  **"both"** column, and a mark on the chunks that would actually reach the model.
+
+When an admin cannot find an article, the useful fact is not "search found nothing" — it is which
+half failed. Four figures at the top say how many candidates each leg produced, how many survived
+fusion, and how many of those `/v1/ask` would send.
+
+### 10.3 What the screen says out loud, and why each sentence is there
+
+- **The three caveats travel with every result** (CLAUDE.md's Never list): no cross-encoder
+  reranker (D207), a dev embedder that is not D199's model (D203), and **no threshold is drawn,
+  because one cannot be** — a fused RRF score is `2/61` or `1/(60+rank)`, so it encodes rank and leg
+  agreement and carries no similarity magnitude (§5.16c, measured by `npm.cmd run kb:floor`).
+- **"any machine" matches articles marked `any` and nothing else.** A `windows` article is invisible
+  under it — deliberately, because that is what a machine whose platform probe failed sees, and
+  admitting everything on an unknown platform is how a macOS article reaches a Windows user (D162,
+  and the `"darwin".includes("win")` trap in §5.16b). The page also reports **how many chunks were
+  eligible at all** under the filter, so "the article is not there" and "the article was filtered
+  out before either leg saw it" become different readings of a thin result.
+- **When the lexical leg is empty, the page says the rows are the dense leg alone**, which has no
+  notion of "no match" and returns its nearest neighbours for any question. Five chunks are still
+  marked *sent* for a question nothing covers; the decline is the prompt's job alone (D205). That is
+  the shape an uncovered question makes, and it is worth a sentence every time rather than a
+  footnote.
+- **The chunk text on the page is the text the model was given, and only that** (**D226**, founder
+  2026-09-09, decided narrower than it was asked). A chunk below the top `DEFAULT_TOP_K` shows its
+  ranks and its score and no text. That set is exactly the text that produced — or failed to
+  produce — an answer, so it is the smallest disclosure that answers the question the screen exists
+  to answer, and D53's rule that chunk text does not leave the hub holds everywhere else. **The
+  narrowing is structural, not editorial:** `src/admin/kb-search.js` sets `sentText` only when the
+  chunk was sent and strips `text` from the legs, the fusion and the sent list before they leave
+  the module, so a page cannot render an unsent chunk's text by forgetting a condition — there is
+  none in the view model to render. Not markdown; `raw()` stays unused.
+- **Cross-tenant, above the ingest button, in words:** the corpus is `control.kb_*` and generic by
+  decision (D45), so ingesting here changes what **every** tenant's assistant answers.
+
+### 10.4 What the ingest reports, and what it refuses
+
+"Done" is what the CLI used to say. An empty corpus is a hub that declines everything and looks
+correct doing it (D220, found on demo day), so the report is the feature: articles **inserted /
+updated / unchanged** (knowable because of `source_hash`), **chunks written** out of the bundle's
+total, **chunks embedded**, **which model embedded them**, and the corpus totals after. Exit
+criterion 1 is that those totals equal what `npm.cmd run kb:status` prints, and a live assertion
+compares them.
+
+Three refusals, each for a different reason:
+
+- **A bad article anywhere refuses the whole bundle**, before the database is touched, and the
+  message names the offending id. A partial corpus is worse than none because it looks loaded.
+- **A second embedding model refuses the EMBED step, not the ingest.** `embeddingModelConflict()` is
+  a pure function over `corpusStatus()`. The articles and chunks land and retrieve lexically;
+  `node bin/kb.mjs reembed` is the deliberate way to change models. `embedPending()` would in fact
+  converge on its own — but one batch at a time, so an interrupted run leaves the mixed state, and
+  "the fix happens to be the same call" is not a reason to let a browser form start it.
+- **The embedder being down refuses nothing.** The ingest succeeds, the page says the chunks
+  retrieve lexically only and names `node bin/kb.mjs embed`, and a later embed completes them. The
+  same degradation the hub already has.
+
+**Audited as `kb.ingest`** with the bundle id, the counts, the model and any refusal — and **never
+the article text** (`src/admin/audit.js`: an audit table that copies the record it audits becomes a
+second copy of the record, with a different retention story). A rejected paste is audited as
+`kb.ingest.refused` with the reason.
+
+**A search is not audited**, and `pages/knowledge.js` says why in a heading rather than leaving it to
+inference: every other console read that got an audit row got one because it names a person, and a
+corpus search names nobody — it reads the generic cross-tenant corpus, the same rows
+`bin/kb.mjs legs` prints with no audit at all. A row per search would be a log of an admin's typing,
+which is the thing D154 exists to constrain, pointed at the wrong person.
+
+### 10.5 Found by running it, not by reading it
+
+The handover's honesty ledger said `ingestBundle()`'s behaviour on a partially-invalid bundle had
+never been exercised. It was exercised first, before the error page was designed:
+
+- **Validation covers the whole bundle before the first write.** A bad `type` on the *second* of two
+  articles left the corpus untouched. Now asserted with no database (`test/kb-static.test.mjs` §6a)
+  and against a live one (`test/admin-db.test.mjs` KB-1).
+- **Migration 002 has no `CHECK` on `platform`.** An article stamped `Windows 11` is written,
+  indexed, embedded — and **matched by nothing**, because the pre-filter compares the column to
+  `'any'` or to the probe's exact word. Legal, invisible, and it looks correct on this page and in
+  `kb:status`. Reported at ingest as a warning ("RETRIEVED BY NOTHING") rather than refused:
+  enforcing it is a migration and therefore a decision, and that decision is **not** taken here.
+- **The report itself had the defect it exists to prevent.** It said "5 chunks written" beside "0
+  inserted, 0 updated", because `upsertArticle()` returns an unchanged article's *existing* chunk
+  count — right for "how big is this article", wrong for "what did this action do". Split into
+  `chunksWritten` and `chunksInBundle`. Found by reading the page after a re-ingest.
+- **One backtick inside the stylesheet's own comment ended the template literal** and broke every
+  page in the console. `html.js`'s CSS is a JS template string; the comment now says so, next to the
+  only new CSS this pass added (`.cols` — two equal columns, so the two legs read as peers rather
+  than as a leg and its sidebar).
+
+### 10.6 Also in this pass: `node bin/admin.mjs reset <tenant> <email>`
+
+A new password and a new authenticator secret on the **same row**, printed once, with
+`totp_last_step` cleared and every live session revoked; audited as `admin.reset`. Charles lost a
+printed secret on day one and the only remedy was `disable` + `create-user` — a new account, whose
+predecessor's audit history then belongs to nobody who can sign in.
+
+All three changes move together for the reasons stated in `resetAdminCredentials()`. The one easy to
+miss is clearing the replay state: `totp_last_step` holds a step number from the *old* secret, and
+leaving it would make the first code from the new authenticator refusable for no reason the person
+could work out. It does **not** re-enable a disabled account — a reset is about credentials,
+`enable` is about status, and doing both would make one command two decisions.
+
+### 10.7 Honesty ledger for this pass
+
+- **Both founder questions were answered on 2026-09-09, and neither as asked** — which is the
+  argument for having recorded them as decisions rather than resolving them in code.
+  **D226: yes, but only for the chunks the model receives.** The narrower answer is better than the
+  one proposed: the sent set is the text that produced or failed to produce an answer, so it is the
+  smallest disclosure that answers the screen's question, and it leaves D53 intact for everything
+  else. Built the same day; the narrowing is enforced structurally rather than by remembering.
+  **D227: deferred behind D229**, a retention policy for logged question text, on the reasoning that
+  a table of what employees typed needs a keeping rule before it has rows in it. The switch stays
+  off. **The cost of that is real and lands here:** the review queue's one live feed keeps showing
+  declines without their text, and the "Search the corpus for this" link below stays dead on real
+  data. D229 is the cheapest open item in the project to answer, because nothing has been logged
+  yet, so complying with any answer needs no migration and no deletion.
+- **The review queue's gap link is a dead control on today's data.** 33 questions are logged and
+  **none has its text**, so "Search the corpus for this" appears on no real row. It was verified
+  against a seeded row in a browser and is asserted in the live suite; it becomes useful the moment
+  **D229** is answered and D227 follows from it in a line of configuration, and not before.
+- **The editor is still a stub**, and so is the review queue's answer form. Both need a markdown
+  sanitiser first — admin-authored text shown to *other* admins — and writing one, or taking the
+  first dependency since `pg`, is a decision.
+- **Retrieval quality is not measured and this screen does not measure it.** Six articles, no
+  reranker, a dev embedder that is not the shipped one. The screen makes retrieval *legible*; every
+  ordering on it is still a floor.
+- **Nothing is timed.** No ingest duration, no search latency, no embedder throughput.
+- **The platform warning is a warning.** A bundle can still put an unretrievable article into the
+  corpus; the console will tell you that it did.
+- **`test/admin-db.test.mjs` embeds under the model name the corpus already uses**, because the KB is
+  control-plane and has no test namespace (D45). That is stated at the top of the file. It deletes
+  its articles by id in teardown; dropping its tenant would not.
+- **No file upload.** There is no multipart parser and D221 forbids a dependency for one, so the
+  ingest is a textarea and the page says so. The form body ceiling rose from 64 kB to 1 MB for this,
+  and the page states the number.

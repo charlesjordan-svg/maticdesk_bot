@@ -22,7 +22,7 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { closePool } from "../src/db/pool.js";
-import { corpusStatus, embedPending, ingestBundle } from "../src/kb/ingest.js";
+import { corpusStatus, embedPending, ingestAndEmbed } from "../src/kb/ingest.js";
 import { embeddingProviderFromEnv } from "../src/kb/embed.js";
 import { fuseRRF, lexicalLeg, semanticLeg, retrieve, RRF_K, DEFAULT_TOP_K, RELEVANCE_FLOOR } from "../src/kb/retrieve.js";
 
@@ -58,17 +58,24 @@ async function main() {
   switch (cmd) {
     case "ingest": {
       const path = args[0] ? resolve(args[0]) : DEFAULT_BUNDLE;
-      await ingestBundle({ path, log: (m) => log(m) });
       const e = await embedderOrNull();
-      if (e) {
-        const r = await embedPending({ embedder: e, log: (m) => log(m) });
-        log(`  embedded ${r.embedded} chunk(s) with ${r.model}`);
-      } else {
-        log(`  SKIPPED embedding. The corpus is loaded and retrievable through the lexical leg only.`);
+      // ingestAndEmbed() is the function the CONSOLE's ingest form calls too (D224's pattern, one
+      // pass later): validate, write, refuse a second embedding model, embed, report. When the
+      // browser is doubted this command is what gets trusted, and that only proves something if
+      // the two cannot disagree about what an ingest is.
+      const r = await ingestAndEmbed({ path, embedder: e, log: (m) => log(m) });
+      for (const w of r.warnings) log(`  WARNING ${w}`);
+      if (r.embed.refused) {
+        log(`  EMBEDDING REFUSED: ${r.embed.refused.reason}`);
+      } else if (r.embed.error) {
+        log(`  SKIPPED embedding (${r.embed.error}).`);
+        log(`  The corpus is loaded and retrievable through the lexical leg only.`);
         log(`  Run \`node bin/kb.mjs embed\` once the embedder is up.`);
+      } else {
+        log(`  embedded ${r.embed.embedded} chunk(s) with ${r.embed.model}`);
       }
-      const s = await corpusStatus();
-      log(`  corpus: ${s.articles} articles, ${s.chunks} chunks, ${s.embedded} embedded`);
+      log(`  bundle ${r.bundleId}: ${r.articles.inserted} inserted, ${r.articles.updated} updated, ${r.articles.unchanged} unchanged; ${r.chunksWritten} chunk(s) written of ${r.chunksInBundle} in the bundle`);
+      log(`  corpus: ${r.status.articles} articles, ${r.status.chunks} chunks, ${r.status.embedded} embedded`);
       break;
     }
 

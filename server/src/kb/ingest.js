@@ -24,28 +24,95 @@ import { toVectorLiteral } from "./embed.js";
 const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 32);
 
 /**
- * Read and shape-check a bundle. Refuses rather than ingesting half of it: a partial corpus is the
- * state in which retrieval quietly misses articles that a reader believes are loaded.
+ * The platform values the pre-filter can ever match, and therefore the only ones an article may
+ * carry if it is to be retrievable at all.
+ *
+ * `'any'` plus whatever `platformFromProbe()` (src/kb/ask.js) can return. This list is here rather
+ * than in ask.js because it is a property of the CORPUS — an article stamped `windows 11` or `win`
+ * is written, indexed, embedded, and then **matched by nothing**, because `platformClause()`
+ * compares the column to `'any'` or to the probe's exact word. That failure is invisible: the
+ * article is on the Knowledge page, `kb:status` counts it, and retrieval never returns it.
+ * `bundleWarnings()` below is what makes it visible; migration 002 has no CHECK for it, and adding
+ * one would be a migration and a decision rather than a report.
+ */
+export const RETRIEVABLE_PLATFORMS = Object.freeze(["any", "windows", "macos", "linux"]);
+
+/**
+ * Shape-check a bundle that is already parsed text. Refuses rather than ingesting half of it: a
+ * partial corpus is the state in which retrieval quietly misses articles that a reader believes
+ * are loaded. **Every rule here is checked before anything is written** — exercised 2026-09-09
+ * against a bundle whose SECOND article had a bad `type`, and nothing landed.
+ *
+ * `label` names the source in every message. A path for the CLI, "pasted bundle" for the console:
+ * the console has no path, and an error reading `undefined: duplicate article id` is a worse
+ * message than the rule it is reporting.
+ *
+ * @param {string} text
+ * @param {string} [label]
+ */
+export function parseBundle(text, label = "bundle") {
+  let bundle;
+  try {
+    bundle = JSON.parse(text);
+  } catch (err) {
+    // JSON.parse's message names the character position, which is the useful half; the label says
+    // which document it was counting in.
+    throw new Error(`${label}: not valid JSON — ${err.message}`);
+  }
+  if (bundle === null || typeof bundle !== "object" || Array.isArray(bundle)) {
+    throw new Error(`${label}: the top level must be a JSON object with an "articles" array`);
+  }
+  if (!Array.isArray(bundle.articles) || bundle.articles.length === 0) {
+    throw new Error(`${label}: no articles array`);
+  }
+  const seen = new Set();
+  for (const a of bundle.articles) {
+    if (a === null || typeof a !== "object") throw new Error(`${label}: an entry in "articles" is not an object`);
+    if (typeof a.id !== "string" || !a.id.trim()) throw new Error(`${label}: an article has no id`);
+    if (seen.has(a.id)) throw new Error(`${label}: duplicate article id "${a.id}"`);
+    seen.add(a.id);
+    if (a.type !== "troubleshooting" && a.type !== "reference") {
+      throw new Error(`${label}: article "${a.id}" has type "${a.type}"; migration 002 allows troubleshooting | reference`);
+    }
+    if (typeof a.title !== "string" || !a.title.trim()) throw new Error(`${label}: article "${a.id}" has no title`);
+  }
+  return bundle;
+}
+
+/**
+ * Read and shape-check a bundle from disk.
  *
  * @param {string} path
  */
 export function readBundle(path) {
-  const raw = readFileSync(path, "utf8");
-  const bundle = JSON.parse(raw);
-  if (!Array.isArray(bundle.articles) || bundle.articles.length === 0) {
-    throw new Error(`${path}: no articles array`);
-  }
-  const seen = new Set();
+  return parseBundle(readFileSync(path, "utf8"), path);
+}
+
+/**
+ * What is WRONG BUT NOT REFUSED about a bundle, as sentences. Not a validation layer: every item
+ * here is legal against migration 002 and would be written without complaint, and every item makes
+ * an article less retrievable than the person pasting it believes.
+ *
+ * A warning rather than a refusal because each one is a schema decision if enforced. Saying it at
+ * the moment of ingest is the cheap half, and the moment of ingest is when somebody is looking.
+ *
+ * @param {{ articles: any[] }} bundle
+ * @returns {string[]}
+ */
+export function bundleWarnings(bundle) {
+  const out = [];
   for (const a of bundle.articles) {
-    if (typeof a.id !== "string" || !a.id.trim()) throw new Error(`${path}: an article has no id`);
-    if (seen.has(a.id)) throw new Error(`${path}: duplicate article id "${a.id}"`);
-    seen.add(a.id);
-    if (a.type !== "troubleshooting" && a.type !== "reference") {
-      throw new Error(`${path}: article "${a.id}" has type "${a.type}"; migration 002 allows troubleshooting | reference`);
+    const platform = String(a.platform ?? "any").toLowerCase();
+    if (!RETRIEVABLE_PLATFORMS.includes(platform)) {
+      out.push(`"${a.id}" has platform "${a.platform}". The pre-filter (D162) matches ${RETRIEVABLE_PLATFORMS.join(", ")} and nothing else, so this article will be stored, indexed, embedded and RETRIEVED BY NOTHING.`);
     }
-    if (typeof a.title !== "string" || !a.title.trim()) throw new Error(`${path}: article "${a.id}" has no title`);
+    const hasProse = [a.problem, a.cause, a.body].some((v) => typeof v === "string" && v.trim());
+    const hasList = [a.symptoms, a.guidance].some((v) => Array.isArray(v) && v.length);
+    if (!hasProse && !hasList) {
+      out.push(`"${a.id}" has no problem, cause, body, symptoms or guidance. It will chunk to its title alone.`);
+    }
   }
-  return bundle;
+  return out;
 }
 
 /**
@@ -114,11 +181,17 @@ export async function upsertArticle(client, article, bundleId) {
  * Ingest a whole bundle. One transaction: a half-ingested corpus is worse than none, because it
  * looks loaded.
  *
- * @param {{ path: string, log?: (s: string) => void }} opts
+ * Takes EITHER a `path` (the CLI) or an already-parsed `bundle` (the console, which has a textarea
+ * and no file). Both go through the same `parseBundle()` rules; the split is only about where the
+ * text came from.
+ *
+ * @param {{ path?: string, bundle?: any, label?: string, log?: (s: string) => void }} opts
  */
-export async function ingestBundle({ path, log = () => {} }) {
-  const bundle = readBundle(path);
-  log(`[kb] ${path}: bundle ${bundle.bundleId ?? "(unnamed)"}, ${bundle.articles.length} articles`);
+export async function ingestBundle({ path, bundle: parsed, label, log = () => {} }) {
+  if (!path && !parsed) throw new Error("ingestBundle needs a path or a parsed bundle");
+  const bundle = parsed ?? readBundle(path);
+  const source = label ?? path ?? "bundle";
+  log(`[kb] ${source}: bundle ${bundle.bundleId ?? "(unnamed)"}, ${bundle.articles.length} articles`);
 
   return withControl(async (client) => {
     const results = [];
@@ -130,8 +203,104 @@ export async function ingestBundle({ path, log = () => {} }) {
         log(`[kb]   WARNING ${r.id} chunk "${kind}" may exceed the embedder's 8192-token context and will be TRUNCATED SILENTLY`);
       }
     }
-    return { bundleId: bundle.bundleId ?? "unknown", results };
+    return { bundleId: bundle.bundleId ?? "unknown", results, warnings: bundleWarnings(bundle) };
   });
+}
+
+/**
+ * WOULD EMBEDDING WITH `model` PUT TWO MODELS IN THE CORPUS? A pure function over
+ * `corpusStatus()`, so the answer is testable with no database and the same answer is given to the
+ * CLI and to the console.
+ *
+ * CLAUDE.md's Never list: "Embed a corpus with two different models." Vectors from two models are
+ * in two spaces, so retrieval is confidently wrong for part of the corpus and nothing about the
+ * result looks wrong. `embedPending()` on its own would in fact converge — its WHERE clause picks
+ * up every chunk whose model differs — but it converges one BATCH at a time, so an interrupted run
+ * leaves the mixed state, and "the fix happens to be the same call" is not a reason to let a
+ * browser form start it. `node bin/kb.mjs reembed` is the deliberate way to change models.
+ *
+ * @param {{ models: Array<{ model: string, n: number }> }} status
+ * @param {string} model
+ * @returns {null | { reason: string, present: string[], model: string }}
+ */
+export function embeddingModelConflict(status, model) {
+  const present = (status.models ?? []).map((m) => m.model);
+  if (present.length === 0) return null;
+  if (present.length === 1 && present[0] === model) return null;
+  const reason = present.length > 1
+    ? `the corpus already holds ${present.length} embedding models (${present.join(", ")}), which is the broken state itself`
+    : `the corpus is embedded by ${present[0]} and this hub's embedder is ${model}`;
+  return {
+    reason: `${reason}. Vectors from two models are in two different spaces, so retrieval would be confidently wrong for part of the corpus. The articles and chunks are written; the embedding step is refused. Fix from server/: node bin/kb.mjs reembed`,
+    present,
+    model,
+  };
+}
+
+/**
+ * ONE INGEST, FOR BOTH CALLERS: validate, write, refuse a second embedding model, embed, report.
+ *
+ * The console (POST /admin/knowledge/ingest) and the CLI (`node bin/kb.mjs ingest`) call THIS, for
+ * the same reason the console and the CLI share one ticket query layer (D224): when the browser is
+ * doubted the terminal is what gets trusted, and that only proves something if the two cannot
+ * disagree. Every number the console reports is a number this function returned.
+ *
+ * THE EMBED STEP IS ALLOWED TO FAIL AND THE INGEST STILL SUCCEEDS. That is not leniency, it is the
+ * degradation the hub already has: chunks land with `embedding NULL`, the lexical leg still
+ * retrieves them, and `node bin/kb.mjs embed` finishes the job. The report says which happened.
+ *
+ * @param {{ path?: string, bundle?: any, label?: string, embedder?: any|null, log?: (s: string) => void }} opts
+ */
+export async function ingestAndEmbed({ path, bundle, label, embedder = null, log = () => {} }) {
+  const ingested = await ingestBundle({ path, bundle, label, log });
+  const articles = { inserted: 0, updated: 0, unchanged: 0 };
+  // TWO CHUNK COUNTS, BECAUSE ONE OF THEM LIED. `upsertArticle` reports an UNCHANGED article's
+  // EXISTING chunk count — correct for "how big is this article" and wrong for "what did this
+  // action do". A re-ingest of an unchanged bundle reported "5 chunks written" beside "0 inserted,
+  // 0 updated" (seen 2026-09-09, before this split). `chunksWritten` counts only the articles that
+  // were actually rewritten; `chunksInBundle` is the whole bundle's size.
+  let chunksWritten = 0;
+  let chunksInBundle = 0;
+  for (const r of ingested.results) {
+    articles[r.action] += 1;
+    chunksInBundle += r.chunks;
+    if (r.action !== "unchanged") chunksWritten += r.chunks;
+  }
+
+  // Read the corpus AFTER writing: an updated article's chunks were deleted and rebuilt, so its
+  // old vectors are gone and the set of models present can have SHRUNK. Checking before the write
+  // would refuse on a model that no longer exists.
+  const afterWrite = await corpusStatus();
+  /** @type {{ embedded: number, batches: number, model: string|null, refused: null|{reason:string,present:string[],model:string}, error: string|null }} */
+  const embed = { embedded: 0, batches: 0, model: embedder?.model ?? null, refused: null, error: null };
+
+  if (!embedder) {
+    embed.error = "no embedder is configured or available";
+  } else {
+    embed.refused = embeddingModelConflict(afterWrite, embedder.model);
+    if (!embed.refused) {
+      try {
+        const r = await embedPending({ embedder, log });
+        embed.embedded = r.embedded;
+        embed.batches = r.batches;
+      } catch (err) {
+        // The embedder going down mid-ingest is the case the two-pass design exists for.
+        embed.error = err.message;
+        log(`[kb] embedding failed after a successful ingest; the chunks retrieve lexically only: ${err.message}`);
+      }
+    }
+  }
+
+  return {
+    bundleId: ingested.bundleId,
+    results: ingested.results,
+    warnings: ingested.warnings,
+    articles,
+    chunksWritten,
+    chunksInBundle,
+    embed,
+    status: await corpusStatus(),
+  };
 }
 
 /**
