@@ -28,7 +28,7 @@ export const DESTINATIONS = Object.freeze([
   { path: "/admin",           label: "Review queue", permission: "review.read",    badge: "review" },
   { path: "/admin/tickets",   label: "Tickets",      permission: "tickets.read",   badge: "tickets" },
   { path: "/admin/knowledge", label: "Knowledge",    permission: "knowledge.read", badge: null },
-  { path: "/admin/agents",    label: "Agents",       permission: "agents.read",    badge: null },
+  { path: "/admin/agents",    label: "Agents",       permission: "agents.read",    badge: "agents" },
   { path: "/admin/metrics",   label: "Metrics",      permission: "metrics.read",   badge: null },
   { path: "/admin/settings",  label: "Settings",     permission: "settings.read",  badge: null },
 ]);

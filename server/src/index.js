@@ -14,8 +14,20 @@
  *   Do NOT implement authentication here (handover "what not to do"): the value of this skeleton is
  *   partly in being obviously unfinished. A half-built auth layer would invite someone to trust it.
  *
- * OUT OF SCOPE AND VISIBLY SO: device auth, tenancy, audit ingestion, TLS, spend caps. None of them
- * have a stub here that could be mistaken for a start.
+ * OUT OF SCOPE AND VISIBLY SO: tenancy on /v1/ask and /v1/ticket, audit ingestion, TLS, spend caps.
+ * None of them have a stub here that could be mistaken for a start.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * B3 ADDED A THIRD ROUTE: POST /v1/enroll (2026-09-10). Device ENROLLMENT — a pending queue, a
+ * rotatable time-boxed secret, auto-approve with a per-tenant toggle, rate limiting with a fallback
+ * to queued approval, bulk revocation (src/devices/enrollment.js). It does NOT make `authenticate()`
+ * below do anything: no route checks a device's signature or a token yet, because that is D61's
+ * exchange, a layer over enrollment rather than enrollment itself, and it depends on custody
+ * machinery (D60/D64's TPM-backed key in broker custody, reached over the named-pipe transport)
+ * that is designed and not built (D200/D201). `server/docs/B3-DEVICE-ENROLLMENT.md` is the record
+ * of exactly that cut. So: a device can now become KNOWN to a tenant. Nothing yet checks that a
+ * request claiming to be a known device actually is one.
+ * ---------------------------------------------------------------------------------------------
  *
  * ---------------------------------------------------------------------------------------------
  * B7a ADDED A SECOND ROUTE, AND THE FIRST ONE DID NOT CHANGE (2026-09-04).
@@ -55,6 +67,7 @@ import { askHandler } from "./kb/ask.js";
 import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
+import { enrollHandler } from "./devices/route.js";
 import { questionLoggingEnabled, questionRetentionDays, QUESTION_RETENTION_MAX_DAYS } from "./kb/retrieve.js";
 import { adminHandler } from "./admin/router.js";
 
@@ -116,6 +129,9 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // Built unconditionally, like handleAsk: an unconfigured ticket tenant answers 503 with a reason
   // rather than 404 with none (B6-lite, D213).
   const handleTicket = ticketHandler({ tenantSchema: ticketTenant, log });
+  // B3. Unlike /v1/ask and /v1/ticket, this route DOES take a tenant from the client — see
+  // src/devices/route.js's header for why that is not the same mistake those two routes refuse.
+  const handleEnroll = enrollHandler({ log });
   // The admin console (B2, D221). HTML, session-authenticated, mounted under /admin and nowhere
   // else. It is NOT one of the API routes and is deliberately absent from the route lists below:
   // it has its own authentication, and listing it beside routes that carry x-matic-hub-auth: none
@@ -165,6 +181,10 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     if (req.url === "/v1/ticket") {
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
       return handleTicket(req, res, send);
+    }
+    if (req.url === "/v1/enroll") {
+      if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
+      return handleEnroll(req, res, send);
     }
     if (req.url === "/v1/health" && req.method === "GET") {
       // The corpus figures are best-effort: /v1/health must answer when the database does not,
@@ -221,6 +241,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "POST", path: "/v1/ask", what: "answer a question from the knowledge base, or decline", body: { text: "string (required)", probe: "object (optional machine state; supplies the platform pre-filter)" } },
           { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
           { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
+          { method: "POST", path: "/v1/enroll", what: "a device asks to join a tenant (B3). The one route that DOES take a tenant from the client - the enrollment secret is what authenticates the claim", body: { tenant: "string (the tenant's slug)", deviceKeyId: "string (opaque device identity)", secret: "string (the tenant's enrollment secret)", mode: "'standalone' | 'joined' (optional)" } },
         ],
         // The admin console (B2). A separate field, NOT an entry in routes: it is a browser surface
         // with its own session authentication, not an API, and it must not read as one (exit
@@ -238,7 +259,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     return send(404, {
       ok: false,
       error: `no such route: ${req.method} ${req.url}`,
-      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket"],
+      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll"],
     });
   });
 }
@@ -329,6 +350,7 @@ if (isMain) {
     console.log(`[hub] listening on http://127.0.0.1:${port}`);
     console.log(`[hub]   POST /v1/turn   stateless, proposes a machine change, reaches no database`);
     console.log(`[hub]   POST /v1/ask    stateful, answers from the knowledge base (B7a)`);
+    console.log(`[hub]   POST /v1/enroll device enrollment (B3) - no token exchange yet, see the file header`);
     console.log(`[hub]   GET  /v1/health`);
     console.log(`[hub]   GET  /admin        the admin console (B2) - a browser surface with its own sign-in, not an API route`);
     console.log(`[hub] provider ${provider.name} -> ${provider.baseUrl} model ${provider.model} (claimed as hubProvider "local")`);

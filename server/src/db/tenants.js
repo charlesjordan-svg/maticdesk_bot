@@ -76,6 +76,16 @@ export async function createTenant(slug, { displayName, log = () => {}, root } =
 export async function dropTenantForTests(slug) {
   const schemaName = schemaNameFor(slug);
   await getPool().query(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+  // B3: devices, enrollment_requests and enrollment_secrets FK to tenants(id) (migration
+  // 001/004), so they go before the tenant row or the DELETE below fails with a foreign key
+  // violation. Tolerant of a database that predates B3 (to_regclass guards every table, same
+  // reasoning as the loop below) and of a tenant that was never used for enrollment (a subquery
+  // matching nothing deletes nothing).
+  for (const table of ["control.enrollment_requests", "control.devices", "control.enrollment_secrets"]) {
+    const { rows } = await getPool().query("SELECT to_regclass($1) IS NOT NULL AS ok", [table]);
+    if (!rows[0].ok) continue;
+    await getPool().query(`DELETE FROM ${table} WHERE tenant_id = (SELECT id FROM control.tenants WHERE slug = $1)`, [slug]);
+  }
   // Tolerant of a database that has never been migrated: a teardown that throws on a fresh
   // database makes the first run of the suite fail for a reason that has nothing to do with what
   // it is testing. (It did, on the first real run.) Job rows go first - they reference the tenant.
@@ -95,4 +105,21 @@ export async function listTenants() {
     "SELECT id, slug, schema_name, status FROM control.tenants ORDER BY slug",
   );
   return rows.map((r) => ({ id: r.id, slug: r.slug, schemaName: r.schema_name, status: r.status }));
+}
+
+/**
+ * One tenant by its slug, or null. The lookup a device presents at enrollment: it is given a slug
+ * and a secret at install time (D82 — not baked into the installer), never the tenant's uuid.
+ *
+ * @param {string} slug
+ * @returns {Promise<{ id: string, slug: string, schemaName: string, status: string }|null>}
+ */
+export async function tenantBySlug(slug) {
+  const { rows } = await getPool().query(
+    "SELECT id, slug, schema_name, status FROM control.tenants WHERE slug = $1",
+    [slug],
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return { id: r.id, slug: r.slug, schemaName: r.schema_name, status: r.status };
 }

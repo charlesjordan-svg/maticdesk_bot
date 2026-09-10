@@ -115,6 +115,16 @@ check("bin/tickets.mjs imports from src/tickets/query.js and holds no SQL", /fro
 check("the console's ticket page imports the same module", /from "\.\.\/\.\.\/tickets\/query\.js"/.test(read("src/admin/pages/tickets.js")));
 check("the console's ticket page says nobody has been emailed (D213's sixth surface)", /[Nn]obody has been emailed/.test(read("src/admin/pages/tickets.js")));
 
+console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");
+{
+  const deviceWriters = ["src/devices/enrollment.js"];
+  const offenders = allSrc.filter((f) => !deviceWriters.includes(rel(f)) && /\b(FROM|UPDATE|INTO)\s+control\.(devices|enrollment_requests|enrollment_secrets)\b/.test(jsCode(readFileSync(f, "utf8"))));
+  check("only src/devices/enrollment.js touches devices/enrollment_requests/enrollment_secrets — the CLI, the console and POST /v1/enroll all read through it", offenders.length === 0, offenders.map(rel).join(", "));
+  check("bin/devices.mjs imports from src/devices/enrollment.js and holds no SQL", /from "\.\.\/src\/devices\/enrollment\.js"/.test(read("bin/devices.mjs")) && !/SELECT|UPDATE|INSERT/.test(jsCode(read("bin/devices.mjs"))));
+  check("the console's Agents page imports the same module", /from "\.\.\/\.\.\/devices\/enrollment\.js"/.test(read("src/admin/pages/agents.js")));
+  check("POST /v1/enroll composes submitEnrollment() rather than writing its own SQL", /from "\.\/enrollment\.js"/.test(read("src/devices/route.js")) && !/\.query\(/.test(jsCode(read("src/devices/route.js"))));
+}
+
 console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and the CLI (D224's pattern) ===");
 {
   const kbSearch = jsCode(read("src/admin/kb-search.js"));
@@ -203,8 +213,10 @@ console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and 
 
 console.log("\n=== 6. honest stubs: no zero stands in for an absent concept (exit criterion 6) ===");
 const agents = read("src/admin/pages/agents.js");
-check("the Agents page runs NO query and imports no data module", !/query\(|queries\.js|db\//.test(jsCode(agents)));
-check("the Agents page says enrollment is not in this build and names B3", /not in this build/.test(agents) && /B3/.test(agents));
+check("the Agents page composes src/devices/enrollment.js rather than writing its own SQL (B3, same D224 argument as tickets/kb)",
+  /from "\.\.\/\.\.\/devices\/enrollment\.js"/.test(jsCode(agents)) && !/\.query\(/.test(jsCode(agents)));
+check("the Agents page says devices are KNOWN, not AUTHENTICATED, and names why (D61, D200/D201)",
+  /not authenticated/i.test(agents) && /D61/.test(agents) && /D200\/D201/.test(agents));
 for (const p of ["review", "knowledge", "agents", "metrics", "settings", "tickets"]) {
   check(`pages/${p}.js uses notYet() to say what is missing and why`, /notYet\(\{/.test(read(`src/admin/pages/${p}.js`)));
 }

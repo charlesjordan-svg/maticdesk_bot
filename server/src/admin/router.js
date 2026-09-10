@@ -53,6 +53,7 @@ import {
 import { findAdminForLogin, getAdminUser, permissionsFor, recordLogin, rolesFor } from "./users.js";
 import { gapCount, tenantById } from "./queries.js";
 import { countTicketsByState } from "../tickets/query.js";
+import { pendingCount } from "../devices/enrollment.js";
 import { loginPage } from "./pages/login.js";
 import { reviewRoutes } from "./pages/review.js";
 import { ticketRoutes } from "./pages/tickets.js";
@@ -156,6 +157,7 @@ async function navFor(ctx) {
     try {
       if (d.badge === "review") count = await gapCount();
       else if (d.badge === "tickets" && ctx.tenant) count = (await countTicketsByState(ctx.tenant.schemaName)).new;
+      else if (d.badge === "agents" && ctx.tenant) count = await pendingCount({ tenantId: ctx.tenant.id });
     } catch { count = null; } // a badge is not worth a 500
     items.push({ path: d.path, label: d.label, count });
   }

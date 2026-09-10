@@ -58,6 +58,7 @@ import { listTickets, getTicket } from "../src/tickets/query.js";
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { corpusStatus } from "../src/kb/ingest.js";
 import { gapFeed } from "../src/admin/queries.js";
+import { resetEnrollmentThrottle } from "../src/devices/enrollment.js";
 import { lexicalLeg } from "../src/kb/retrieve.js";
 import { verifyPassword } from "../src/admin/auth.js";
 import { revokeUserSessions } from "../src/admin/session.js";
@@ -195,6 +196,12 @@ async function setup() {
 async function teardown() {
   await new Promise((r) => server?.close(r));
   await withControl(async (c) => {
+    // B3: enrollment_requests.decided_by FKs to admin_users(id) (migration 004), and devices /
+    // enrollment_secrets FK to tenants(id) — all three must go before admin_users and the tenant
+    // row, or both later deletes fail with a foreign key violation.
+    await c.query("DELETE FROM control.enrollment_requests WHERE tenant_id = $1", [tenantId]);
+    await c.query("DELETE FROM control.devices WHERE tenant_id = $1", [tenantId]);
+    await c.query("DELETE FROM control.enrollment_secrets WHERE tenant_id = $1", [tenantId]);
     await c.query("DELETE FROM control.admin_audit WHERE tenant_id = $1 OR admin_user_id IN (SELECT id FROM control.admin_users WHERE email LIKE $2)", [tenantId, `%@${slug}.test`]);
     await c.query("DELETE FROM control.admin_users WHERE email LIKE $1", [`%@${slug}.test`]); // cascades sessions and grants
     // THE KB IS CROSS-TENANT, so dropping the tenant leaves these behind. Delete by id; chunks go
@@ -208,6 +215,7 @@ async function teardown() {
 try {
   await setup();
   resetLoginThrottle();
+  resetEnrollmentThrottle();
 
   console.log("=== 7. the console is not in GET /'s route list, and the 404 does not name it ===");
   {
@@ -325,7 +333,9 @@ try {
     check("the review page names what is missing (drafts, staleness, duplicates) and why", /no data source in this build/.test(home.text) && /D90/.test(home.text));
 
     const agents = await owner.go("/admin/agents");
-    check("Agents: 200, says enrollment is not in this build, shows NO count", agents.status === 200 && /not in this build/.test(agents.text) && !/<div class="n">\d+<\/div>/.test(agents.text));
+    // Real since B3 (2026-09-10) — B3-1..B3-N below exercise the mechanism against a live database;
+    // this is just "the page renders for the tenant owner role" as part of the six-destination pass.
+    check("Agents: 200, real stat tiles (no devices enrolled here yet)", agents.status === 200 && /waiting for approval/.test(agents.text));
     const metrics = await owner.go("/admin/metrics");
     check("Metrics: 200, real question counts, deflection explained as not computable", metrics.status === 200 && /asked, all time/.test(metrics.text) && /cannot be computed/.test(metrics.text));
     check("Metrics: the tenant's tickets by category are real (hardware: 1)", /<td>hardware<\/td><td>1<\/td>/.test(metrics.text));
@@ -764,6 +774,120 @@ try {
     check("the Articles table draws an Edit link for a knowledge.write role", new RegExp(`href="/admin/knowledge/${"b2test-editor-new"}/edit"`).test(listPage.text));
   }
 
+  console.log("\n=== B3-1. enrollment secrets: mint, list, revoke (console) ===");
+  {
+    const page = await owner.go("/admin/agents");
+    check("GET /admin/agents -> 200, no secret minted yet", page.status === 200 && /No enrollment secret has ever been minted/.test(page.text));
+    const token = csrfOf(page.text);
+
+    const minted = await owner.go("/admin/agents/secrets/new", { method: "POST", form: { _csrf: token, ttlDays: "30" } });
+    check("POST secrets/new -> 200, the plaintext is shown once", minted.status === 200 && /shown once, then never again/.test(minted.text));
+    const b3Secret = minted.text.match(/<div class="mono" style="margin-top:6px;font-size:15px;word-break:break-all">([^<]+)<\/div>/)?.[1];
+    check("a real secret string came back", typeof b3Secret === "string" && b3Secret.length > 20, String(b3Secret));
+    check("minting is audited (device.secret.create), never the secret itself",
+      (await auditRows()).some((r) => r.action === "device.secret.create" && r.email === made.owner.email) &&
+      !(await auditRows()).some((r) => r.action === "device.secret.create" && JSON.stringify(r.detail).includes(b3Secret)));
+  }
+
+  console.log("\n=== B3-2. POST /v1/enroll: auto-approve on (the default), then off ===");
+  {
+    // Mint a secret dedicated to this block so it does not depend on B3-1's intermediate state.
+    const page = await owner.go("/admin/agents");
+    const secretResp = await owner.go("/admin/agents/secrets/new", { method: "POST", form: { _csrf: csrfOf(page.text), ttlDays: "1" } });
+    const secret = secretResp.text.match(/<div class="mono" style="margin-top:6px;font-size:15px;word-break:break-all">([^<]+)<\/div>/)?.[1];
+
+    const enroll1 = await fetch(`${base}/v1/enroll`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-auto", secret }),
+    });
+    const e1 = await enroll1.json();
+    check("auto-approve is the default (D80) -> 200, status active", enroll1.status === 200 && e1.ok === true && e1.status === "active", JSON.stringify(e1));
+    check("re-submitting the SAME device -> 200, 'already active', not a new row", (await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-auto", secret }) })).json()).status === "active");
+
+    const wrongTenant = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: "no-such-tenant-slug", deviceKeyId: "x", secret }) });
+    check("an unknown tenant slug -> 403, same message as a wrong secret (no enumeration)", wrongTenant.status === 403);
+    const wrongSecret = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "x", secret: "not-the-secret" }) });
+    check("…and a real tenant with a wrong secret -> the SAME 403 body shape", wrongSecret.status === 403 && (await wrongSecret.json()).error === (await wrongTenant.json()).error);
+    resetEnrollmentThrottle(); // the two refusals above should not count toward B3-4's lockout test
+
+    // Turn auto-approve off, then enroll a second device — it must land in the pending queue.
+    // The form's hidden field carries the value that FLIPS the current setting (empty string when
+    // it is currently on, per autoApproveForm()) — submit that, not a hardcoded "1", which would
+    // just re-affirm "on" and silently not toggle anything.
+    const off = await owner.go("/admin/agents/auto-approve", { method: "POST", form: { _csrf: csrfOf((await owner.go("/admin/agents")).text), enabled: "" } });
+    check("toggling auto-approve off -> 200, and the page says it is off", off.status === 200 && /Auto-approve is now OFF/.test(off.text));
+    check("device.auto_approve.set is audited", (await auditRows()).some((r) => r.action === "device.auto_approve.set" && r.detail?.enabled === false));
+
+    const enroll2 = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-pending", secret }) });
+    const e2 = await enroll2.json();
+    check("with auto-approve off -> 202, status pending", enroll2.status === 202 && e2.status === "pending", JSON.stringify(e2));
+
+    const queue = await owner.go("/admin/agents");
+    check("the pending device is on the Agents page queue", /b3test-device-pending/.test(queue.text));
+    check("the active device from before is listed too, with a checkbox to revoke it", new RegExp(`name="device_${e1.deviceId}"`).test(queue.text));
+
+    const approveToken = csrfOf(queue.text);
+    const approved = await owner.go(`/admin/agents/${e2.requestId}/approve`, { method: "POST", form: { _csrf: approveToken } });
+    check("Approve -> 200, and the device is now active", approved.status === 200 && /Approved b3test-device-pending/.test(approved.text));
+    check("device.enroll.approve is audited with the actor and the device", (await auditRows()).some((r) => r.action === "device.enroll.approve" && r.email === made.owner.email && r.subject === "b3test-device-pending"));
+
+    // A third device, this time rejected — it must end up revoked, not stuck pending (state-machine note in enrollment.js).
+    const enroll3 = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-rejected", secret }) });
+    const e3 = await enroll3.json();
+    const rejected = await owner.go(`/admin/agents/${e3.requestId}/reject`, { method: "POST", form: { _csrf: csrfOf((await owner.go("/admin/agents")).text) } });
+    check("Reject -> 200", rejected.status === 200 && /Rejected b3test-device-rejected/.test(rejected.text));
+    const { rows: [byKey] } = await getPool().query(
+      `SELECT d.status FROM control.devices d JOIN control.tenants tn ON tn.id = d.tenant_id WHERE tn.slug = $1 AND d.device_key_id = $2`,
+      [slug, "b3test-device-rejected"],
+    );
+    check("a rejected request's device is REVOKED, not left pending forever", byKey?.status === "revoked", JSON.stringify(byKey));
+  }
+
+  console.log("\n=== B3-3. bulk revocation by batch (D83a), and revoking a secret ===");
+  {
+    const page = await owner.go("/admin/agents");
+    const { rows: devices } = await getPool().query(
+      `SELECT d.id FROM control.devices d JOIN control.tenants tn ON tn.id = d.tenant_id WHERE tn.slug = $1 AND d.status = 'active'`,
+      [slug],
+    );
+    check("there are at least two active devices to bulk-revoke (auto and pending-then-approved)", devices.length >= 2, String(devices.length));
+    const form = { _csrf: csrfOf(page.text) };
+    for (const d of devices) form[`device_${d.id}`] = "1";
+    const revoked = await owner.go("/admin/agents/revoke", { method: "POST", form });
+    check(`Revoke selected -> 200, revoked ${devices.length}`, revoked.status === 200 && new RegExp(`Revoked ${devices.length} device`).test(revoked.text));
+    check("device.revoke is audited with the count and the ids", (await auditRows()).some((r) => r.action === "device.revoke" && r.detail?.count === devices.length));
+    const { rows: stillActive } = await getPool().query(
+      `SELECT count(*)::int AS n FROM control.devices d JOIN control.tenants tn ON tn.id = d.tenant_id WHERE tn.slug = $1 AND d.status = 'active'`,
+      [slug],
+    );
+    check("none of them are active any more", stillActive[0].n === 0);
+
+    const secretsPage = await owner.go("/admin/agents");
+    const { rows: liveSecrets } = await getPool().query(
+      `SELECT es.id FROM control.enrollment_secrets es JOIN control.tenants tn ON tn.id = es.tenant_id WHERE tn.slug = $1 AND es.revoked_at IS NULL`,
+      [slug],
+    );
+    check("at least one live secret exists to revoke", liveSecrets.length > 0);
+    const secretRevoke = await owner.go(`/admin/agents/secrets/${liveSecrets[0].id}/revoke`, { method: "POST", form: { _csrf: csrfOf(secretsPage.text) } });
+    check("revoking a secret -> 200", secretRevoke.status === 200 && /Secret revoked/.test(secretRevoke.text));
+    const afterRevoke = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-should-fail", secret: "irrelevant-now" }) });
+    check("…and a fresh enrollment attempt with ANY secret for this tenant is refused once nothing is live (if this was the only secret)", afterRevoke.status === 403 || liveSecrets.length > 1);
+  }
+
+  console.log("\n=== B3-4. rate limiting: five bad secrets lock enrollment for the tenant, even for a good one (D83) ===");
+  {
+    resetEnrollmentThrottle();
+    for (let i = 0; i < 5; i++) {
+      const r = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: `b3test-fail-${i}`, secret: "wrong-every-time" }) });
+      check(`bad attempt ${i + 1}/5 -> 403`, r.status === 403);
+    }
+    const sixth = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-should-be-locked", secret: "wrong-every-time" }) });
+    check("the 6th attempt -> 429, locked, not 403", sixth.status === 429);
+    const sixthBody = await sixth.json();
+    check("…and it names a retry window", typeof sixthBody.retryAfterMs === "number" && sixthBody.retryAfterMs > 0);
+    resetEnrollmentThrottle();
+  }
+
   console.log("\n=== 2. a read-only role cannot reach a page its role forbids ===");
   const auditor = client();
   {
@@ -794,6 +918,8 @@ try {
       (await corpusStatus()).models.length === 1);
     const agents = await auditor.go("/admin/agents");
     check("GET /admin/agents -> 403", agents.status === 403);
+    const aAgentsAction = await auditor.go("/admin/agents/auto-approve", { method: "POST", form: { _csrf: agentCsrf, enabled: "" } });
+    check("POST /admin/agents/auto-approve -> 403 (agents.manage), even with a CSRF token from another session", aAgentsAction.status === 403);
     const tickets = await auditor.go("/admin/tickets");
     check("GET /admin/tickets -> 200 (tickets.read)", tickets.status === 200);
     check("the auditor's nav does not draw the destinations the role lacks", !tickets.text.includes(">Review queue<") && !tickets.text.includes(">Knowledge<") && tickets.text.includes(">Metrics<"));
