@@ -8,10 +8,10 @@ and blockers, and it is kept current. This file only tells you how to work here.
 | Path | What |
 |---|---|
 | `client/` | The Windows endpoint: Electron agent + privileged broker + four Win32 primitives. Runnable. All `npm` commands run **from `client/`**. |
-| `server/` | The hub. **THREE ROUTES since 2026-09-04.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`. |
-| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.19. D1–D220, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
+| `server/` | The hub. **THREE API ROUTES since 2026-09-04, plus the admin console at `/admin` since 2026-09-09.** `POST /v1/turn` is B0's walking skeleton: proposes a machine change, one provider (Ollama), **stateless — a test fails if it imports `src/db/`, and B7a did not touch it** (D206). `POST /v1/ask` is B7a: answers a question from the knowledge base, and IS stateful. **No authentication and no tenancy on either, loudly** (`x-matic-hub-auth: none`, loopback only, a startup banner). **B1 control plane** (D143, D193–D197): `migrations/`, `src/db/`, the job queue, `bin/db.mjs`. **B7a knowledge base** (D203–D207): `migrations/control/002-generic-kb.sql`, `src/kb/`, `bin/kb.mjs`. `pg` is the only dependency. **B6-lite ticket store** (D213): `POST /v1/ticket` files a ticket into a tenant schema and **NOTIFIES NOBODY** — there is no outbound email, so per D86 it is a record and not a queue; `migrations/tenant/003-tickets.sql`, `src/tickets/`, `bin/tickets.mjs`. **A tenant is required and a fresh database has none.** **B2 admin console** (D221–D224, 2026-09-09): `GET /admin` — server-rendered HTML in the same process, **no framework, no build step, no new dependency**; local accounts with scrypt + **mandatory TOTP**, roles carrying permissions (`control.admin_role_permissions`, migration `control/003`), admin-action audit from the first request, server-side sessions. **Home is the review queue** (D177). Tickets fully working through `src/tickets/query.js`, **which the CLI also reads** (D224); five honest stubs. **Wears the Industry design system since 2026-09-09 (D225)** — one stylesheet in `src/admin/html.js`, registration marks reserved for the gap card and the honest stub, the three Barlow faces self-hosted from `/admin/assets/` (allow-listed in `src/admin/assets.js`; never fetched, never inlined). `src/admin/`, `bin/admin.mjs`. **It is not in `GET /`'s route list and must not be added to it.** Docs: `server/docs/B1-CONTROL-PLANE.md`, `server/docs/B7a-KNOWLEDGE-BASE.md`, `server/docs/B6-TICKET-STORE.md`, `server/docs/B2-ADMIN-CONSOLE.md`. |
+| `docs/decisions/DECISION-REGISTER.md` | **The** decision register, v2.21. D1–D225, invariants H1–H6, conflicts, open items OPEN-1–OPEN-9 (**OPEN-5 closed 2026-09-03**). Cite it by this path. `docs/decisions/sources/` is superseded material with old numbering — never cite it, **except the dated ratification notes**, which are records of a founder decision rather than superseded design. |
 | `docs/` | Cross-cutting documents: the threat model (`2026-09-03-threat-model-v1.md` — adversaries A1–A11, gaps G1–G10, and the source of the G3/G4 labels other documents cite), the Phase 1 plan, the handover answers. |
-| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-04-claude-code-handover-b7a-built.md`.** The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
+| `docs/handovers/` | Handovers, kept for the record. **Start with the newest: `2026-09-09-claude-code-handover-admin-console-scaffold-built.md`** (B2 built; it answers `2026-09-05-claude-code-handover-admin-console-scaffold.md`). Before those: `2026-09-05-claude-code-handover-demo-prep-done.md`, then `2026-09-04-claude-code-handover-b7a-built.md`. The one before it (`2026-09-04-claude-code-handover-unblock-and-b7a.md`) set the tasks that produced it, and `2026-09-04-claude-code-handover-b2-and-open-items.md` before that. The 2026-09-03 ones run founder → session; the 2026-09-04 ones run the other way. |
 | `server/docs/` | Hub-side documents. `2026-09-03-B0-walking-skeleton-spec.md` is the B0 spike's spec; read its status block before citing any number in it, and §5a for what its acceptance list actually maps to. |
 | `docs/kb/` | The generic knowledge base (`generic-kb-v2.json`) and its rules (D162). An article never names a capability or says what the bot does. Also the schema findings and **the KB architecture document** — retrieval, authoring UX and client UI, merged into the register as D167–D192. **Every D-number written inside that document is void**; it carries a banner saying so. |
 | `tools/launchers/` | **Stage tooling, not product (D220, 2026-09-05).** `start-hub.cmd`/`.ps1` preflights (Docker, Postgres, migrations, tenant, **corpus chunk count**, Ollama, exact model tags, VRAM, port), starts the hub in its own window, warms both models and one turn on each route, prints READY. `start-agent.cmd`/`.ps1` checks the hub first, then runs `client/scripts/start-elevated.ps1`. `install-shortcuts.ps1` puts both on the Desktop. `docs/DEMO-DAY.md` is the one-page recovery card; `client/docs/DEMO-CLICKTHROUGH.md` is the hub-mode click-through Charles runs. |
@@ -29,7 +29,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D221 onward**), with a status
+- New decisions are **appended** to the register with the next free ID (**D226 onward**), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -129,10 +129,12 @@ npm.cmd run verify:pipe    # D201: reads the DACL Windows gives a Node pipe and 
 cd ../server
 npm.cmd install            # pg - the only dependency
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            B0 hub (33) + B1 source rules (43) + B7a source rules (93) = 169
+#                            B0 hub (33) + B1 source rules (43) + B7a source rules (93)
+#                            + B2 console pure parts (65) + B2 source rules (70) = 323
 npm.cmd run db:up          # PostgreSQL 17 + pgvector in Docker, loopback, port 5433 (D197)
 npm.cmd run migrate        # control plane + every tenant schema in one run
-npm.cmd run test:db        # the files that need the database: B1's six exit criteria (56) + B7a retrieval (52) = 108
+npm.cmd run test:db        # the files that need the database: B1's six exit criteria (56) + B7a retrieval (52)
+#                            + B2 console end to end (85: login+TOTP, roles, CSRF, audit, tickets vs the CLI, self-hosted fonts) = 193
 npm.cmd run kb:ingest      # the six generic articles -> control.kb_* , then embed them
 npm.cmd run kb:status      # what is loaded, and WHICH MODEL embedded it (two models = two spaces)
 npm.cmd run kb -- legs "DisplayLink"      # the two retrieval legs, side by side, UNFUSED
@@ -144,6 +146,11 @@ node bin/db.mjs create-tenant devco       # REQUIRED for tickets. A fresh databa
 #                            and /v1/ticket answers 503 (with the fix) until one exists (D213)
 npm.cmd run tickets -- list               # B6-lite. UNTIL OUTBOUND EMAIL EXISTS, THIS IS THE QUEUE
 npm.cmd run tickets -- show MD-1000       # one ticket, including that its reporter is SELF-ASSERTED
+node bin/admin.mjs create-user devco you@example.com --role tenant_owner
+#                            B2. Prints the initial password and the TOTP secret ONCE. No sign-up page exists.
+node bin/admin.mjs users devco            # who can sign in; `roles` lists the five D152 roles and their permissions
+node bin/admin.mjs audit devco --limit 50 # every console action, refusal and record view (D156)
+# then http://127.0.0.1:8787/admin/login in a browser. LOOPBACK ONLY; the login page says so.
 ollama pull snowflake-arctic-embed2:568m  # the DEV embedder. NOT D199's model - see D203
 npm.cmd start              # http://127.0.0.1:8787 - needs Ollama with mistral-small:24b resident
 # OR, for the demo: double-click the Desktop icons, or from anywhere (PowerShell):
@@ -310,6 +317,25 @@ These are in the register, but the register is not what a session reads first. E
   spaces and retrieval is then confidently wrong for part of the corpus.
   `control.kb_chunks.embedding_model` exists to make that detectable; `npm.cmd run kb:status`
   reports it, and `node bin/kb.mjs reembed` is the fix.
+- **Attach a permission to an admin user, or add a per-user permission table** (D152, D222). Roles
+  carry permissions (`control.admin_role_permissions`); users carry roles. `permissionsFor()` in
+  `server/src/admin/users.js` is the one join, and `test/admin-static.test.mjs` fails if a table or
+  query shaped like a per-user grant appears.
+- **Create an admin without a TOTP secret, or add a flag that skips it** (D156, D222).
+  `createAdminUser()` always mints one and the login refuses an account without one. The flag
+  would be used on the day it mattered.
+- **Put the console in `GET /`'s route list, or let a page under `src/admin/pages/` interpolate
+  without the `html` tag or use `raw()`** (D221). The console is a browser surface with its own
+  session auth, not an API, and the route lists exist to state what carries
+  `x-matic-hub-auth: none`. `html\`…\`` escapes every interpolation; `raw()` stays unused until a
+  markdown sanitiser exists, because article content is admin-authored text shown to OTHER admins.
+- **Write SQL against `tickets` anywhere but `server/src/tickets/`** (D224). The CLI and the console
+  read through `query.js`; when the console is doubted the CLI is what gets trusted, and that only
+  proves something if the two cannot disagree.
+- **Make the session cookie's `Secure` flag unconditional without TLS, or bind the hub off loopback
+  while it is conditional** (D222, `server/src/admin/session.js`). Today `Secure` is set only when
+  the socket is TLS or `MATIC_ADMIN_COOKIE_SECURE=1`, and the loopback refusal is what makes that
+  safe. The day the bind changes, the flag becomes unconditional the same day.
 - Put broker logic in the renderer, or import `client/src/broker/win32/*` or `capabilities/*` from
   anywhere but a `Broker` implementation. `client/src/broker/broker.d.ts` explains why.
 - **Offer a consent card the user did not provoke** (**D198**). A greeting answered with a card is a

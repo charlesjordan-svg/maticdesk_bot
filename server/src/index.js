@@ -51,6 +51,7 @@ import { askHandler } from "./kb/ask.js";
 import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
+import { adminHandler } from "./admin/router.js";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
@@ -102,7 +103,7 @@ export function authenticate(_req) {
  * Build the server. Exported so tests can start it on an ephemeral port with a stub provider.
  * @param {{ provider: import("./providers/openai-compatible-provider.js").Provider, hubProvider?: "local" | "cloud", log?: (s: string) => void }} deps
  */
-export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true, ticketTenant = null }) {
+export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true, ticketTenant = null, admin = true }) {
   const handleTurn = turnHandler({ provider, hubProvider, log });
   // Built even when `kb` is false, so the route can answer 503 with a reason rather than 404 with
   // none: "this hub has no knowledge base" and "no such route" are different facts for a client.
@@ -110,6 +111,11 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // Built unconditionally, like handleAsk: an unconfigured ticket tenant answers 503 with a reason
   // rather than 404 with none (B6-lite, D213).
   const handleTicket = ticketHandler({ tenantSchema: ticketTenant, log });
+  // The admin console (B2, D221). HTML, session-authenticated, mounted under /admin and nowhere
+  // else. It is NOT one of the API routes and is deliberately absent from the route lists below:
+  // it has its own authentication, and listing it beside routes that carry x-matic-hub-auth: none
+  // would blur the one property those lists exist to state. src/admin/router.js is the front door.
+  const handleAdmin = admin ? adminHandler({ log }) : null;
 
   return http.createServer(async (req, res) => {
     const send = (status, body) => {
@@ -131,6 +137,13 @@ export function createHubServer({ provider, hubProvider = "local", log = console
 
     const auth = authenticate(req);
     if (!auth.ok) return send(401, { ok: false, error: "unauthenticated" }); // unreachable today; the shape is the point
+
+    // The console answers its own URLs and nothing else. It runs AFTER the loopback refusal, so it
+    // is loopback-only by the same mechanism as the API, and BEFORE the API routes, so nothing
+    // below ever sees a /admin request.
+    if (handleAdmin && (req.url === "/admin" || req.url?.startsWith("/admin/") || req.url?.startsWith("/admin?"))) {
+      if (await handleAdmin(req, res)) return;
+    }
 
     if (req.url === "/v1/turn") {
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
@@ -201,6 +214,12 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
           { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
         ],
+        // The admin console (B2). A separate field, NOT an entry in routes: it is a browser surface
+        // with its own session authentication, not an API, and it must not read as one (exit
+        // criterion 7 of the console handover).
+        console: admin
+          ? { path: "/admin", what: "the admin console. HTML, for a browser. Local accounts with password + authenticator, roles, audit. Loopback only, like everything here, until the sign-in code has had a security review" }
+          : { enabled: false },
         // The caveat that has to travel with any number this hub produces.
         rerankerPresent: false,
         note: "Retrieval quality figures from this hub are a FLOOR, not a measurement: six articles, no cross-encoder reranker, and a development embedder that is not the one D199 chose. See server/docs/B7a-KNOWLEDGE-BASE.md",
@@ -303,6 +322,7 @@ if (isMain) {
     console.log(`[hub]   POST /v1/turn   stateless, proposes a machine change, reaches no database`);
     console.log(`[hub]   POST /v1/ask    stateful, answers from the knowledge base (B7a)`);
     console.log(`[hub]   GET  /v1/health`);
+    console.log(`[hub]   GET  /admin        the admin console (B2) - a browser surface with its own sign-in, not an API route`);
     console.log(`[hub] provider ${provider.name} -> ${provider.baseUrl} model ${provider.model} (claimed as hubProvider "local")`);
     console.log(`[hub] holds no catalog: the endpoint sends its tool schemas with every turn (D149)`);
     console.log("");

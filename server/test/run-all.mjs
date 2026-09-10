@@ -50,6 +50,10 @@ const EXCLUDED = {
     why: "needs PostgreSQL running — B1's six exit criteria against a live server",
     how: "npm.cmd run db:up   then   npm.cmd run test:db",
   },
+  "admin-db.test.mjs": {
+    why: "needs PostgreSQL — the admin console end to end: login with TOTP, roles, CSRF, audit rows, the ticket slice against real rows and the CLI",
+    how: "npm.cmd run db:up, npm.cmd run migrate   then   npm.cmd run test:db",
+  },
   "kb.test.mjs": {
     why: "needs PostgreSQL AND an ingested corpus — B7a retrieval against real GIN and HNSW indexes",
     how: "npm.cmd run db:up, npm.cmd run migrate, npm.cmd run kb:ingest   then   npm.cmd run test:db",

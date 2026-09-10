@@ -22,6 +22,12 @@
  * difference between them is exactly the kind of gap this project keeps finding on screen rather
  * than in tests.
  *
+ * SINCE 2026-09-09 THERE IS A SECOND READER: the admin console's Tickets page (src/admin/pages/
+ * tickets.js). Both read through src/tickets/query.js — the same functions, the same SQL (D224).
+ * When the console is doubted this command is what gets trusted, and the comparison only means
+ * something if the two cannot disagree about the rows. So this file holds NO SQL of its own; if
+ * you need a new query, add it to query.js and both readers get it.
+ *
  * Tenant: MATIC_TICKET_TENANT, or the single active tenant when there is exactly one — the same
  * resolution the hub itself uses (src/tickets/file.js), so the CLI and the route cannot disagree
  * about where tickets live.
@@ -30,10 +36,8 @@
  * bin/kb.mjs there is no production entry point.
  */
 import { closePool } from "../src/db/pool.js";
-import { withTenant } from "../src/db/tenant.js";
 import { resolveTicketTenant } from "../src/tickets/file.js";
-
-const STATES = ["new", "open", "resolved", "closed"];
+import { TICKET_STATES, countTicketsByState, getTicket, listReporters, listTickets, setTicketState } from "../src/tickets/query.js";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "list";
@@ -57,84 +61,65 @@ if (!tenant) {
   try {
     if (cmd === "list") {
       const state = flag("state");
-      if (state && !STATES.includes(state)) die(`--state must be one of: ${STATES.join(", ")}`);
-      const limit = Math.min(Number(flag("limit", "50")) || 50, 500);
-      await withTenant(tenant, async (c) => {
-        const { rows } = await c.query(
-          `SELECT t.reference, t.state, t.category, t.suggested_owner, t.machine_name, t.created_at,
-                  u.first_name, u.last_name, u.location, u.contact_id, u.os_username
-             FROM tickets t LEFT JOIN users u ON u.id = t.user_id
-            ${state ? "WHERE t.state = $2" : ""}
-            ORDER BY t.created_at DESC LIMIT $1`,
-          state ? [limit, state] : [limit],
-        );
+      if (state && !TICKET_STATES.includes(state)) die(`--state must be one of: ${TICKET_STATES.join(", ")}`);
+      else {
+        const rows = await listTickets(tenant, { state, limit: Number(flag("limit", "50")) || 50 });
         if (!rows.length) {
           console.log(state ? `  no tickets in state "${state}"` : "  no tickets");
-          return;
+        } else {
+          for (const r of rows) {
+            console.log(`  ${r.reference}  ${r.state.padEnd(8)} ${(r.suggestedOwner ?? "unrouted").padEnd(17)} ${r.reporter ?? "unknown"} (${r.location ?? "no location"})  ${r.createdAt.toISOString().slice(0, 16).replace("T", " ")}`);
+          }
+          const counts = await countTicketsByState(tenant);
+          console.log(`\n  ${rows.length} ticket(s) shown in ${tenant}; ${TICKET_STATES.map((s) => `${counts[s]} ${s}`).join(", ")}.`);
+          console.log("  NOBODY HAS BEEN EMAILED — this build has no outbound email (D86).");
         }
-        for (const r of rows) {
-          const who = [r.first_name, r.last_name].filter(Boolean).join(" ") || r.os_username || "unknown";
-          console.log(`  ${r.reference}  ${r.state.padEnd(8)} ${(r.suggested_owner ?? "unrouted").padEnd(17)} ${who} (${r.location ?? "no location"})  ${r.created_at.toISOString().slice(0, 16).replace("T", " ")}`);
-        }
-        console.log(`\n  ${rows.length} ticket(s) in ${tenant}. NOBODY HAS BEEN EMAILED — this build has no outbound email (D86).`);
-      });
+      }
     } else if (cmd === "show") {
       const ref = positional[0];
       if (!ref) die("usage: node bin/tickets.mjs show <reference>");
       else {
-        await withTenant(tenant, async (c) => {
-          const { rows } = await c.query(
-            `SELECT t.*, u.first_name, u.last_name, u.location, u.contact_id, u.os_username, u.profile_source
-               FROM tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.reference = $1`,
-            [ref],
-          );
-          if (!rows.length) return void die(`no ticket ${ref} in ${tenant}`);
-          const t = rows[0];
-          console.log(`  ${t.reference}   ${t.state}   ${t.created_at.toISOString()}`);
+        const t = await getTicket(tenant, ref);
+        if (!t) die(`no ticket ${ref} in ${tenant}`);
+        else {
+          console.log(`  ${t.reference}   ${t.state}   ${t.createdAt.toISOString()}`);
           console.log(`  category        ${t.category}`);
-          console.log(`  suggested owner ${t.suggested_owner ?? "(none — the model would not guess, and that is allowed)"}`);
-          console.log(`  machine         ${t.machine_name ?? "-"}`);
+          console.log(`  suggested owner ${t.suggestedOwner ?? "(none — the model would not guess, and that is allowed)"}`);
+          console.log(`  machine         ${t.machineName ?? "-"}`);
           console.log("");
-          console.log(`  reporter        ${[t.first_name, t.last_name].filter(Boolean).join(" ") || "-"}`);
+          console.log(`  reporter        ${t.reporter ?? "-"}`);
           console.log(`  location        ${t.location ?? "-"}`);
-          console.log(`  contact         ${t.contact_id ?? "-"}`);
+          console.log(`  contact         ${t.contactId ?? "-"}`);
           // The one caveat that has to travel with a reporter's name on this build.
-          console.log(`  identity        ${t.os_username ?? "-"} (${t.profile_source}) — NOT AUTHENTICATED. No device auth (D61/D132), no attested logon SID (D148).`);
+          console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — NOT AUTHENTICATED. No device auth (D61/D132), no attested logon SID (D148).`);
           console.log("");
           console.log("  what the user said:");
           console.log(`    ${t.description}`);
           console.log("  case note for you:");
           console.log(`    ${t.summary}`);
           console.log("  already checked:");
-          console.log(`    ${t.what_was_checked ?? "-"}`);
-        });
+          console.log(`    ${t.whatWasChecked ?? "-"}`);
+        }
       }
     } else if (cmd === "state") {
       const [ref, next] = positional;
-      if (!ref || !STATES.includes(next)) die(`usage: node bin/tickets.mjs state <reference> <${STATES.join("|")}>`);
+      if (!ref || !TICKET_STATES.includes(next)) die(`usage: node bin/tickets.mjs state <reference> <${TICKET_STATES.join("|")}>`);
       else {
-        await withTenant(tenant, async (c) => {
-          const { rowCount } = await c.query(
-            "UPDATE tickets SET state = $2, updated_at = now() WHERE reference = $1",
-            [ref, next],
-          );
-          if (!rowCount) return void die(`no ticket ${ref} in ${tenant}`);
-          console.log(`  ${ref} -> ${next}`);
-        });
+        // Any state to any state: this is the operator's correction tool. The console offers only
+        // NEXT_STATES; the CLI does not, on purpose.
+        const moved = await setTicketState(tenant, ref, next);
+        if (!moved) die(`no ticket ${ref} in ${tenant}`);
+        else console.log(`  ${ref}: ${moved.from} -> ${moved.to}`);
       }
     } else if (cmd === "users") {
-      await withTenant(tenant, async (c) => {
-        const { rows } = await c.query(
-          `SELECT os_username, first_name, last_name, location, contact_id, profile_source,
-                  (SELECT count(*) FROM tickets WHERE user_id = users.id) AS tickets
-             FROM users ORDER BY last_name NULLS LAST, first_name NULLS LAST`,
-        );
-        if (!rows.length) return void console.log("  no users");
+      const rows = await listReporters(tenant);
+      if (!rows.length) console.log("  no users");
+      else {
         for (const r of rows) {
-          console.log(`  ${(r.os_username ?? "-").padEnd(16)} ${[r.first_name, r.last_name].filter(Boolean).join(" ").padEnd(24)} ${(r.location ?? "-").padEnd(20)} ${r.contact_id ?? "-"}  [${r.profile_source}, ${r.tickets} ticket(s)]`);
+          console.log(`  ${(r.osUsername ?? "-").padEnd(16)} ${(r.name ?? "").padEnd(24)} ${(r.location ?? "-").padEnd(20)} ${r.contactId ?? "-"}  [${r.profileSource}, ${r.tickets} ticket(s)]`);
         }
         console.log(`\n  ${rows.length} user(s) in ${tenant}. Every profile here is SELF-ASSERTED unless it says otherwise.`);
-      });
+      }
     } else {
       die(`unknown command ${JSON.stringify(cmd)}\nusage: node bin/tickets.mjs list | show <ref> | state <ref> <state> | users`);
     }
