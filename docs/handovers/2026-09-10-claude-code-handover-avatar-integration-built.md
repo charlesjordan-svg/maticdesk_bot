@@ -291,6 +291,15 @@ which warms the embed model before starting; the same question then reaches the 
 is also why the launcher exists (D220), and it is recorded here because "the hub can't see the KB"
 was a reasonable reading of a screen that said otherwise only in the dev log.
 
+**7c. "I keep hearing the word circumflex."** `piper_worker.py` reconfigured stdout and stderr to
+UTF-8 (the IPA fix) but not **stdin**, so the request JSON was decoded with the console codepage: an
+em dash (`E2 80 94`) arrived as `â€”` and espeak-ng read it aloud — `eɪ sɜkəmflɛks jʊɹɹoʊz`,
+"a-circumflex euros", in the middle of every sentence that had one, and a curly apostrophe made
+"I'm" into "a-euros-trade-em". Probed and confirmed by phonemising `"hello — how are you"` before
+and after; with `sys.stdin.reconfigure(encoding="utf-8")` the dash is a pause (`;`) and "I’m" is
+`aɪm`. Pinned in `test/avatar.test.mjs` (all three streams). It had been there since the voice
+shipped; the persona's warmer lines simply use more dashes, which is how it surfaced.
+
 **Still hub-authored, and still flat:** the decline prose (*"I do not have company guidance covering
 this. I can raise a ticket for you."*) comes from the hub's answer tool and is attributed (H5); the
 persona does not and must not rewrite it. If it should be warmer, that is a change to the hub's

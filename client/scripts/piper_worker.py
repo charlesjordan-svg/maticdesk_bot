@@ -21,6 +21,10 @@ from piper import PiperVoice
 # IPA is non-ASCII (ɛ ʃ θ ...). Without this, Windows' default codepage mangles the timeline.
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
+# STDIN TOO. Without this the request JSON is decoded with the console codepage, so an em dash
+# (E2 80 94) arrives as "â€”" and Amy says "a-circumflex euros" in the middle of a sentence -
+# heard by Charles on 2026-09-10 as "the word circumflex". Node writes UTF-8; read it as UTF-8.
+sys.stdin.reconfigure(encoding="utf-8")
 
 # Stress and length marks modify an adjacent phoneme rather than being a sound of their own.
 # Piper still assigns them their own duration, so left alone they make the mouth snap to a

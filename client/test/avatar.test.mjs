@@ -170,6 +170,11 @@ check("the decline path sets declining (the point of the pass)", /setState\("dec
 check("a failed fix is apologising, not error (v7 placement rule)", !/setState\("error"\);\s*await say\(exec\.message/.test(renderer));
 check("the state label follows the element's statechange event (the TTS bypass is closed)", /statechange/.test(renderer));
 check("the viseme driver's stale NOT VERIFIED note is gone", !/NOT VERIFIED/.test(read(join(CLIENT, "src/renderer/vendor/tts-viseme-driver.js"))));
+// 2026-09-10: the worker read its requests with the console codepage, so "—" arrived as "â€”" and
+// Amy said "a-circumflex euros" mid-sentence. All three streams must be UTF-8; a test cannot hear
+// the voice, but it can see the line that stops it.
+const worker = read(join(CLIENT, "scripts/piper_worker.py"));
+for (const stream of ["stdin", "stdout", "stderr"]) check(`piper_worker.py reconfigures sys.${stream} to utf-8`, new RegExp(`sys\\.${stream}\\.reconfigure\\(encoding="utf-8"\\)`).test(worker));
 check("the delivered harness is on disk beside the sources", existsSync(join(AVATAR, "matic-avatar-harness.html")));
 check("the element check page is on disk", existsSync(join(AVATAR, "avatar-check.html")));
 

@@ -294,6 +294,10 @@ These are in the register, but the register is not what a session reads first. E
   cannot override them — the delivered harness's own "Dark panel" toggle does exactly that and does
   not knock the field out (2026-09-10). Put the token-swap class on the svg. Same class as the
   `[hidden]` rule above: the wrong answer wearing the right shape, visible only on a screen.
+- **"Reconfigured to UTF-8" means ALL THREE STREAMS.** `piper_worker.py` fixed stdout/stderr for
+  the IPA and left stdin on the console codepage, so every em dash reached espeak-ng as `â€”` and
+  the voice said "a-circumflex euros" mid-sentence (2026-09-10). Text crossing a process boundary on
+  Windows is mojibake until proven otherwise; probe it with a non-ASCII character, not with "hello".
 - **A "debugged" lookup table is debugged against the keys it was shown.** `viseme-map.js` carried
   `ɜː` and never matched it, because Piper emits the length mark as its OWN row and the worker merges
   it, so the key that arrives is bare `ɜ` — every stressed "work"/"person" closed the mouth for a whole
