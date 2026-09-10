@@ -179,3 +179,22 @@ export async function corpusListing() {
   });
   return { status, articles };
 }
+
+/**
+ * One article, every column — for the editor (D230). `corpusListing()` above deliberately carries
+ * only the columns the list table shows; this is the full row the edit form needs to prefill,
+ * including the fields the editor does not offer (`body`, `scope_note`, `provenance`, `bundle_id`)
+ * so a save can carry them forward unchanged rather than blanking them.
+ */
+export async function articleById(id) {
+  return withControl(async (c) => {
+    const { rows } = await c.query(
+      `SELECT id, bundle_id, type, title, category, platform, environment, lifecycle,
+              problem, cause, body, scope_note, symptoms, keywords, guidance,
+              escalate_when, do_not_attempt, provenance, source_hash, ingested_at
+         FROM control.kb_articles WHERE id = $1`,
+      [id],
+    );
+    return rows[0] ?? null;
+  });
+}

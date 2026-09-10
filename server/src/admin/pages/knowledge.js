@@ -62,7 +62,7 @@
  * which is the same function `node bin/kb.mjs ingest` calls.
  */
 import { html, notYet, stat, empty, when, csrfField, limit } from "../html.js";
-import { corpusListing } from "../queries.js";
+import { corpusListing, articleById } from "../queries.js";
 import { route } from "../route.js";
 import { SEARCH_PLATFORMS, normalisePlatform, searchCorpus } from "../kb-search.js";
 import { corpusStatus, ingestAndEmbed, parseBundle } from "../../kb/ingest.js";
@@ -185,26 +185,27 @@ ${stats.body}
 
 <div class="panel">
   <h2>Articles<span class="count">${articles.length}</span></h2>
+  ${ctx.permissions.has("knowledge.write") ? html`<p><a href="/admin/knowledge/new" class="btn">New article</a></p>` : ""}
   ${articles.length ? html`<table>
-    <thead><tr><th>Article</th><th>Type</th><th>Platform</th><th>Category</th><th>Lifecycle</th><th>Chunks</th><th>Ingested</th></tr></thead>
+    <thead><tr><th>Article</th><th>Type</th><th>Platform</th><th>Category</th><th>Lifecycle</th><th>Chunks</th><th>Ingested</th><th></th></tr></thead>
     <tbody>${articles.map((a) => html`<tr id="${a.id}">
       <td><strong>${a.title}</strong><div class="mono muted" style="font-size:12px">${a.id}</div></td>
       <td>${a.type}</td><td>${a.platform}</td><td>${a.category ?? "-"}</td>
       <td>${a.lifecycle ?? html`<span class="muted">-</span>`}</td>
       <td>${a.chunks}${a.embedded < a.chunks ? html` <span class="muted">(${a.embedded} embedded)</span>` : ""}</td>
       <td>${when(a.ingestedAt)}</td>
+      <td>${ctx.permissions.has("knowledge.write") ? html`<a href="/admin/knowledge/${encodeURIComponent(a.id)}/edit">Edit</a>` : ""}</td>
     </tr>`)}</tbody>
   </table>` : empty("No articles. Paste a bundle below, or from server/: npm.cmd run kb:ingest loads the six generic articles and embeds them.")}
 </div>
 
 ${ingestForm(ctx, status)}
 
-${notYet({
-  heading: "Write and edit articles here",
-  missing: "An article cannot be typed or edited in this console — only ingested as a bundle.",
-  why: "An editor shows admin-authored text back to OTHER admins, so it needs a markdown sanitiser before the first article is typed into a browser, and writing one (or taking the first dependency since pg) is a decision. The review queue's answer form is drawn and disabled for the same reason. Ingestion is the honest half and it is above.",
-  arrives: "the KB editor, after the sanitiser decision",
-})}
+<p class="muted"><strong>D230, 2026-09-09:</strong> the editor is the structured form above the article
+  table and behind "New article" — plain fields and one-line-per-entry lists, no markdown, no
+  sanitiser, no new dependency. The one markdown field the schema carries (<span class="mono">body</span>,
+  <span class="mono">type: "reference"</span> only) stays out of the console; it is shown, unedited,
+  on the edit page. The review queue's answer form is a separate, still-undrawn stub.</p>
 <p class="muted">The same corpus, from a terminal: <span class="mono">npm.cmd run kb:status</span> (server/).</p>`;
   await ctx.render(error ? 400 : 200, body, { title: "Knowledge", current: "/admin/knowledge" });
 }
@@ -246,10 +247,264 @@ function ingestReport(r) {
 </div>`;
 }
 
+// ---- the article editor (D230) ------------------------------------------------------------------
+
+/**
+ * D230, decided by the founder 2026-09-09: the editor is a STRUCTURED FORM, not a markdown editor.
+ * Every field below is plain prose or a one-line-per-entry list; none of it is rendered as markdown
+ * and `raw()` stays unused. The one field the schema carries that IS markdown — `body`, and only on
+ * `type: "reference"` — is NOT editable here (handover §1's option 1): it arrived through the
+ * CLI/bundle path and is shown back unedited, because a sanitiser or a rendering dependency is a
+ * decision for a need nobody has expressed yet, not a blocker on the fields every real admin will
+ * actually author.
+ *
+ * WRITES GO THROUGH ingestAndEmbed() — THE SAME FUNCTION THE PASTE-A-BUNDLE FORM ABOVE CALLS (D228).
+ * The editor builds a one-article bundle and hands its JSON to parseBundle(), reusing the exact
+ * shape checks the paste form is held to rather than writing a second validator; the report,
+ * warnings included, is `ingestReport()` above, unchanged.
+ *
+ * EVERY SAVE THROUGH THIS FORM SETS lifecycle = 'unvalidated'. New content is untested content,
+ * whatever it looked like a moment ago — an edit does not carry forward a stale confidence claim.
+ */
+const EDITOR_BUNDLE_ID = "admin-console-editor";
+
+/** One entry per non-blank line, trimmed. The array fields' whole "widget": no JS, no add/remove
+ * buttons — a line is an entry, and deleting a line removes one. */
+function listField(form, name) {
+  return String(form[name] ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
+}
+
+/** camelCase view of a `articleById()` row, for prefilling the form and for diffing on save. */
+function articleView(row) {
+  if (!row) return null;
+  return {
+    id: row.id, type: row.type, title: row.title, category: row.category, platform: row.platform,
+    environment: row.environment, problem: row.problem, cause: row.cause,
+    symptoms: row.symptoms ?? [], keywords: row.keywords ?? [], guidance: row.guidance ?? [],
+    escalateWhen: row.escalate_when ?? [], doNotAttempt: row.do_not_attempt ?? [],
+    body: row.body, scopeNote: row.scope_note, provenance: row.provenance, lifecycle: row.lifecycle,
+  };
+}
+
+/**
+ * The submitted form, as an article object `upsertArticle()` understands. `existing` (an
+ * `articleView()`, or null on create) supplies the three fields this editor does not offer —
+ * `body`, `scopeNote`, `provenance` — carried forward unchanged rather than blanked.
+ */
+function articleFromForm(form, existing) {
+  return {
+    id: String(form.id ?? "").trim(),
+    type: form.type === "reference" ? "reference" : "troubleshooting",
+    title: String(form.title ?? "").trim(),
+    category: String(form.category ?? "").trim() || null,
+    platform: String(form.platform ?? "any").trim().toLowerCase() || "any",
+    environment: String(form.environment ?? "").trim() || null,
+    problem: String(form.problem ?? "").trim() || null,
+    cause: String(form.cause ?? "").trim() || null,
+    symptoms: listField(form, "symptoms"),
+    keywords: listField(form, "keywords"),
+    guidance: listField(form, "guidance"),
+    escalateWhen: listField(form, "escalateWhen"),
+    doNotAttempt: listField(form, "doNotAttempt"),
+    body: existing?.body ?? null,
+    scopeNote: existing?.scopeNote ?? null,
+    provenance: existing?.provenance ?? null,
+    lifecycle: "unvalidated",
+  };
+}
+
+/**
+ * Which field NAMES differ from the existing row — never their values (the audit rule: the id and
+ * the fields changed, never the text). `existing` is null on create, so every field carrying a
+ * value counts as changed.
+ */
+function changedFields(existing, article) {
+  const keys = ["type", "title", "category", "platform", "environment", "problem", "cause",
+    "symptoms", "keywords", "guidance", "escalateWhen", "doNotAttempt"];
+  if (!existing) {
+    return keys.filter((k) => (Array.isArray(article[k]) ? article[k].length > 0 : article[k] !== null && article[k] !== ""));
+  }
+  return keys.filter((k) => JSON.stringify(existing[k] ?? null) !== JSON.stringify(article[k] ?? null));
+}
+
+/** One line per array entry, for prefilling a textarea from a stored array. */
+const lines = (arr) => (arr ?? []).join("\n");
+
+/**
+ * The editor form. Shared by the "new article" page, the "edit" page, and a failed save re-rendered
+ * with what was submitted — so a validation error does not cost the admin their typing.
+ *
+ * @param {{ editing: boolean, values: any, error?: string|null }} p
+ */
+function editorForm(ctx, { editing, values, error = null }) {
+  const v = values;
+  const idField = editing
+    ? html`<input type="hidden" name="id" value="${v.id}"><p class="mono">${v.id}</p>
+        <p class="hint">The id is the citation key and is not editable once an article exists.</p>`
+    : html`<input id="id" name="id" type="text" value="${v.id ?? ""}" required placeholder="a-short-stable-slug" style="max-width:420px">
+        <p class="hint">Stable and human-readable — this is what a citation names. Cannot be changed after this save.</p>`;
+
+  return html`
+<div class="panel">
+  <h2>${editing ? html`Edit <span class="mono">${v.id}</span>` : "New article"}</h2>
+  ${error ? html`<div class="error">${error}</div>` : ""}
+  <form method="post" action="/admin/knowledge/save">
+    ${csrfField(ctx.csrf)}
+    <input type="hidden" name="_editing" value="${editing ? "1" : ""}">
+    <label for="id">ID</label>
+    ${idField}
+
+    <label for="title"><strong>Title</strong></label>
+    <input id="title" name="title" type="text" value="${v.title ?? ""}" required style="max-width:640px">
+
+    <div class="row">
+      <div>
+        <label for="type">Type</label>
+        <select id="type" name="type">
+          <option value="troubleshooting" ${v.type !== "reference" ? html`selected=""` : ""}>troubleshooting</option>
+          <option value="reference" ${v.type === "reference" ? html`selected=""` : ""}>reference</option>
+        </select>
+      </div>
+      <div>
+        <label for="category">Category</label>
+        <input id="category" name="category" type="text" value="${v.category ?? ""}">
+      </div>
+      <div>
+        <label for="platform">Platform</label>
+        <input id="platform" name="platform" type="text" value="${v.platform ?? "any"}" style="max-width:220px">
+      </div>
+      <div>
+        <label for="environment">Environment</label>
+        <input id="environment" name="environment" type="text" value="${v.environment ?? ""}" style="max-width:220px">
+      </div>
+    </div>
+    <p class="hint"><strong>Platform: only <span class="mono">any</span>, <span class="mono">windows</span>, <span class="mono">macos</span> and <span class="mono">linux</span> are ever matched</strong> (D162 — the only values a real machine's probe can produce). Anything else is stored and indexed and <strong>retrieved by nothing</strong> — a warning on save, not a refusal, same rule as pasting a bundle.</p>
+    ${v.type === "reference" ? html`<p class="hint">Reference articles are one markdown table in <span class="mono">body</span>, which this editor does not offer (D230) — <span class="mono">cause</span> and <span class="mono">guidance</span> are not used for this type.</p>` : ""}
+
+    <label for="problem">Problem <span class="muted" style="text-transform:none;letter-spacing:0">— one or two sentences, the user's framing</span></label>
+    <textarea id="problem" name="problem" rows="2" style="max-width:100%">${v.problem ?? ""}</textarea>
+
+    <label for="symptoms">Symptoms <span class="muted" style="text-transform:none;letter-spacing:0">— one per line, in the user's own words</span></label>
+    <textarea id="symptoms" name="symptoms" rows="4" style="max-width:100%">${lines(v.symptoms)}</textarea>
+
+    <label for="keywords">Keywords <span class="muted" style="text-transform:none;letter-spacing:0">— one per line</span></label>
+    <textarea id="keywords" name="keywords" rows="2" style="max-width:100%">${lines(v.keywords)}</textarea>
+
+    <label for="cause">Cause <span class="muted" style="text-transform:none;letter-spacing:0">— one or two sentences</span></label>
+    <textarea id="cause" name="cause" rows="2" style="max-width:100%">${v.cause ?? ""}</textarea>
+
+    <label for="guidance">Guidance <span class="muted" style="text-transform:none;letter-spacing:0">— one step per line, in order</span></label>
+    <textarea id="guidance" name="guidance" rows="6" style="max-width:100%">${lines(v.guidance)}</textarea>
+
+    <label for="escalateWhen">Escalate when <span class="muted" style="text-transform:none;letter-spacing:0">— one per line; a constraint on the answer, never chunked or offered as guidance</span></label>
+    <textarea id="escalateWhen" name="escalateWhen" rows="2" style="max-width:100%">${lines(v.escalateWhen)}</textarea>
+
+    <label for="doNotAttempt">Do not attempt <span class="muted" style="text-transform:none;letter-spacing:0">— one per line</span></label>
+    <textarea id="doNotAttempt" name="doNotAttempt" rows="2" style="max-width:100%">${lines(v.doNotAttempt)}</textarea>
+
+    ${editing && v.body ? html`<label>Body <span class="muted" style="text-transform:none;letter-spacing:0">— not editable here (D230); shown as stored</span></label><blockquote>${v.body}</blockquote>` : ""}
+
+    <div class="row" style="margin-top:16px">
+      <button class="primary" type="submit">Save (as unvalidated)</button>
+      <a href="/admin/knowledge" class="btn">Cancel</a>
+    </div>
+    <p class="hint">Saved as <span class="mono">unvalidated</span> regardless of what it held before — new content is untested content.</p>
+  </form>
+</div>
+${editing ? html`<p class="muted">Try a question against the saved corpus: <a href="/admin/knowledge/search?q=${encodeURIComponent(v.problem || v.title || "")}">search</a> — the same retrieval <span class="mono">/v1/ask</span> uses. <strong>This previews retrieval only.</strong> The model's own answer is not previewed here: that needs the completion provider threaded into the console, which today gets only the embedder (<span class="mono">src/admin/router.js</span>), and wiring it in is a decision this pass did not make.</p>` : ""}`;
+}
+
 // ---- routes ------------------------------------------------------------------------------------
 
 async function knowledgePage(ctx) {
   await renderKnowledge(ctx);
+}
+
+async function newArticlePage(ctx) {
+  const body = html`
+<p><a href="/admin/knowledge">← Knowledge</a></p>
+<h1>New article</h1>
+<p class="lede">A structured form, not a markdown editor (D230): every field is plain prose or a one-line-per-entry list, escaped like everything else in this console.</p>
+${editorForm(ctx, { editing: false, values: { platform: "any" } })}`;
+  await ctx.render(200, body, { title: "New article", current: "/admin/knowledge" });
+}
+
+async function editArticlePage(ctx) {
+  const id = ctx.params?.id ?? "";
+  const row = await articleById(id);
+  if (!row) {
+    const body = html`<p><a href="/admin/knowledge">← Knowledge</a></p><h1>No such article</h1>
+<p class="lede">No article with id <span class="mono">${id}</span>. It may have been removed, or the id in the link is stale.</p>`;
+    return void (await ctx.render(404, body, { title: "No such article", current: "/admin/knowledge" }));
+  }
+  const body = html`
+<p><a href="/admin/knowledge">← Knowledge</a></p>
+<h1>Edit article</h1>
+<p class="lede">A structured form, not a markdown editor (D230). Saving marks this article <span class="mono">unvalidated</span> regardless of its lifecycle before.</p>
+${editorForm(ctx, { editing: true, values: articleView(row) })}`;
+  await ctx.render(200, body, { title: `Edit: ${row.title}`, current: "/admin/knowledge" });
+}
+
+async function saveArticlePost(ctx) {
+  const editing = ctx.form._editing === "1";
+  const submittedId = String(ctx.form.id ?? "").trim();
+
+  let existing = null;
+  if (editing) {
+    const row = await articleById(submittedId);
+    if (!row) {
+      const body = html`<p><a href="/admin/knowledge">← Knowledge</a></p><h1>No such article</h1>
+<p class="lede"><span class="mono">${submittedId}</span> no longer exists — nothing was changed. It may have been removed since this form was opened.</p>`;
+      return void (await ctx.render(404, body, { title: "No such article", current: "/admin/knowledge" }));
+    }
+    existing = articleView(row);
+  } else if (submittedId) {
+    // upsertArticle() writes by id with ON CONFLICT DO UPDATE — a "new article" whose id already
+    // belongs to a DIFFERENT article would silently overwrite it. Refused here, before validation.
+    const collision = await articleById(submittedId);
+    if (collision) {
+      await ctx.audit("kb.article.write.refused", { subject: submittedId, detail: { why: "id already in use" } });
+      const body = html`
+<p><a href="/admin/knowledge">← Knowledge</a></p>
+<h1>New article</h1>
+${editorForm(ctx, { editing: false, values: articleFromForm(ctx.form, null), error: `"${submittedId}" already names an article. Edit it from the Knowledge page, or choose a different id.` })}`;
+      return void (await ctx.render(409, body, { title: "Id already in use", current: "/admin/knowledge" }));
+    }
+  }
+
+  const article = articleFromForm(ctx.form, existing);
+  let bundle;
+  try {
+    bundle = parseBundle(JSON.stringify({ bundleId: EDITOR_BUNDLE_ID, articles: [article] }), editing ? `edit of ${article.id}` : "new article");
+  } catch (err) {
+    await ctx.audit("kb.article.write.refused", { subject: article.id || null, detail: { why: err.message.slice(0, 400) } });
+    const body = html`
+<p><a href="/admin/knowledge">← Knowledge</a></p>
+<h1>${editing ? "Edit article" : "New article"}</h1>
+${editorForm(ctx, { editing, values: article, error: `Refused, and nothing was saved. ${err.message}` })}`;
+    return void (await ctx.render(400, body, { title: "Refused", current: "/admin/knowledge" }));
+  }
+
+  const report = await ingestAndEmbed({ bundle, label: article.id, embedder: ctx.embedder, log: ctx.log });
+
+  // The audit rule (handover §1): the id and the fields changed, never the text.
+  await ctx.audit("kb.article.write", {
+    subject: article.id,
+    detail: {
+      id: article.id,
+      action: report.results[0]?.action ?? "unknown",
+      fields: changedFields(existing, article),
+      warnings: report.warnings.length,
+    },
+  });
+  ctx.log(`[admin] ${ctx.user.email} ${editing ? "edited" : "created"} article ${article.id} (${report.results[0]?.action})`);
+
+  const body = html`
+<p><a href="/admin/knowledge">← Knowledge</a></p>
+<h1>${editing ? "Edited" : "Created"} <span class="mono">${article.id}</span></h1>
+${ingestReport(report)}
+<p><a href="/admin/knowledge/${encodeURIComponent(article.id)}/edit">Keep editing</a> · <a href="/admin/knowledge">Back to Knowledge</a></p>`;
+  await ctx.render(200, body, { title: article.id, current: "/admin/knowledge" });
 }
 
 async function ingestPost(ctx) {
@@ -449,4 +704,7 @@ export const knowledgeRoutes = [
   route("GET", /^\/admin\/knowledge\/?$/, "knowledge.read", knowledgePage),
   route("GET", /^\/admin\/knowledge\/search\/?$/, "knowledge.read", searchPage),
   route("POST", /^\/admin\/knowledge\/ingest\/?$/, "knowledge.write", ingestPost),
+  route("GET", /^\/admin\/knowledge\/new\/?$/, "knowledge.write", newArticlePage),
+  route("POST", /^\/admin\/knowledge\/save\/?$/, "knowledge.write", saveArticlePost),
+  route("GET", /^\/admin\/knowledge\/(?<id>[^/]+)\/edit\/?$/, "knowledge.write", editArticlePage),
 ];

@@ -32,6 +32,14 @@
  *   6. An `auditor` cannot open the search or the ingest; an `it_agent` can do both.
  *   7/8. Escaping, CSRF, no script — asserted in test/admin-static.test.mjs and here.
  *
+ * KB-8, ADDED 2026-09-09 WITH THE ARTICLE EDITOR (D230): create and edit through the structured
+ * form, both going through ingestAndEmbed() like the paste-bundle path; every save lands as
+ * `unvalidated`; `kb.article.write`/`.refused` audits the id and the changed FIELD NAMES, never
+ * text; a "new article" colliding with an existing id is refused rather than silently overwriting
+ * it; an edit carries `body` forward unchanged (the one field the editor does not offer); a
+ * platform nothing can match is warned, not refused, same as ingest; and the editor is gated on
+ * knowledge.write like the ingest form.
+ *
  * THE KNOWLEDGE BASE IS CONTROL-PLANE AND CROSS-TENANT (D45), SO IT HAS NO TEST NAMESPACE.
  * This suite therefore ingests articles whose ids all start `b2test-` and deletes them BY ID in
  * teardown — dropping the tenant does not touch them, because they were never in it. Everything
@@ -71,7 +79,7 @@ let schema, tenantId, server, base;
 const made = { owner: null, auditor: null, agent: null, vendor: null };
 
 /** Article ids this suite creates. Deleted by id in teardown — the corpus is cross-tenant (D45). */
-const KB_IDS = ["b2test-vpn", "b2test-badplat", "b2test-down"];
+const KB_IDS = ["b2test-vpn", "b2test-badplat", "b2test-down", "b2test-editor-new"];
 
 /**
  * A DETERMINISTIC STUB EMBEDDER, and two things about it that are deliberate.
@@ -321,13 +329,13 @@ try {
     check("Metrics: 200, real question counts, deflection explained as not computable", metrics.status === 200 && /asked, all time/.test(metrics.text) && /cannot be computed/.test(metrics.text));
     check("Metrics: the tenant's tickets by category are real (hardware: 1)", /<td>hardware<\/td><td>1<\/td>/.test(metrics.text));
     const knowledge = await owner.go("/admin/knowledge");
-    // Was: "…and the search/ingest stubs". Both are real since 2026-09-09; the editor is the stub
-    // that remains, and it names the sanitiser decision that supplies it.
+    // Was: "…and the search/ingest stubs". All three are real since 2026-09-09 (the editor as of
+    // D230): the corpus page now draws a "New article" link for a knowledge.write role.
     check("Knowledge: 200 with corpus figures, a real search form and a real ingest form",
       knowledge.status === 200 && /articles<\/div>/.test(knowledge.text)
       && /action="\/admin\/knowledge\/search"/.test(knowledge.text) && /action="\/admin\/knowledge\/ingest"/.test(knowledge.text));
-    check("Knowledge: the article EDITOR is still an honest stub, naming the sanitiser",
-      /Write and edit articles here/.test(knowledge.text) && /sanitiser/.test(knowledge.text));
+    check("Knowledge: the article EDITOR is real (D230) — a New article link, and no sanitiser stub left",
+      /href="\/admin\/knowledge\/new"/.test(knowledge.text) && /D230/.test(knowledge.text) && !/Write and edit articles here/.test(knowledge.text));
     const settings = await owner.go("/admin/settings");
     check("Settings: 200, lists both admins with roles and no secrets", settings.status === 200 && settings.text.includes(made.owner.email) && settings.text.includes(made.auditor.email) && !/scrypt\$/.test(settings.text) && !/totp_secret/.test(settings.text));
     check("Settings: names the CLI as the way to add an admin", /bin\/admin\.mjs create-user/.test(settings.text));
@@ -634,6 +642,120 @@ try {
     check("bin/admin.mjs lists reset in its usage", /admin\.mjs reset/.test(cliUsage.stdout));
   }
 
+  console.log("\n=== KB-8. the article editor (D230): create, edit, and what it refuses ===");
+  {
+    const newPage = await owner.go("/admin/knowledge/new");
+    check("GET /admin/knowledge/new -> 200, a form posting to /admin/knowledge/save", newPage.status === 200 && /action="\/admin\/knowledge\/save"/.test(newPage.text));
+    const token = csrfOf(newPage.text);
+    check("the new-article form carries a CSRF token", Boolean(token));
+
+    const before = await corpusStatus();
+    const created = await owner.go("/admin/knowledge/save", { method: "POST", form: {
+      _csrf: token, _editing: "",
+      id: "b2test-editor-new", type: "troubleshooting", title: "B2TEST editor-created article",
+      category: "b2test-cat", platform: "any", environment: "",
+      problem: "b2testeditorphrase will not do the thing", cause: "a setting is wrong",
+      symptoms: "b2testeditorphrase happens\nit also happens on wake",
+      keywords: "b2testeditorphrase", guidance: "1. Do the first step\n2. Do the second step",
+      escalateWhen: "it happens more than once a day", doNotAttempt: "do not reinstall the driver",
+    } });
+    check("POST /admin/knowledge/save (create) -> 200, reusing the ingest report", created.status === 200 && /<div class="n">1<\/div><div class="l">articles inserted/.test(created.text), String(created.status));
+    check("the corpus grew by exactly one article", (await corpusStatus()).articles === before.articles + 1);
+
+    const { rows: [row] } = await getPool().query(
+      "SELECT lifecycle, category, platform, problem, symptoms, guidance, escalate_when, do_not_attempt FROM control.kb_articles WHERE id = $1", ["b2test-editor-new"]);
+    check("D230: saved as unvalidated, never validated, regardless of the form", row.lifecycle === "unvalidated", String(row.lifecycle));
+    check("the array fields split one entry per line", row.symptoms.length === 2 && row.guidance.length === 2 && row.escalate_when.length === 1 && row.do_not_attempt.length === 1, JSON.stringify(row));
+    check("scalar fields landed", row.category === "b2test-cat" && row.problem === "b2testeditorphrase will not do the thing");
+
+    const createRow = (await auditRows()).find((r) => r.action === "kb.article.write" && r.subject === "b2test-editor-new");
+    check("kb.article.write is audited with the id and action, and NO article text",
+      Boolean(createRow) && createRow.email === made.owner.email && createRow.detail.action === "inserted"
+      && !/b2testeditorphrase|do the first step/i.test(JSON.stringify(createRow)), JSON.stringify(createRow?.detail));
+    check("…and the changed-fields list names fields, not values", Array.isArray(createRow.detail.fields) && createRow.detail.fields.includes("title") && createRow.detail.fields.includes("guidance"));
+
+    // The edit page prefills from the row just written, and the id is not an editable input.
+    const editPage = await owner.go("/admin/knowledge/b2test-editor-new/edit");
+    check("GET .../edit -> 200, prefilled from the saved row", editPage.status === 200
+      && /value="B2TEST editor-created article"/.test(editPage.text)
+      && /b2testeditorphrase will not do the thing/.test(editPage.text)
+      && />b2testeditorphrase happens\nit also happens on wake</.test(editPage.text));
+    check("the id is shown but not an editable text input", /<input type="hidden" name="id" value="b2test-editor-new">/.test(editPage.text) && !/<input id="id" name="id" type="text"/.test(editPage.text));
+    const editToken = csrfOf(editPage.text);
+
+    // Edit: change ONLY the category. changedFields() must name exactly that one field.
+    const edited = await owner.go("/admin/knowledge/save", { method: "POST", form: {
+      _csrf: editToken, _editing: "1",
+      id: "b2test-editor-new", type: "troubleshooting", title: "B2TEST editor-created article",
+      category: "a-different-category", platform: "any", environment: "",
+      problem: "b2testeditorphrase will not do the thing", cause: "a setting is wrong",
+      symptoms: "b2testeditorphrase happens\nit also happens on wake",
+      keywords: "b2testeditorphrase", guidance: "1. Do the first step\n2. Do the second step",
+      escalateWhen: "it happens more than once a day", doNotAttempt: "do not reinstall the driver",
+    } });
+    check("POST save (edit) -> 200, the report says 1 updated", edited.status === 200 && /<div class="n">1<\/div><div class="l">articles updated/.test(edited.text));
+    const editRow = (await auditRows()).find((r) => r.action === "kb.article.write" && r.subject === "b2test-editor-new" && r.detail.action === "updated");
+    check("the edit's changed-fields list is EXACTLY [\"category\"] — a diff of names, never values",
+      Boolean(editRow) && JSON.stringify(editRow.detail.fields) === JSON.stringify(["category"]), JSON.stringify(editRow?.detail));
+    check("lifecycle is still unvalidated after an edit", (await getPool().query("SELECT lifecycle FROM control.kb_articles WHERE id = $1", ["b2test-editor-new"])).rows[0].lifecycle === "unvalidated");
+
+    // The `body` field this editor does not offer: an edit must carry it forward, never blank it.
+    // b2test-badplat (from KB-1) is type "reference" with body "x" and an unmatchable platform —
+    // editing it also exercises the warn-not-refuse path (D230 reuses bundleWarnings via the report).
+    const badplatPage = await owner.go("/admin/knowledge/b2test-badplat/edit");
+    check("GET .../edit for a reference article shows its body, unedited, with a note that it is not editable here",
+      badplatPage.status === 200 && /not editable here \(D230\)/.test(badplatPage.text) && /<blockquote>x<\/blockquote>/.test(badplatPage.text));
+    const badplatEdit = await owner.go("/admin/knowledge/save", { method: "POST", form: {
+      _csrf: csrfOf(badplatPage.text), _editing: "1",
+      id: "b2test-badplat", type: "reference", title: "B2TEST wrong platform, re-titled",
+      category: "", platform: "windows 11", environment: "",
+      problem: "", cause: "", symptoms: "", keywords: "", guidance: "", escalateWhen: "", doNotAttempt: "",
+    } });
+    check("the edit lands and still WARNS rather than refuses on the unmatchable platform",
+      badplatEdit.status === 200 && /RETRIEVED BY NOTHING/.test(badplatEdit.text) && /b2test-badplat/.test(badplatEdit.text));
+    check("`body` was carried forward from the existing row, not blanked",
+      (await getPool().query("SELECT body FROM control.kb_articles WHERE id = $1", ["b2test-badplat"])).rows[0].body === "x");
+
+    // A "new article" whose id collides with an existing one must be refused, not silently upsert
+    // into overwriting it (upsertArticle() writes ON CONFLICT DO UPDATE by id).
+    const beforeVpn = (await getPool().query("SELECT title FROM control.kb_articles WHERE id = $1", ["b2test-vpn"])).rows[0];
+    const collide = await owner.go("/admin/knowledge/save", { method: "POST", form: {
+      _csrf: token, _editing: "",
+      id: "b2test-vpn", type: "troubleshooting", title: "This should never land",
+      category: "", platform: "any", environment: "", problem: "", cause: "",
+      symptoms: "", keywords: "", guidance: "", escalateWhen: "", doNotAttempt: "",
+    } });
+    check("'New article' with an id that already exists -> 409, refused before validation", collide.status === 409, String(collide.status));
+    check("the existing article was NOT overwritten", (await getPool().query("SELECT title FROM control.kb_articles WHERE id = $1", ["b2test-vpn"])).rows[0].title === beforeVpn.title);
+    check("the collision was audited", (await auditRows()).some((r) => r.action === "kb.article.write.refused" && r.subject === "b2test-vpn" && /already in use/.test(String(r.detail?.why))));
+
+    // A blank title is refused before anything is written, and the admin's other fields survive
+    // the re-render rather than being lost.
+    const blankTitle = await owner.go("/admin/knowledge/save", { method: "POST", form: {
+      _csrf: token, _editing: "",
+      id: "b2test-editor-blank", type: "troubleshooting", title: "",
+      category: "", platform: "any", environment: "",
+      problem: "b2testblanktitlephrase", cause: "", symptoms: "", keywords: "", guidance: "", escalateWhen: "", doNotAttempt: "",
+    } });
+    check("a blank title -> 400, nothing written", blankTitle.status === 400 && !(await getPool().query("SELECT 1 FROM control.kb_articles WHERE id = $1", ["b2test-editor-blank"])).rows.length);
+    check("the refused form keeps what was typed rather than losing it", /b2testblanktitlephrase/.test(blankTitle.text));
+    check("the refusal was audited (kb.article.write.refused)", (await auditRows()).some((r) => r.action === "kb.article.write.refused" && /no title/.test(String(r.detail?.why))));
+
+    // Saving without a CSRF token is refused like every other console form.
+    const noCsrf = await owner.go("/admin/knowledge/save", { method: "POST", form: {
+      _editing: "", id: "b2test-editor-nocsrf", type: "troubleshooting", title: "should not land",
+    } });
+    check("POST /admin/knowledge/save without the token -> 403, nothing written", noCsrf.status === 403 && !(await getPool().query("SELECT 1 FROM control.kb_articles WHERE id = $1", ["b2test-editor-nocsrf"])).rows.length);
+
+    // Edit a nonexistent id.
+    const noSuch = await owner.go("/admin/knowledge/no-such-article-id/edit");
+    check("GET .../edit for an id that does not exist -> 404", noSuch.status === 404);
+
+    // The corpus list draws an Edit link per row, and a New-article link, for a knowledge.write role.
+    const listPage = await owner.go("/admin/knowledge");
+    check("the Articles table draws an Edit link for a knowledge.write role", new RegExp(`href="/admin/knowledge/${"b2test-editor-new"}/edit"`).test(listPage.text));
+  }
+
   console.log("\n=== 2. a read-only role cannot reach a page its role forbids ===");
   const auditor = client();
   {
@@ -650,6 +772,12 @@ try {
     const aIngest = await auditor.go("/admin/knowledge/ingest", { method: "POST", form: { _csrf: agentCsrf, bundle: bundleJson([VPN_ARTICLE]) } });
     check("POST /admin/knowledge/ingest -> 403 (knowledge.write) even with a CSRF token from another session — a token is not a permission",
       aIngest.status === 403, String(aIngest.status));
+    // D230: the editor is gated on knowledge.write like the ingest form, not on knowledge.read.
+    check("GET /admin/knowledge/new -> 403, naming knowledge.write", (await auditor.go("/admin/knowledge/new")).status === 403);
+    check("GET /admin/knowledge/b2test-vpn/edit -> 403, naming knowledge.write", (await auditor.go("/admin/knowledge/b2test-vpn/edit")).status === 403);
+    const aSave = await auditor.go("/admin/knowledge/save", { method: "POST", form: { _csrf: agentCsrf, _editing: "", id: "b2test-should-not-land", type: "troubleshooting", title: "x" } });
+    check("POST /admin/knowledge/save -> 403 even with a CSRF token from another session", aSave.status === 403);
+    check("…and nothing landed", !(await getPool().query("SELECT 1 FROM control.kb_articles WHERE id = $1", ["b2test-should-not-land"])).rows.length);
     check("…and both refusals were audited with the permission that was missing",
       (await auditRows()).filter((r) => r.action === "access.denied" && r.email === made.auditor.email && /^knowledge\./.test(String(r.detail?.needs))).length >= 2);
     check("the permission check runs BEFORE the CSRF check, so the auditor's refusal is access.denied and not csrf.refused",

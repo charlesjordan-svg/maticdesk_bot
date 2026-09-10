@@ -6,9 +6,18 @@ Handover it answers: [`../../docs/handovers/2026-09-05-claude-code-handover-admi
 > ## STATUS — BUILT AND RUN. All eight exit criteria pass against PostgreSQL 17.
 >
 > **SINCE 2026-09-09, LATER STILL: Knowledge is real — ingestion and search from the browser.**
-> That pass has its own section and its own exit criteria: **§10**, register §5.24, D226–D229. The
-> assertion counts below are the scaffold's on the day it was built; the current totals are
-> **`npm.cmd test` 366** and **`npm.cmd run test:db` 268**.
+> That pass has its own section and its own exit criteria: **§10**, register §5.24, D226–D229.
+>
+> **SAME DAY, LATER AGAIN: the article editor is real (D230) — §10.8.** A structured form, not a
+> markdown editor: fields for `problem`/`symptoms`/`keywords`/`guidance`/`escalateWhen`/
+> `doNotAttempt`/`cause`, one entry per line on the arrays, escaped like everything else in this
+> console. `body` (markdown, `type: "reference"` only) stays uneditable — shown, unedited, on the
+> edit page — so `raw()` stays unused and no sanitiser or new dependency was needed after all. Saves
+> go through `ingestAndEmbed()`, the same function ingest and the CLI use (D228); every save lands
+> `unvalidated`; `kb.article.write`/`.refused` audits the id and the changed field NAMES, never text.
+>
+> The assertion counts below are the scaffold's on the day it was built; the current totals, with the
+> editor's own tests, are **`npm.cmd test` 378** and **`npm.cmd run test:db` 310**.
 >
 > **`npm.cmd test`: 296 assertions, 0 failures, no database** — the 169 that were there plus 65 for
 > the console's pure parts (`test/admin.test.mjs`: TOTP against RFC 6238's published vectors,
@@ -180,8 +189,9 @@ These are pass/fail against a real system. **None is a performance number.**
 
 - **Escaping is the default, not a habit.** `html\`…\`` escapes every interpolation unless it is
   the result of another `html` call or of `raw()`. No page uses `raw()`, and a test fails if one
-  does before a sanitiser exists — the day admin-authored markdown is rendered back to other admins
-  is the day this matters most (handover §2).
+  does. **The article editor (D230, §10.8) is the case this rule was written for, and it needed no
+  exception:** it is a structured form over plain-prose and one-line-per-entry fields, none of it
+  markdown, so `raw()` stayed unused rather than needing a sanitiser first.
 - **CSP on every console response:** `default-src 'none'; style-src 'unsafe-inline'; form-action
   'self'; base-uri 'none'; frame-ancestors 'none'`. No script source at all, so the pages carry no
   JavaScript and every form works without it. Also `X-Frame-Options: DENY`,
@@ -253,8 +263,8 @@ No session can see a screen, and this one would not type a password into one. Te
    authenticated**. Move it to `open`. Expect a green "State changed to open" and the CLI to agree:
    `npm.cmd run tickets -- show MD-1006`.
 6. **Knowledge.** Expect 6 articles / 18 chunks / 18 embedded by `snowflake-arctic-embed2:568m`, a
-   **search box at the top**, an **ingest form** near the bottom, and ONE "not yet" box (the editor).
-   Then, and this is the part worth the time (§10):
+   **search box at the top**, an **ingest form** near the bottom, and a **New article** link over the
+   table (§10.8) — no "not yet" box left on this page. Then, and this is the part worth the time (§10):
    - Search **my mouse keeps cutting out**. Expect the bluetooth article first, `#1` in **both**
      legs, a **yes** in the "both" column, `0.032787` as its score (that is `2/61` — both legs
      agreed at rank 1), and the two legs shown side by side below with their own scores. Compare
@@ -271,9 +281,11 @@ No session can see a screen, and this one would not type a password into one. Te
    - Then paste a real one-article bundle (copy the shape from `docs/kb/generic-kb-v2.json`).
      Expect a report: inserted / updated / unchanged, chunks written, chunks embedded, the model
      name, and the corpus totals. Check those totals against `npm.cmd run kb:status`.
-   - **A test article you ingest stays in the corpus**, and the console has no delete — that is the
-     editor's, and the editor needs the sanitiser decision. Remove it by id in `psql`, or give it
-     an id you will recognise later.
+   - **Click "New article"** (§10.8). Fill the id, title and a symptom or two, save, and expect the
+     ingest report — the same one the paste-a-bundle form produces — naming your id as inserted.
+     Click "Edit" on it from the table: expect your fields back, and the id no longer editable.
+   - **A test article you create or ingest stays in the corpus**, and the console has no delete.
+     Remove it by id in `psql`, or give it an id you will recognise later.
 7. **Agents.** Expect no numbers at all — two boxes saying enrollment is B3.
 8. **Metrics.** Expect real question counts, tickets by category, and "Deflection cannot be computed"
    with the D89/D90 reason.
@@ -305,10 +317,12 @@ adjusting the list.
   for when one does.
 - **The failed-login throttle is per process.** A restart clears it.
 - **The auditor can read escalated tickets** (§6). Within D154's letter; revisit at assignment.
-- **The review queue can show gaps and cannot act on them.** D177's one-click approve is article
-  authoring, which needs the markdown sanitiser decision (§10.7). A gap row *can* now be searched
-  for (§10.1) — but only when its question text was logged, and **today none is** (D227). A visible
-  gap is still D160a's value.
+- **The review queue can show gaps and cannot act on them.** D177's one-click approve means turning a
+  gap directly into a draft article from the review queue, and that integration is not built — the
+  article editor (D230, §10.8) is a general Knowledge-page form, not wired to a gap row. The
+  sanitiser question that used to gate this is answered (no sanitiser needed; §10.8), so what remains
+  is wiring, not a blocked decision. A gap row *can* now be searched for (§10.1) — but only when its
+  question text was logged, and **today none is** (D227). A visible gap is still D160a's value.
 - **Vendor accounts exist as rows and can do nothing**, which is the intended state until D153's
   grant evaluation is built. The CLI will create one (`--role vendor_staff` with no tenant is not a
   CLI path; the live test creates one directly) so the refusal could be tested.
@@ -387,8 +401,8 @@ tenant's seven tickets three at a time from a script.
 **Register:** [`../../docs/decisions/DECISION-REGISTER.md`](../../docs/decisions/DECISION-REGISTER.md) §5.24, **D226–D229**.
 **Handover it answers:** [`../../docs/handovers/2026-09-09-claude-code-handover-kb-ingestion-and-search.md`](../../docs/handovers/2026-09-09-claude-code-handover-kb-ingestion-and-search.md).
 
-> **STATUS — BUILT AND RUN, including in a browser.** `npm.cmd test` **366**, `npm.cmd run test:db`
-> **268**, 0 failures, both run twice. The screens were driven in a real browser on 2026-09-09: a
+> **STATUS — BUILT AND RUN, including in a browser.** `npm.cmd test` **378**, `npm.cmd run test:db`
+> **310**, 0 failures. The screens were driven in a real browser on 2026-09-09: a
 > gap's "Search the corpus for this" link followed, a bundle pasted and ingested, a refusal read.
 > **Both founder questions were answered the same day, and neither as asked.** **D226: yes,
 > narrowed** — the search page quotes the text of the chunks `/v1/ask` would send and of no others,
@@ -397,15 +411,20 @@ tenant's seven tickets three at a time from a script.
 > reads "Question text was not logged". Nothing here is measured — no ingest timing, no search
 > latency.
 
-Knowledge had two honest stubs. It now has two working screens and one honest stub (the editor).
+Knowledge had two honest stubs. It now has three working screens and no honest stub of its own — the
+editor (D230, §10.8) closed the last one the same day. (The review queue's answer form, a separate
+piece of scope, remains a stub — see the honesty ledger.)
 
 ### 10.1 The three routes
 
 | Route | Permission | What it does |
 |---|---|---|
-| `GET /admin/knowledge` | `knowledge.read` | The corpus: article, chunk and embedded counts, one row per article, **the search form**, and **the ingest form** (drawn only with `knowledge.write`). |
+| `GET /admin/knowledge` | `knowledge.read` | The corpus: article, chunk and embedded counts, one row per article (with an **Edit** link), **the search form**, and **the ingest form** and **New article** link (drawn only with `knowledge.write`). |
 | `GET /admin/knowledge/search?q=…&platform=…` | `knowledge.read` | Both retrieval legs **unfused**, then the fusion. Ranks per leg, the fused RRF score, whether both legs agreed, and which chunks `/v1/ask` would actually send. |
 | `POST /admin/knowledge/ingest` | `knowledge.write` | Validate the pasted bundle whole, write, refuse a second embedding model, embed, **report every count**. |
+| `GET /admin/knowledge/new` | `knowledge.write` | The blank article editor (D230, §10.8). |
+| `GET /admin/knowledge/:id/edit` | `knowledge.write` | The article editor, prefilled from the stored row; 404 if the id does not exist. |
+| `POST /admin/knowledge/save` | `knowledge.write` | Create or update one article through the same `ingestAndEmbed()` the paste-a-bundle form uses; reports the same way. |
 
 `src/admin/kb-search.js` composes `lexicalLeg`, `semanticLeg` and `fuseRRF` from `src/kb/retrieve.js`
 and writes no retrieval SQL of its own. `POST .../ingest` calls `ingestAndEmbed()` in
@@ -549,9 +568,11 @@ could work out. It does **not** re-enable a disabled account — a reset is abou
   **none has its text**, so "Search the corpus for this" appears on no real row. It was verified
   against a seeded row in a browser and is asserted in the live suite; it becomes useful the moment
   **D229** is answered and D227 follows from it in a line of configuration, and not before.
-- **The editor is still a stub**, and so is the review queue's answer form. Both need a markdown
-  sanitiser first — admin-authored text shown to *other* admins — and writing one, or taking the
-  first dependency since `pg`, is a decision.
+- **The editor was built the same day, as a structured form (D230, §10.8)** — the sanitiser question
+  this section originally posed dissolved rather than got answered: the schema is already slots, not
+  prose, so a form matching it needed no markdown rendering and no dependency. **The review queue's
+  answer form is a separate stub and remains one** — turning a gap directly into a draft is wiring
+  the editor into that page, not built this pass.
 - **Retrieval quality is not measured and this screen does not measure it.** Six articles, no
   reranker, a dev embedder that is not the shipped one. The screen makes retrieval *legible*; every
   ordering on it is still a floor.
@@ -564,6 +585,49 @@ could work out. It does **not** re-enable a disabled account — a reset is abou
 - **No file upload.** There is no multipart parser and D221 forbids a dependency for one, so the
   ingest is a textarea and the page says so. The form body ceiling rose from 64 kB to 1 MB for this,
   and the page states the number.
+
+### 10.8 D230 — the article editor, same day, later still
+
+**The sanitiser decision this section's §10.7 named as the gate dissolved rather than got answered.**
+The article schema is already slots — `problem`, `symptoms[]`, `keywords[]`, `guidance[]`,
+`escalateWhen[]`, `doNotAttempt[]`, `cause` — every one plain prose or one sentence per array entry,
+and none of it markdown. A form matching that schema needed no rendering, no sanitiser, and no
+dependency: `raw()` stays unused, and `pg` is still the only one (D221).
+
+**The one field the schema carries that IS markdown — `body`, and only on `type: "reference"` —
+stays out of the editor.** It arrived through the CLI/bundle path (today's two reference articles,
+the keyboard-shortcut tables) and is shown back on the edit page, unedited, in a `<blockquote>`. Three
+routes, all `knowledge.write`: `GET /admin/knowledge/new`, `GET /admin/knowledge/:id/edit`,
+`POST /admin/knowledge/save` — see §10.1's table.
+
+**Writes go through `ingestAndEmbed()`, exactly like the paste-a-bundle form (D228).** The editor
+builds a one-article bundle and hands its JSON to `parseBundle()` — the same shape checks the paste
+form is held to, rather than a second validator — and reuses `ingestReport()` to show what landed.
+`bundleWarnings()` is reused too: an unmatchable `platform` is reported, never refused, the same as
+ingest (verified against a live edit of a `type: "reference"` article in `test/admin-db.test.mjs`
+KB-8).
+
+**Every save sets `lifecycle = 'unvalidated'`, regardless of what it held before.** New content is
+untested content — an edit does not carry forward a stale confidence claim. `kb.article.write` and
+`kb.article.write.refused` audit the id and the changed field **names**, never the text, matching the
+rule `kb.ingest` was already held to.
+
+**Three things it refuses that ingest, structurally, cannot be asked to:**
+- **A "new article" whose id already names an existing one.** `upsertArticle()` writes
+  `ON CONFLICT (id) DO UPDATE`, so a create that skipped this check would silently overwrite an
+  unrelated article. Checked before validation, refused with 409, audited.
+- **A rename.** The id is a hidden field on the edit form, not an editable input — the citation key
+  does not change under an admin who meant to fix a typo in the title.
+- **Losing `body`, `scopeNote` or `provenance` on an edit.** The editor does not offer these fields;
+  the existing row's values are read and carried forward into the article object the write path
+  sees, so an edit narrows to what changed and never blanks what it did not ask about.
+
+**Preview is retrieval only, and says so.** The edit page links into the existing search page
+(§10.1), prefilled with the article's own `problem` text — the same retrieval `/v1/ask` runs, reused
+rather than reimplemented. **The model's own answer is not previewed.** `adminHandler()` receives only
+the embedder, not the completion provider (`src/index.js`, `src/admin/router.js` — pinned by
+`test/admin-static.test.mjs` §5a), and threading the provider through is a decision this pass did not
+make, not an oversight it missed.
 
 ---
 
