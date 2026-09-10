@@ -24,6 +24,7 @@
   .pill { font: 11px var(--mono); padding: 3px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--dim); }
   .pill.on { color: var(--ok); border-color: #2c5c43; }
   .pill.off { color: var(--warn); border-color: #5c4a2c; }
+  .pill.bad { color: var(--err); border-color: #5c3230; }
   #facts { width: 100%; margin-top: 8px; font: 11px/1.7 var(--mono); color: var(--dim); }
   #facts div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 2px 0; }
   #facts b { color: var(--fg); font-weight: 500; }
@@ -130,9 +131,15 @@
 
 <div class="col" id="left">
   <div class="brand">Matic Desk</div>
-  <matic-bot-avatar id="avatar" state="idle"></matic-bot-avatar>
+  <!-- The bust avatar (D232). Full bust at 200px on the dark panel, so the field is knocked out
+       (v7 §05). State is driven by renderer.js through `.state`; the element reads everything else
+       from the manifest. -->
+  <matic-avatar id="avatar" state="idle" size="200" theme="dark"></matic-avatar>
   <div id="state">idle</div>
   <span class="pill" id="voicePill">voice: checking…</span>
+  <!-- D49's three connectivity states, from HubLink (D233). Not a reachability guess: it says
+       what the link last saw and when. -->
+  <span class="pill" id="hubPill" title="hub connectivity">hub: checking…</span>
   <div id="facts"></div>
 </div>
 
@@ -167,5 +174,5 @@
   <div id="devlog"></div>
 </div>
 
-<script type="module" src="./vendor/matic-bot-avatar.js"></script>
+<script type="module" src="./avatar/matic-avatar-element.js"></script>
 <script type="module" src="./renderer.js"></script>

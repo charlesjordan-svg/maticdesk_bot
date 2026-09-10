@@ -52,12 +52,17 @@ export class HubClient {
    * physical-damage report is a non-sequitur whatever the timeout is, and that is a separate
    * defect in `routeByState` that is NOT addressed here.
    */
-  constructor({ hubUrl, capabilities, timeoutMs = 300000, onLog = () => {}, fetchImpl }) {
+  constructor({ hubUrl, capabilities, timeoutMs = 300000, onLog = () => {}, fetchImpl, link = null }) {
     this.hubUrl = String(hubUrl ?? "").replace(/\/+$/, "");
     this.capabilities = capabilities;
     this.timeoutMs = timeoutMs;
     this.onLog = onLog;
     this.fetch = fetchImpl ?? globalThis.fetch;
+    // D233: every real request is evidence about the hub's reachability, and a HubLink (if one is
+    // wired) is told about it — `noteSuccess()` when the hub ANSWERED, whatever the status, and
+    // `noteFailure()` when the transport did not deliver. Optional, so tests and the eval scripts
+    // that build a bare HubClient are unchanged.
+    this.link = link;
     // Same validator, same schemas as the direct providers - so "valid" means the same thing on
     // every path, and means what the broker means.
     this.schemaFor = new Map([
@@ -75,6 +80,7 @@ export class HubClient {
       signal: AbortSignal.timeout(this.timeoutMs),
       body: JSON.stringify(body),
     });
+    this.link?.noteSuccess();
     const json = await res.json().catch(() => ({}));
     return { status: res.status, body: json, authHeader: res.headers?.get?.("x-matic-hub-auth") ?? null };
   }
@@ -154,6 +160,7 @@ export class HubClient {
       if (read.name === "escalate") return { ...this.#escalation(read.args, violations), meta };
       return { ...this.#capabilityProposal(read.name, read.args, violations, hubProvider), meta };
     } catch (err) {
+      this.link?.noteFailure(`POST /v1/turn: ${err.name}`);
       if (err.name === "TimeoutError" || err.name === "AbortError") {
         return { ok: false, reason: "connection", error: `The hub did not answer within ${Math.round(this.timeoutMs / 1000)}s.`, meta };
       }
@@ -228,6 +235,7 @@ export class HubClient {
         signal: AbortSignal.timeout(this.timeoutMs),
         body: JSON.stringify({ text, probe: withPlatform }),
       });
+      this.link?.noteSuccess();
       const body = await res.json().catch(() => ({}));
       meta.requests = 1;
       meta.hubAuth = res.headers?.get?.("x-matic-hub-auth") ?? null;
@@ -267,6 +275,7 @@ export class HubClient {
 
       return { ok: true, answered, reply, citedArticleIds, retrieval: body?.retrieval ?? null, meta };
     } catch (err) {
+      this.link?.noteFailure(`POST /v1/ask: ${err.name}`);
       if (err.name === "TimeoutError" || err.name === "AbortError") {
         return { ok: false, reason: "connection", error: `The hub did not answer within ${Math.round(this.timeoutMs / 1000)}s.`, meta };
       }
@@ -308,6 +317,7 @@ export class HubClient {
         signal: AbortSignal.timeout(this.timeoutMs),
         body: JSON.stringify(draft),
       });
+      this.link?.noteSuccess();
       const body = await res.json().catch(() => ({}));
       if (res.status === 201 && body?.ok) {
         this.onLog(`[hub] filed ${body.reference} (nobody was emailed: notified=${body.notified})`);
@@ -319,6 +329,7 @@ export class HubClient {
       // an inference from `ok` being false.
       return { ok: false, filed: false, error: detail };
     } catch (err) {
+      this.link?.noteFailure(`POST /v1/ticket: ${err.name}`);
       const timedOut = err.name === "TimeoutError" || err.name === "AbortError";
       this.onLog(`[hub] /v1/ticket ${timedOut ? "timed out" : "failed"}: ${err.message}`);
       return {

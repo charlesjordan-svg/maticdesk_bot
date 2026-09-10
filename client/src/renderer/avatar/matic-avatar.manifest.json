@@ -1,0 +1,316 @@
+{
+  "$comment": [
+    "Matic bust avatar — machine-readable manifest. Source of truth for the client's state map.",
+    "Derived from BUST AVATAR SPECIFICATION v7 · 2026.09.09. Do not hand-transcribe from the PDF.",
+    "State names are v7's verbatim, British spelling where v7 uses it (apologising).",
+    "Every colour is a CSS custom property name, never a literal — see tokens{} for values."
+  ],
+  "spec": { "version": "v7", "date": "2026-09-09", "artboard": { "width": 200, "height": 200 } },
+
+  "eyeShapes": ["oval", "round", "happy", "lowered", "cross"],
+  "mouthShapes": ["smile", "grin", "talk", "closed", "narrow", "wideFlat", "roundSmall", "roundLarge", "open"],
+  "$comment_shapes": [
+    "eyeShapes and mouthShapes are the id suffixes present in the chassis SVG: #eyes-oval, #mouth-narrow, etc.",
+    "All are in the markup at all times. Switching is a data-attribute change on #eyes / #mouth; nothing is inserted or removed.",
+    "'happy' is v7's 'arc-up'. The shape id is 'happy'; use that in code and reserve 'arc-up' for prose."
+  ],
+
+  "crop": {
+    "$comment": "The head crop is a FIXED source box. It clips identically at every head-crop size — there is no size threshold.",
+    "fullBust": { "viewBox": "0 0 200 200", "sizes": [160, 96] },
+    "head": { "viewBox": "26 12 148 148", "sizes": [64, 44, 32], "sourceBox": [26, 12, 174, 160] },
+    "floor": 32,
+    "belowFloor": "Do not render the avatar. Use the tray status dot.",
+    "accessoryVisibilityUnderHeadCrop": {
+      "ticket": 0.46,
+      "badge": 0.60,
+      "thinkingDots": 0.67,
+      "earRings": 0.88,
+      "chestAperture": 0.11
+    },
+    "rule": {
+      "fullBustOnly": ["ticket", "badge", "thinkingDots", "chestAperture"],
+      "usableUnderHeadCrop": ["earRings"],
+      "$comment": "A state whose only differentiator is a fullBustOnly accessory is a full-bust state. That is escalating — see states.escalating.minSize."
+    }
+  },
+
+  "trayReads": {
+    "$comment": "Four reads, separated by motion first (hue is unreadable at 16px on an unknown taskbar background). See reducedMotion.tray for the static fallback.",
+    "resting":     { "motion": "pulse-slow", "durationMs": 2600, "staticForm": "hollow",  "meaning": "Present and available, asking for nothing." },
+    "working":     { "motion": "pulse-fast", "durationMs": 1000, "staticForm": "solid",   "meaning": "Busy on the user's behalf; no action needed yet." },
+    "needsYou":    { "motion": "ring",       "durationMs": 1600, "staticForm": "haloed",  "meaning": "The user must answer something before anything else happens." },
+    "unavailable": { "motion": "none",       "durationMs": 0,    "staticForm": "struck",  "meaning": "Not a request — a statement that the assistant cannot work." },
+    "none":        { "motion": null,         "durationMs": 0,    "staticForm": null,      "meaning": "Transient. Does not reach the tray; the tray returns to resting." },
+    "sizes": [16, 24],
+    "rule": "The ring is only ever for a state that needs an answer. If it fires when nothing does, it stops meaning anything."
+  },
+
+  "states": {
+    "idle": {
+      "eyes": "oval", "mouth": "smile",
+      "eyeColour": "var(--matic-avatar-eye-default)", "tipColour": "var(--matic-avatar-tip-default)", "markColour": "var(--matic-avatar-mark-default)",
+      "gazeShift": [0, 0], "accessories": [], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "resting", "uniquePairing": true,
+      "notes": "Default. The resting mouth keeps a shallow upward curve, not a flat bar — a deliberate tone decision."
+    },
+    "listening": {
+      "eyes": "round", "mouth": "roundSmall",
+      "eyeColour": "var(--matic-avatar-eye-default)", "tipColour": "var(--matic-avatar-tip-default)", "markColour": "var(--matic-avatar-mark-default)",
+      "gazeShift": [0, 0], "accessories": ["ear-rings"], "rigMotion": "tilt", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "working", "uniquePairing": false,
+      "sharesPairingWith": ["accept"],
+      "separatedBy": "The head tilt — rig motion, which survives the head crop. Its ear rings also keep 88%.",
+      "notes": "The only state with a head tilt."
+    },
+    "thinking": {
+      "eyes": "oval", "mouth": "narrow",
+      "eyeColour": "var(--matic-avatar-eye-thinking)", "tipColour": "var(--matic-avatar-tip-thinking)", "markColour": "var(--matic-avatar-mark-thinking)",
+      "gazeShift": [-3, -2], "accessories": ["thinking-dots"], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "working", "uniquePairing": false,
+      "sharesPairingWith": ["escalating", "ingest"],
+      "separatedBy": "The gaze shift — inside the face screen, so it survives the head crop.",
+      "notes": "Gaze off-axis is the strongest signal that attention is elsewhere. The violet is reinforcement only."
+    },
+    "speaking": {
+      "eyes": "oval", "mouth": "talk",
+      "eyeColour": "var(--matic-avatar-eye-default)", "tipColour": "var(--matic-avatar-tip-default)", "markColour": "var(--matic-avatar-mark-default)",
+      "gazeShift": [0, 0], "accessories": [], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "working", "uniquePairing": true,
+      "notes": "'talk' is the fallback when no viseme stream is bound. With a stream, drive #mouth from phonemeToMouth instead and ignore this state's mouth value."
+    },
+    "greeting": {
+      "eyes": "oval", "mouth": "grin",
+      "eyeColour": "var(--matic-avatar-eye-default)", "tipColour": "var(--matic-avatar-tip-default)", "markColour": "var(--matic-avatar-mark-default)",
+      "gazeShift": [0, 0], "accessories": [], "rigMotion": "nod", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "resting", "uniquePairing": true,
+      "notes": "No arm to wave. The nod is a two-beat that resolves back to rest rather than looping, so the panel does not fidget while the user reads."
+    },
+    "success": {
+      "eyes": "happy", "mouth": "grin",
+      "eyeColour": "var(--matic-avatar-eye-success)", "tipColour": "var(--matic-avatar-tip-success)", "markColour": "var(--matic-avatar-mark-success)",
+      "gazeShift": [0, 0], "accessories": ["badge-tick"], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "none", "uniquePairing": true,
+      "notes": "The one state that may auto-dismiss the panel, so also the one that must not be reused for a partial fix. Never reaches the tray."
+    },
+    "apologising": {
+      "eyes": "lowered", "mouth": "narrow",
+      "eyeColour": "var(--matic-avatar-eye-apologising)", "tipColour": "var(--matic-avatar-tip-apologising)", "markColour": "var(--matic-avatar-mark-apologising)",
+      "gazeShift": [0, 3], "accessories": [], "rigMotion": "bow", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "none", "uniquePairing": true,
+      "notes": "It tried and could not help — relational, not technical. No badge and no alarm hue, so it never depends on colour alone. Not error's vocabulary."
+    },
+    "declining": {
+      "eyes": "round", "mouth": "narrow",
+      "eyeColour": "var(--matic-avatar-eye-declining)", "tipColour": "var(--matic-avatar-tip-declining)", "markColour": "var(--matic-avatar-mark-declining)",
+      "gazeShift": [0, 0], "accessories": ["badge-question"], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "needsYou", "uniquePairing": true,
+      "notes": "Nothing in the knowledge base covers the question, so it says so and offers a ticket. This is the product working correctly, not a failure. Must never read as sorry: eyes level, attentive rather than smiling, no bow. round+narrow is used by nothing else, so it holds where the ? badge is cropped. The copy must state plainly that nothing has been filed.",
+      "priority": "The most-seen state and the one to get most right — it fires at the moment the user's trust is most in play."
+    },
+    "escalating": {
+      "eyes": "oval", "mouth": "narrow",
+      "eyeColour": "var(--matic-avatar-eye-escalating)", "tipColour": "var(--matic-avatar-tip-escalating)", "markColour": "var(--matic-avatar-mark-escalating)",
+      "gazeShift": [0, 0], "accessories": ["badge-arrow", "ticket"], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 96, "trayRead": "none", "uniquePairing": false,
+      "sharesPairingWith": ["thinking", "ingest"],
+      "separatedBy": "Nothing that survives the head crop. The ticket sits at 146,136 — outside the crop box, 46% visible — and the amber tip is hue, which is never a differentiator in this spec.",
+      "constraint": "FULL BUST ONLY — 96px and up. Below that it renders identically to thinking. The client must refuse to render escalating under 96px; the reference implementation logs a console warning when the ticket is not actually visible.",
+      "notes": "What happens after the user accepts the offer; follows declining or apologising rather than replacing either. The confirmation must state plainly that a ticket was raised and carry its number."
+    },
+    "error": {
+      "eyes": "cross", "mouth": "wideFlat",
+      "eyeColour": "var(--matic-avatar-eye-error)", "tipColour": "var(--matic-avatar-tip-error)", "markColour": "var(--matic-avatar-mark-error)",
+      "gazeShift": [0, 0], "accessories": ["badge-bang"], "rigMotion": null, "tipMotion": "pulse",
+      "minSize": 32, "trayRead": "unavailable", "uniquePairing": true,
+      "notes": "A technical fault on our side — impersonal. Cross eyes read as more urgent than any arc regardless of hue. In the tray it is the one state that goes static: absence of motion says the assistant cannot work, a statement rather than a request."
+    },
+    "accept": {
+      "eyes": "round", "mouth": "roundSmall",
+      "eyeColour": "var(--matic-avatar-eye-default)", "tipColour": "var(--matic-avatar-tip-default)", "markColour": "var(--matic-avatar-mark-default)",
+      "gazeShift": [0, 0], "accessories": ["chest-aperture"], "rigMotion": "breathe", "tipMotion": "pulse",
+      "minSize": 64, "degradedBelow": 96, "trayRead": "needsYou", "uniquePairing": false,
+      "sharesPairingWith": ["listening"],
+      "separatedBy": "Only the ABSENCE of listening's head tilt — its chest aperture is 11% visible under the head crop. Legible but weak; prefer the full bust.",
+      "notes": "Consent is a distinct moment and gets a distinct state. The avatar HOSTS the ask, it does not author it: the consent text is rendered by the privileged half of the application and shown verbatim. The avatar must never generate, paraphrase or restate those words."
+    },
+    "ingest": {
+      "parked": true,
+      "eyes": "oval", "mouth": "narrow",
+      "eyeColour": "var(--matic-avatar-eye-default)", "tipColour": "var(--matic-avatar-tip-default)", "markColour": "var(--matic-avatar-mark-default)",
+      "gazeShift": [0, 1], "accessories": ["ingest-document", "scan-line"], "rigMotion": "breathe", "tipMotion": "flash",
+      "minSize": 96, "trayRead": "working", "uniquePairing": false,
+      "sharesPairingWith": ["thinking", "escalating"],
+      "notes": "PARKED — not in v1 and not counted as delivered. Ship it disabled or omit it, but keep it in the set: a call site is designed (screenshot attachment when raising a ticket, where the user picks a window or region, sees exactly what will be sent, and approves it per ticket). Would need its own pairing if it ships."
+    }
+  },
+
+  "phonemeToMouth": {
+    "$comment": [
+      "eSpeak-ng / Piper phonemes → mouth shape. ONE table: OVR is not an intermediate.",
+      "Piper phonemises through eSpeak-ng and emits phonemes, not OVR visemes. At six shapes they map straight.",
+      "Unrecognised input resolves to 'closed'. This table is indexed every few milliseconds — keep it a flat lookup."
+    ],
+    "closed":     ["p", "b", "m", "_", "", "sil"],
+    "narrow":     ["f", "v", "s", "z", "T", "D", "t", "d", "n", "l", "ts", "dz"],
+    "wideFlat":   ["e", "E", "eI", "S", "Z", "tS", "dZ", "k", "g", "N", "i", "i:", "I", "j"],
+    "roundSmall": ["u", "U", "u:", "w", "r", "3:", "@"],
+    "roundLarge": ["o", "O", "o:", "OI", "oU", "@U"],
+    "open":       ["a", "A", "a:", "aI", "aU", "V", "h"]
+  },
+
+  "ovrToMouth": {
+    "$comment": "Legacy OVR viseme ids, accepted at the API boundary only so a future cloud TTS can be swapped in without touching the visual layer. Not used by Piper. Note DD and kk were byte-identical in the original 15-viseme set.",
+    "sil": "closed", "PP": "closed", "nn": "narrow", "FF": "narrow", "SS": "narrow",
+    "TH": "narrow", "DD": "narrow", "kk": "wideFlat", "ih": "wideFlat", "E": "wideFlat",
+    "CH": "wideFlat", "RR": "roundSmall", "ou": "roundSmall", "oh": "roundLarge", "aa": "open"
+  },
+
+  "motion": {
+    "$comment": "Every value the implementation needs. Properties are transform/opacity only — no layout, no filters, nothing that forces GPU compositing.",
+    "breathe": {
+      "target": "#rig", "property": "transform: translateY", "fromTo": [0, -2.5, 0], "unit": "px",
+      "durationMs": 4400, "easing": "ease-in-out", "iterations": "infinite", "resolvesToRest": false,
+      "jitter": { "rate": 0.05, "$comment": "Multiply duration by 0.95 + random()*0.1, computed ONCE per mount and stable for its lifetime." },
+      "randomStartPhase": { "maxSeconds": 5, "$comment": "Negative animation-delay, also computed once per mount. Without it, two avatars on screen breathe in lockstep — an obvious tell that they are one asset rather than two agents." }
+    },
+    "nod": {
+      "target": "#rig", "property": "transform: translateY + rotate",
+      "keyframes": [{ "at": 0, "translateY": 0, "rotate": 0 }, { "at": 0.30, "translateY": -4, "rotate": -3 }, { "at": 0.60, "translateY": 1, "rotate": 2 }, { "at": 1, "translateY": 0, "rotate": 0 }],
+      "durationMs": 1500, "easing": "ease-in-out", "iterations": 2, "resolvesToRest": true,
+      "$comment": "A two-beat that RESOLVES, then the state falls back to idle's breathe. Do not loop it."
+    },
+    "tilt": {
+      "target": "#rig", "property": "transform: rotate", "fromTo": [0, -4, 0], "unit": "deg",
+      "durationMs": 3000, "easing": "ease-in-out", "iterations": "infinite", "resolvesToRest": false
+    },
+    "bow": {
+      "target": "#rig", "property": "transform: translateY + rotate",
+      "keyframes": [{ "at": 0, "translateY": 0, "rotate": 0 }, { "at": 0.35, "translateY": 6, "rotate": 3 }, { "at": 0.65, "translateY": 6, "rotate": 3 }, { "at": 1, "translateY": 0, "rotate": 0 }],
+      "durationMs": 3400, "easing": "ease-in-out", "iterations": "infinite", "resolvesToRest": false
+    },
+    "talk": {
+      "target": "#mouth-talk", "property": "transform: scaleY", "fromTo": [0.35, 1.5, 0.35],
+      "durationMs": 420, "easing": "ease-in-out", "iterations": "infinite",
+      "$comment": "Fallback chatter only. When a viseme stream is bound this animation must be OFF and #mouth switched per phoneme instead."
+    },
+    "pulse": { "target": "#tip", "property": "opacity", "fromTo": [0.55, 1, 0.55], "durationMs": 2600, "easing": "ease-in-out", "iterations": "infinite", "usesRandomStartPhase": true },
+    "flash": { "target": "#tip", "property": "opacity", "fromTo": [1, 0.14], "durationMs": 400, "easing": "steps(1, end)", "iterations": "infinite" },
+    "dot": { "target": ".acc-dot", "property": "opacity + transform: translateY", "opacity": [0.18, 1, 0.18], "translateY": [0, -5, 0], "durationMs": 1100, "easing": "ease-in-out", "iterations": "infinite", "stagger": [0, 150, 300] },
+    "ring": { "target": "#ear-rings ellipse", "property": "transform: scale + opacity", "scale": [0.55, 2.1], "opacity": [0.85, 0], "durationMs": 1600, "easing": "ease-out", "iterations": "infinite", "stagger": [0, 400] },
+    "aperture": { "target": "#chest-aperture", "property": "transform: scale + opacity", "scale": [0.75, 1.6], "opacity": [0.9, 0], "durationMs": 1500, "easing": "ease-out", "iterations": "infinite" },
+    "ingest": { "target": "#ingest-document", "property": "transform: translateY + scale, opacity", "keyframes": [{ "at": 0, "translateY": -40, "scale": 1, "opacity": 0 }, { "at": 0.18, "opacity": 1 }, { "at": 0.78, "translateY": -2, "scale": 0.42, "opacity": 1 }, { "at": 1, "translateY": 2, "scale": 0.1, "opacity": 0 }], "durationMs": 1600, "easing": "ease-in", "iterations": "infinite" },
+    "scan": { "target": "#scan-line", "property": "transform: translateY", "fromTo": [8, 62], "unit": "px (face-screen local)", "durationMs": 1400, "easing": "linear", "iterations": "infinite", "opacityIn": 0.22 },
+    "trayPulseSlow": { "target": ".tray-dot", "property": "opacity", "fromTo": [0.55, 1, 0.55], "durationMs": 2600, "easing": "ease-in-out", "iterations": "infinite" },
+    "trayPulseFast": { "target": ".tray-dot", "property": "opacity", "fromTo": [0.55, 1, 0.55], "durationMs": 1000, "easing": "ease-in-out", "iterations": "infinite" },
+    "trayRing": { "target": ".tray-dot::after", "property": "transform: scale + opacity", "scale": [0.8, 2.2], "opacity": [0.9, 0], "durationMs": 1600, "easing": "ease-out", "iterations": "infinite" },
+
+    "composition": {
+      "$comment": "How motions compose with a mouth swap during speech — the case that must not stutter.",
+      "rule": "Rig motion and mouth swapping are on DIFFERENT elements and different properties. #rig animates transform; #mouth changes a data-attribute that toggles which child is visible. A phoneme swap therefore never restarts, interrupts or recalculates the rig animation.",
+      "forbidden": "Do not put the mouth swap on a CSS transition, and do not animate the mouth's own transform while swapping shapes — at phoneme rate a transition either lags the audio or is cut off mid-interpolation, which reads as a wobble rather than speech.",
+      "mouthSwapIsInstant": true,
+      "talkAnimationOffDuringVisemes": true
+    }
+  },
+
+  "reducedMotion": {
+    "$comment": [
+      "prefers-reduced-motion behaviour, per motion. This was NOT in v7 and is a design decision made here.",
+      "The structural problem: v7 makes motion the primary channel in the tray, where hue is unreadable at 16px.",
+      "With motion off, four tray reads would collapse into one dot. So the tray needs a STATIC vocabulary that still separates four reads — see tray{} below."
+    ],
+    "avatar": {
+      "breathe": "Off. Hold the rest pose (translateY 0).",
+      "nod": "Off. Hold the rest pose. Greeting still reads via its grin.",
+      "tilt": "Off. Hold the rest pose. Listening still reads via round eyes + roundSmall mouth + ear rings.",
+      "bow": "Off. Hold the rest pose. Apologising still reads via lowered eyes — the only state with them.",
+      "pulse": "Off. Hold the tip at full opacity (1), not at its dimmest.",
+      "flash": "Off. Hold at full opacity.",
+      "dot": "Off. Show all three dots static at full opacity, so thinking keeps its accessory.",
+      "ring": "Off. Show ONE static ring per ear pod at scale 1, opacity 0.85 — listening keeps a visible accessory in place of the pulse.",
+      "aperture": "Off. Show the dashed hex static at opacity 0.9 — accept's ask stays visible.",
+      "ingest": "Off. Show the document static at its 0.78 keyframe (mid-draw), so the state still reads.",
+      "scan": "Off. Hide the scan line entirely — a static line across the face reads as damage, not scanning.",
+      "talk": "Off. Hold the 'closed' mouth when idle-speaking. Viseme swaps KEEP RUNNING — see note.",
+      "$note_visemes": "Lip-sync is informative, not decorative: it conveys that speech is happening and roughly what is being said. Reduced motion should not silence it. Keep phoneme-driven #mouth swaps; they are discrete state changes, not animation. Provide a separate app-level setting for users who want them off too."
+    },
+    "tray": {
+      "$comment": "The hard part, and a design question rather than an engineering one. Four reads must survive with zero motion, at 16px, on an unknown background. Solved with static FORM — the one channel that is neither motion nor hue.",
+      "resting":     { "form": "hollow", "spec": "Ring only: 2px stroke in the state colour, transparent centre. Reads lightest — present, nothing pending." },
+      "working":     { "form": "solid",  "spec": "Filled circle, no stroke. Reads heavier than hollow: engaged." },
+      "needsYou":    { "form": "haloed", "spec": "Filled circle PLUS a concentric static ring at 1.9x with a 1.5px stroke. The static residue of the ring animation, so the vocabulary is consistent whether motion is on or off. Visually the heaviest — it is the only one that asks for something." },
+      "unavailable": { "form": "struck", "spec": "Filled circle with a horizontal bar knocked out through the centre (60% of the diameter, 2px, in the background colour). Reads as struck through — cannot work." },
+      "rationale": "hollow / solid / solid+halo / solid+notch are four distinct silhouettes at 16px and survive greyscale, so the set degrades on form rather than depending on hue as a fallback. Ordering by visual weight also preserves the motion version's urgency ranking.",
+      "acceptanceTest": "Render all four at 16px in greyscale with animation disabled. If any two are confusable, the fallback has failed."
+    }
+  },
+
+  "tokens": {
+    "$comment": "Values are v7 §07. The SVG references these as var(--matic-avatar-*) with these as fallbacks. Light and dark are token sets on the same markup — no second asset.",
+    "light": {
+      "--matic-avatar-field": "#cbe3f7",
+      "--matic-avatar-shell": "#fdfefe",
+      "--matic-avatar-shell-shade": "#d9e0e7",
+      "--matic-avatar-ink": "#1b3556",
+      "--matic-avatar-pod": "#3f7fc4",
+      "--matic-avatar-pod-inner": "#5c9ad9",
+      "--matic-avatar-collar": "#1f5fa8",
+      "--matic-avatar-badge-ink": "#fdfefe",
+      "--matic-avatar-paper": "#f2f2f3",
+      "--matic-avatar-paper-line": "#5980a6",
+      "--matic-avatar-paper-line-dim": "#b7b7ba",
+      "--matic-avatar-paper-edge": "#416180",
+      "--matic-avatar-accent-scan": "#7cd8f5",
+      "--matic-avatar-eye-default": "#bfe4f7",
+      "--matic-avatar-tip-default": "#3f7fc4",
+      "--matic-avatar-mark-default": "#1f5fa8",
+      "--matic-avatar-eye-thinking": "#c3adff",
+      "--matic-avatar-tip-thinking": "#a78bfa",
+      "--matic-avatar-mark-thinking": "#7c5cd6",
+      "--matic-avatar-eye-success": "#8df0bb",
+      "--matic-avatar-tip-success": "#6ee7a8",
+      "--matic-avatar-mark-success": "#3f8f5e",
+      "--matic-avatar-eye-apologising": "#b8cfe0",
+      "--matic-avatar-tip-apologising": "#8fa9bd",
+      "--matic-avatar-mark-apologising": "#6d8598",
+      "--matic-avatar-eye-declining": "#7fe0d8",
+      "--matic-avatar-tip-declining": "#2fb3ab",
+      "--matic-avatar-mark-declining": "#1f7a74",
+      "--matic-avatar-eye-escalating": "#f7d69e",
+      "--matic-avatar-tip-escalating": "#f0c27a",
+      "--matic-avatar-mark-escalating": "#b07b2e",
+      "--matic-avatar-eye-error": "#f7aba3",
+      "--matic-avatar-tip-error": "#f08a80",
+      "--matic-avatar-mark-error": "#b1554c"
+    },
+    "darkOverrides": {
+      "$comment": "v7 §05: on a dark panel the circular field is knocked out entirely. Only these change; every other token is inherited from light, so state colour is identical across themes.",
+      "--matic-avatar-field": "transparent",
+      "--matic-avatar-shell": "#e8edf2",
+      "--matic-avatar-shell-shade": "#c2ccd6",
+      "--matic-avatar-paper": "#e8e8ea",
+      "--matic-avatar-badge-ink": "#12213a"
+    }
+  },
+
+  "placement": {
+    "do": [
+      "Let the circular field sit on a light ground, or knock it out entirely on a dark panel.",
+      "Crop to the head below 64px.",
+      "Hold one state until the underlying condition changes.",
+      "Let each mount keep its own idle jitter and start phase.",
+      "Keep escalating on the full bust, 96px and up."
+    ],
+    "dont": [
+      "Do not recolour the helmet, ear pods or field — state lives in the tip, screen and mark only.",
+      "Do not rotate or mirror the bust.",
+      "Do not scale the full bust below 64px.",
+      "Do not put error on a failed fix — that is apologising. Do not put either on a decline — that is declining.",
+      "Do not place escalating below 96px; it renders as thinking.",
+      "Do not cycle states decoratively.",
+      "Do not use the tray ring for anything that does not need an answer."
+    ],
+    "clearspace": "One quarter of the field diameter on all sides. The antenna sits inside the field and needs no separate allowance."
+  }
+}

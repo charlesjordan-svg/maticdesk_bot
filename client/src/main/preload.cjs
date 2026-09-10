@@ -27,4 +27,9 @@ contextBridge.exposeInMainWorld("matic", {
 
   onLog: (cb) => ipcRenderer.on("app:log", (_e, line) => cb(line)),
   onTtsReady: (cb) => ipcRenderer.on("tts:ready", (_e, status) => cb(status)),
+
+  // Hub connectivity (D49/D51, D233). Read-only: the renderer shows the link's state, it does not
+  // drive it. `hubStatus` is the same object `hub:link` pushes on every transition.
+  hubStatus: () => ipcRenderer.invoke("hub:status"),
+  onHubLink: (cb) => ipcRenderer.on("hub:link", (_e, status) => cb(status)),
 });

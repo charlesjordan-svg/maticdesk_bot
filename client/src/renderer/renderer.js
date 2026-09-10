@@ -11,6 +11,7 @@ import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
 const avatar = document.getElementById("avatar");
 const stateLabel = document.getElementById("state");
 const voicePill = document.getElementById("voicePill");
+const hubPill = document.getElementById("hubPill");
 const factsEl = document.getElementById("facts");
 const logEl = document.getElementById("log");
 const inputEl = document.getElementById("input");
@@ -26,10 +27,21 @@ const audioEl = new Audio();
 const driver = new TTSVisemeDriver(avatar, audioEl);
 let voiceReady = false;
 
+/**
+ * The avatar's conversational state. The element decides what it can actually show at its size
+ * (D232: a parked or undersized state is refused to idle with a console warning) and reports the
+ * outcome on `statechange`; the label below the avatar follows THAT event, not this call, so the
+ * label is right even when the state was set by something else - the viseme driver sets `speaking`
+ * directly, and before this change the label silently stayed on the previous state through every
+ * spoken reply.
+ */
 function setState(s) {
   avatar.state = s;
-  stateLabel.textContent = s;
 }
+avatar.addEventListener("statechange", (e) => {
+  const { requested, state, refused } = e.detail;
+  stateLabel.textContent = refused ? `${state} (refused: ${requested})` : state;
+});
 
 /**
  * Checks the USER has to carry out. Rendered as a card rather than chat bubbles because a user
@@ -400,8 +412,13 @@ async function handleTurn(text) {
       // the next turn overwrites the panel that said otherwise. Observed on the dev box 2026-09-02.
       bubble("nothing was filed — there is no ITSM integration in this build", "sys bad");
     }
-    setState("escalating");
-    await say(res.reply, "idle");
+    // `declining`, not `escalating` (D232). The avatar is saying it cannot fix this and OFFERING a
+    // ticket; nothing has been raised. v7 reserves `escalating` for the confirmation that carries a
+    // ticket number - it follows declining, it does not replace it - and its tray read is "none",
+    // where an offer waiting for an answer is exactly what "needs you" is for. Held after speaking
+    // because the offer is still open.
+    setState("declining");
+    await say(res.reply, "declining");
     return;
   }
 
@@ -446,7 +463,10 @@ async function handleTurn(text) {
     const filed = await window.matic.fileTicket(approved);
     if (filed.ok) {
       show(executionJson, { reference: filed.reference, ticketId: filed.ticketId, notified: filed.notified, notifiedWhy: filed.notifiedWhy });
-      await say(`That's filed. Your reference is ${filed.reference} — quote that if you follow it up.`, "idle");
+      // THIS is `escalating` (D232): a ticket exists and has a number. The state is held after the
+      // reply so the confirmation stays on the face while the user reads the reference.
+      setState("escalating");
+      await say(`That's filed. Your reference is ${filed.reference} — quote that if you follow it up.`, "escalating");
       // `notified` IS THE HUB'S OWN FIELD AND IT IS REPEATED, NOT INTERPRETED. The hub stores
       // tickets and emails nobody (D86). A user who hears "filed" and assumes someone was paged
       // is the failure this line exists to prevent, and it is a `sys` line rather than the
@@ -454,14 +474,16 @@ async function handleTurn(text) {
       if (!filed.notified) bubble(`${filed.reference} is stored for IT to pick up. No email was sent — this build has no outbound notification.`, "sys");
     } else {
       show(executionJson, { error: filed.error, filed: filed.filed });
+      // A ticket that could not be sent is a fault on OUR side - the hub, the network - not
+      // something the assistant tried and could not help with, so `error`, not `apologising`.
       // `filed: null` means a TIMEOUT — we genuinely do not know. Saying "nothing was filed" there
       // would be a confident guess, and the wrong one leaves a user opening a second ticket.
-      await say(filed.error, "idle");
+      setState("error");
+      await say(filed.error, "error");
       bubble(filed.filed === null
         ? "the hub did not answer in time — whether the ticket was stored is UNKNOWN"
         : "nothing was filed", "sys bad");
     }
-    setState("idle");
     return;
   }
 
@@ -514,8 +536,17 @@ async function handleTurn(text) {
       // (D205, B7a §2). The avatar says it does not know and offers a ticket; the system line says
       // plainly that nothing was filed, for the same reason the escalation branch does — the offer
       // can be heard as the act.
-      await say(res.reply, "idle");
-      bubble("no company guidance covers this — nothing was filed, and there is no ticketing integration in this build", "sys bad");
+      //
+      // THE FACE SAYS SO TOO (D232, the point of the avatar pass). Until 2026-09-10 this branch
+      // spoke in `speaking` and ended in `idle` with a RED system line - a correct behaviour dressed
+      // as a failure at the moment the user's trust is most in play (v7: declining is "the most-seen
+      // state and the one to get most right"). `declining` is round eyes, narrow mouth, a `?`
+      // badge, no bow: composed, never sorry. Held after the reply because the offer is open, and
+      // the system line is plain `sys`, not `sys bad`.
+      setState("declining");
+      await say(res.reply, "declining");
+      bubble("no company guidance covers this — nothing was filed", "sys");
+      return;
     }
     setState("idle");
     return;
@@ -613,14 +644,54 @@ async function handleTurn(text) {
     setState("success");
     await say(exec.message, "idle");
   } else if (exec.needsBroker) {
-    setState("escalating");
+    // A deployment fault - the unprivileged half was asked to do privileged work - so `error`
+    // ("a technical fault on our side"), not `escalating`: no ticket was raised (D232).
+    setState("error");
     bubble("ACCESS_DENIED — the agent half cannot do this; it needs the privileged broker.", "sys bad");
     await say(exec.message, "idle");
   } else {
-    setState("error");
+    // A fix that ran and did not help is `apologising`, not `error` - v7's placement rule, verbatim:
+    // "Do not put error on a failed fix — that is apologising." The assistant tried and could not
+    // help; that is relational, not technical (D232).
+    setState("apologising");
     await say(exec.message, "idle");
   }
 }
+
+// ---- hub connectivity (D49/D51, D233) ----
+//
+// The pill is the persistent surface (D120's Status destination, in miniature). The transcript
+// carries each TRANSITION, because D51 says a mid-session capability loss is stated to the user
+// rather than silently degraded - and the face carries it too while it is idle: `error` is v7's
+// "I've lost my connection to the service desk", the one state that goes static. It is not forced
+// over a turn in progress; the next turn's own states take the face back, and the pill keeps the
+// fact.
+let lastHubState = null;
+function applyHubStatus(s) {
+  if (!s) return;
+  const when = (t) => (t ? new Date(t).toLocaleTimeString() : "never");
+  const text = {
+    standalone: "hub: standalone (no hub configured)",
+    checking: "hub: checking…",
+    reachable: `hub: reachable · last ok ${when(s.lastOkAt)}`,
+    unreachable: `hub: UNREACHABLE (${s.consecutiveFailures} failures) · last ok ${when(s.lastOkAt)}`,
+  }[s.state] ?? `hub: ${s.state}`;
+  hubPill.textContent = text;
+  hubPill.className = `pill ${s.state === "reachable" ? "on" : s.state === "unreachable" ? "bad" : "off"}`;
+  hubPill.title = `${s.basis}${s.authenticated ? "" : " - identified by shape, NOT device-authenticated (D50 needs D61)"}${s.lastError ? `\nlast error: ${s.lastError}` : ""}`;
+
+  if (lastHubState !== null && s.state !== lastHubState) {
+    if (s.state === "unreachable") {
+      bubble(`I've lost my connection to the service desk (${s.lastError ?? "no answer"}). I can still fix what this machine can fix on its own; questions and tickets will wait until it is back.`, "sys bad");
+      if (avatar.state === "idle") setState("error");
+    } else if (s.state === "reachable" && lastHubState === "unreachable") {
+      bubble("the service desk is reachable again", "sys good");
+      if (avatar.state === "error") setState("idle");
+    }
+  }
+  lastHubState = s.state;
+}
+window.matic.onHubLink(applyHubStatus);
 
 sendBtn.onclick = async () => {
   const text = inputEl.value.trim();
@@ -670,6 +741,7 @@ const ttsSettled = new Promise((resolve) => {
 
   const facts = await window.matic.diagnose();
   renderFacts(facts?.summary ?? {});
+  applyHubStatus(await window.matic.hubStatus());
 
   setState("greeting");
   await say("Matic Desk here. Tell me what's not working and I'll take a look at this machine.", "idle");

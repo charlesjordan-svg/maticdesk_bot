@@ -2,7 +2,25 @@
 
 **Read this first, every session. Then read the documents it points to — fresh, not from memory.**
 
-**Last updated:** 2026-09-10 (**2026-09-10, night: B3's enrollment mechanism is built — D231,
+**Last updated:** 2026-09-10 (**2026-09-10, later: THE AVATAR IS THE v7 BUST and a decline has a face — D232 — and the endpoint knows whether the hub is there — D233; register §5.27,
+[`docs/handovers/2026-09-10-claude-code-handover-avatar-integration-built.md`](docs/handovers/2026-09-10-claude-code-handover-avatar-integration-built.md).**
+The audit the avatar handover asked for came back: the old avatar was CSS divs with eleven states and
+no `declining`; a knowledge-base decline rendered `thinking → speaking → idle` with a RED system line,
+so a correct behaviour was dressed as a failure in the transcript rather than on the face — the
+hypothesis was half right. Now `<matic-avatar>` renders Claude Design's SVG chassis from the manifest
+(no state literals in code, drift tests on the CSS pairings and the generated assets), `declining`
+holds after a decline and after an escalation OFFER, `escalating` is reserved for a ticket that
+exists, a failed fix is `apologising`. **The §3 phoneme risk was measured, not argued:** 732 real
+Piper phonemes — the manifest's eSpeak-ASCII table would have closed the mouth on 58% of them, so the
+debugged IPA table stays, and the same run found five bare vowels it had never matched (length marks
+arrive as their own rows), now added. **Connectivity:** `HubLink` gives the endpoint D49's three
+states with D51's hysteresis, a shape-checked probe (a captive portal's 200 is not a hub), and the
+answer to "how does an agent reconnect" — it never stopped trying, and the hub has nobody to signal.
+**650 client assertions across 13 files** (was 492 / 11). **Nobody has watched the Electron window
+with the new face**: [`client/docs/AVATAR-RENDERER-CHECK.md`](client/docs/AVATAR-RENDERER-CHECK.md).
+Also found: the delivered harness's own dark-panel toggle does not knock the field out (class on an
+ancestor loses to the token declarations on the svg — the element puts it on the svg and it works).
+**2026-09-10, night: B3's enrollment mechanism is built — D231,
 register §5.26, [`server/docs/B3-DEVICE-ENROLLMENT.md`](server/docs/B3-DEVICE-ENROLLMENT.md).**
 Charles asked for B3 directly; the pass read D60/D61/D63/D64/D146/D148 as one dependency chain —
 a real key, in real custody, usable by something real — and built the OTHER half instead: the
@@ -59,7 +77,8 @@ signed content distribution, central audit and ITSM integration.
 | Area | State |
 |---|---|
 | Working demo (Electron, standalone mode) | **Built and verified.** Three scenarios run end to end |
-| Avatar + local TTS (Piper, lip-sync) | **Done.** CSS-drawn, no GPU, resolution independent |
+| Avatar + local TTS (Piper, lip-sync) | **Rebuilt on the v7 bust chassis 2026-09-10 (D232, register §5.27).** Claude Design's delivery (`client/src/renderer/avatar/`: one SVG, one stylesheet, a JSON manifest, an acceptance harness) placed verbatim; `<matic-avatar>` drives it from the manifest, which is the state table — no literals in code, a test fails if the CSS pairings or the generated assets drift. **`declining` is a state now and is what a knowledge-base decline shows**; a failed fix is `apologising`, a filed ticket is `escalating`, a failed filing is `error`. Lip-sync still runs on the debugged IPA table, and **that is measured** (`npm.cmd run avatar:compare`: the manifest's eSpeak-ASCII table would have closed the mouth on 58% of real Piper phonemes; five bare vowels the old table also missed were added from the same run). Still CSS + inline SVG, no GPU, no images. **Not seen in the Electron window by a person** — [`client/docs/AVATAR-RENDERER-CHECK.md`](client/docs/AVATAR-RENDERER-CHECK.md) is Charles's list. No tray icon exists (audit §1.3) |
+| **Hub connectivity (D49/D51, D233)** | **Client half built 2026-09-10, register §5.27.** `client/src/agent/hub-link.js`: a shape-checked `GET /v1/health` on a jittered 60 s cadence plus every real request's outcome, three failures to declare unreachable, one success to leave, full-jitter backoff while down; the pill under the voice pill shows D49's three states and the transcript states each loss and recovery (D51). **The hub does not and cannot signal endpoints** — they are behind NAT and D114 rules out a persistent connection — so a restarted hub is rediscovered by every endpoint within one interval with nothing to replay; the heartbeat RESPONSE is the hub's directive channel and the client already honours a bounded `heartbeat.intervalMs` if one is ever sent. **Not authenticated** (D50 needs D61, unbuilt): identified by shape, and the status object says so. Server half (an authenticated `/v1/heartbeat` carrying device id, policy and catalog version) is D233's next slice, not built |
 | Broker + four Win32 primitives | **Done** in-process behind the real interface |
 | Hub / server side | **B0 walking skeleton built 2026-09-03; the B1 control plane built the same night** (`server/`). B1: `migrations/control/001`, `migrations/tenant/001-002`, `src/db/` (pool, `withTenant`, runner, tenants, jobs), `bin/db.mjs`, `docker-compose.yml` on PostgreSQL 17 + pgvector. **76 assertions pass with no database, and the six exit criteria pass against PostgreSQL 17.11** (`npm.cmd run test:db`, 56 assertions) — [`server/docs/B1-CONTROL-PLANE.md`](server/docs/B1-CONTROL-PLANE.md) §10. Read its §6 before answering any question about tenant isolation: `search_path` confines accident, not intent. `/v1/turn` stayed stateless on purpose. B0 itself:: `POST /v1/turn`, one OpenAI-compatible provider on local Ollama, imports the client's `prompt.js`, faithful pass-through, **no authentication and loud about it**, loopback only. 33 headless assertions. Device auth, tenancy, persistence, KB retrieval, audit ingestion, TLS, spend caps: not built, no stubs. **The B0 spec is now on disk at [`server/docs/2026-09-03-B0-walking-skeleton-spec.md`](server/docs/2026-09-03-B0-walking-skeleton-spec.md)** and carries a supersession block: its §5 target of "should reproduce 35/40" is wrong — both paths scored 33/40 and were identical on all 40 cases. **Its §5 acceptance list is now known and every item is mapped to an existing test in the spec's own §5a** — with three qualifications recorded there, the largest being that item 1 runs headless and has never been clicked through in the renderer. |
 | Hub provider on the endpoint (**D164**) | **Done 2026-09-03.** `client/src/agent/hub-client.js`, third provider, `config.provider: "hub"`; default unchanged (`"cloud"`). `Proposal.source: "hub"` + `hubProvider` = the hub's claim, never the endpoint's knowledge. Tier-0 never routes through it (D46b, pinned). **Bake-off through the hub: identical to the direct path on 40 of 40 cases**, median latency delta 1 ms (`client/docs/BAKEOFF-2026-09-02.md` §2c) |
@@ -91,7 +110,7 @@ signed content distribution, central audit and ITSM integration.
 | **Decision register** | `docs/decisions/DECISION-REGISTER.md` |
 | **Demo launchers + recovery card** | `tools/launchers/` (Desktop icons "Matic Desk Hub" / "Matic Desk Agent"), `docs/DEMO-DAY.md`, `client/docs/DEMO-CLICKTHROUGH.md` |
 | **Fallback (frozen demo branch worktree)** | `C:\Users\Charles\Downloads\maticdesk_demo\Projects\Ai Chat Bot -Matic\matic-desk-demo` — installed, `.env` in place, tests green 2026-09-05 |
-| Avatar component source | `Downloads\matic-avatar-v2\` |
+| Avatar component source | `client/src/renderer/avatar/` since 2026-09-10 (the v7 delivery, verbatim, plus the element and its model). `Downloads\matic-avatar-v2\` is the superseded CSS-div version |
 | ~~`Downloads\matic-desk-demo`~~ | Superseded copy — **renamed to `matic-desk-delete` on 2026-09-02.** Safe to remove once the push is confirmed good |
 
 **The vault is an Obsidian vault.** Do not run `npm install` at the vault root, and exclude

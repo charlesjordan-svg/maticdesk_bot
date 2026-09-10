@@ -14,6 +14,7 @@ import { InProcessBroker } from "../broker/in-process-broker.js";
 import { CloudClient } from "../agent/cloud-client.js";
 import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
 import { HubClient } from "../agent/hub-client.js";
+import { HubLink } from "../agent/hub-link.js";
 import { Agent } from "../agent/agent.js";
 import { ProfileStore } from "../profile/profile.js";
 import { TicketIntake } from "../ticket/intake.js";
@@ -31,6 +32,9 @@ let agent = null;
 let profile = null;
 let egress = null;
 let hubUrlForTickets = null;
+// D233. Always constructed - a build with no hub gets a link that reports `standalone`, so the
+// renderer's status pill has one shape to read whatever the provider is.
+let hubLink = null;
 
 const log = (line) => {
   console.log(line);
@@ -113,7 +117,15 @@ app.whenReady().then(async () => {
     // it runs on. The default matches the hub's own upstream timeout — see the HubClient
     // constructor for what the old 90s mismatch did on a cold model.
     const hubTimeoutMs = Number(process.env.MATIC_HUB_TIMEOUT_MS || config.hubTimeoutMs || 300000);
-    cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), timeoutMs: hubTimeoutMs, onLog: log });
+    // The connectivity monitor (D49/D51, D233): a shape-checked GET /v1/health on a jittered
+    // cadence, plus every real request's outcome reported by HubClient. It pushes each transition
+    // to the renderer, which shows it in the status pill and says so in the transcript.
+    hubLink = new HubLink({
+      hubUrl,
+      onLog: log,
+      onChange: (_prev, _next, status) => win?.webContents.send("hub:link", status),
+    });
+    cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), timeoutMs: hubTimeoutMs, onLog: log, link: hubLink });
     hubUrlForTickets = hubUrl;
     log(`[hub] giving the hub up to ${Math.round(hubTimeoutMs / 1000)}s to answer - a cold model load can take over a minute, and giving up early falls back to machine state, which answers the wrong question confidently`);
     log(`[hub] provider "hub" -> ${hubUrl} - sentences that tier-0 cannot resolve go to the hub; where the hub sends them next is the hub's claim`);
@@ -164,8 +176,11 @@ app.whenReady().then(async () => {
   }
 
   agent = new Agent({ broker, cloud, intake, onLog: log });
+  hubLink ??= new HubLink({ onLog: log }); // standalone: no URL, never probes
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });
+
+  ipcMain.handle("hub:status", () => hubLink.status());
 
   // ---- IPC: registered BEFORE the window exists, so the renderer cannot ask for a handler
   // that is not there yet. ----
@@ -258,6 +273,10 @@ app.whenReady().then(async () => {
 
   await createWindow();
 
+  // ---- hub link: probing starts once the window exists, so the first transition has somewhere
+  // to land. A standalone link's start() is a no-op. ----
+  hubLink.start();
+
   // ---- voice: started after the window is up so the UI paints immediately rather than waiting
   // on a 63 MB model load. The renderer shows "voice: loading" and waits for this event. ----
   const voiceOk = await tts.start(join(ROOT, "scripts/piper_worker.py"));
@@ -270,6 +289,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  hubLink?.stop();
   tts?.stop();
   if (process.platform !== "darwin") app.quit();
 });

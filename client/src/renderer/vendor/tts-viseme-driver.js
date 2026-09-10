@@ -8,12 +8,13 @@
  * phonemeId strings are whatever MaticBotAvatar.resolveViseme() already understands: eSpeak/Piper
  * phoneme ids, the six shape names directly, or legacy OVR ids.
  *
- * NOT VERIFIED: how to actually extract a phoneme+duration timeline from a specific Piper build/
- * wrapper. Piper's stable CLI synthesizes audio without exposing per-phoneme alignment; the VITS-style
- * duration predictor computes it internally but whether a given piper-tts version/wrapper surfaces it
- * is version-specific and wasn't tested here (no Piper install available in this environment). Getting
- * a real timeline into `speak()` is the integration work that remains — this module starts at "I have
- * a phoneme timeline," which is the same starting point the showcase's own hand-authored demo uses.
+ * WHERE THE TIMELINE COMES FROM (verified, not assumed - this paragraph used to say the opposite):
+ * `scripts/piper_worker.py` loads the voice with `include_alignments=True` and builds the timeline
+ * from the alignments `synthesize_wav` returns. Those phonemes are IPA (θ ʃ ɜː ...), with stress and
+ * length marks merged into the preceding phoneme rather than emitted as rows. The table that turns
+ * them into shapes is `../avatar/viseme-map.js`, which the <matic-avatar> element uses when this
+ * driver writes `.viseme`. The element changed on 2026-09-10 (SVG chassis, D232); this driver did
+ * not, because the `state`/`viseme` contract it drives was kept.
  *
  * Usage:
  *   import { TTSVisemeDriver } from './tts-viseme-driver.js';

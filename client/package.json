@@ -22,7 +22,10 @@
     "show-consent": "node scripts/show-consent.mjs",
     "verify:pipe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-pipe-security.ps1",
     "e2e:ask": "node eval/e2e-ask.mjs",
-    "e2e:ticket": "node eval/e2e-ticket.mjs"
+    "e2e:ticket": "node eval/e2e-ticket.mjs",
+    "avatar:build": "node scripts/build-avatar-assets.mjs",
+    "avatar:check": "node scripts/build-avatar-assets.mjs --check",
+    "avatar:compare": "node scripts/compare-phoneme-maps.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

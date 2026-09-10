@@ -1,0 +1,145 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>matic-avatar element check</title>
+<!--
+  THE ELEMENT THE APP RENDERS, side by side with what the delivered harness shows.
+  Acceptance item 1 of the avatar integration handover (2026-09-10): open this and
+  matic-avatar-harness.html together and compare every state at every size.
+
+  This page mounts <matic-avatar> - the real component, the real manifest, the real assets module -
+  so what it shows is what index.html shows. The harness beside it is the designer's reference.
+  Anything that differs between the two pages is a finding.
+
+  Serve this directory over http (JSON module imports need a real origin in a browser):
+      py -3 -m http.server 8765 --directory C:\Users\Charles\Downloads\maticdesk_bot\client\src\renderer
+      http://127.0.0.1:8765/avatar/avatar-check.html
+  Inside Electron the same element loads from file:// through index.html; no server involved.
+-->
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: #f2f2f3; color: #1d1f20; font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+  body.dark { background: #12213a; color: #e8edf2; }
+  header { padding: 14px 20px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #c9ced3; }
+  body.dark header { border-color: #2a3b55; }
+  h1 { font-size: 15px; margin: 0 20px 0 0; letter-spacing: .04em; text-transform: uppercase; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid #8a9096; background: transparent; color: inherit; cursor: pointer; }
+  button[aria-pressed="true"] { background: #1b3556; color: #fff; border-color: #1b3556; }
+  main { padding: 16px 20px 40px; }
+  table { border-collapse: collapse; }
+  th, td { padding: 8px 10px; text-align: center; vertical-align: middle; border-bottom: 1px solid #d9dde1; }
+  body.dark th, body.dark td { border-color: #2a3b55; }
+  th { font-weight: 600; font-size: 12px; }
+  th.st { text-align: left; font-family: ui-monospace, Consolas, monospace; font-weight: 500; }
+  td .cap { font: 10px/1.3 ui-monospace, Consolas, monospace; color: #b1554c; margin-top: 4px; max-width: 160px; }
+  .parked th.st { color: #8a9096; }
+  .row { display: flex; gap: 28px; align-items: flex-end; margin: 12px 0 24px; flex-wrap: wrap; }
+  .row figure { margin: 0; text-align: center; }
+  .row figcaption { font: 11px ui-monospace, Consolas, monospace; margin-top: 6px; color: #5d5d60; }
+  body.dark .row figcaption { color: #9fb0c6; }
+  #warnings { font: 11px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; background: rgba(0,0,0,.05); padding: 10px 12px; max-height: 220px; overflow: auto; }
+  body.dark #warnings { background: rgba(255,255,255,.06); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin: 28px 0 8px; }
+</style>
+
+<header>
+  <h1>matic-avatar</h1>
+  <button id="t-theme" aria-pressed="false">Dark panel</button>
+  <button id="t-speak" aria-pressed="true">Pause speech</button>
+  <span id="manifest-note"></span>
+</header>
+
+<main>
+  <h2>Every state at every size — refusals show idle and print a warning below</h2>
+  <div id="grid"></div>
+
+  <h2>Speech: real Piper IPA phonemes through viseme-map.js, nothing else moving</h2>
+  <div class="row" id="speech"></div>
+
+  <h2>Console warnings from the element (v7 §05 misuse row)</h2>
+  <div id="warnings">(none yet)</div>
+</main>
+
+<script type="module">
+  import "./matic-avatar-element.js";
+  import { STATES, MANIFEST, isParked } from "./avatar-model.js";
+
+  // Loaded from the manifest, so editing a manifest note is visible here (acceptance item 5).
+  document.getElementById("manifest-note").textContent =
+    `manifest ${MANIFEST.spec.version} · ${MANIFEST.spec.date} · ${STATES.length} states · declining: "${MANIFEST.states.declining.notes.slice(0, 80)}…"`;
+
+  const warnEl = document.getElementById("warnings");
+  const origWarn = console.warn.bind(console);
+  console.warn = (...a) => { origWarn(...a); warnEl.textContent = (warnEl.textContent === "(none yet)" ? "" : warnEl.textContent + "\n") + a.join(" "); };
+
+  const SIZES = [200, 160, 96, 64, 44, 32, 24];
+  const grid = document.getElementById("grid");
+  const t = document.createElement("table");
+  const head = document.createElement("tr");
+  head.innerHTML = `<th class="st">state</th>` + SIZES.map((s) => `<th>${s}px</th>`).join("");
+  t.appendChild(head);
+  const mounts = [];
+  for (const st of STATES) {
+    const tr = document.createElement("tr");
+    if (isParked(st)) tr.className = "parked";
+    const th = document.createElement("th");
+    th.className = "st";
+    th.textContent = st + (isParked(st) ? " (parked)" : "");
+    tr.appendChild(th);
+    for (const s of SIZES) {
+      const td = document.createElement("td");
+      const el = document.createElement("matic-avatar");
+      el.setAttribute("size", String(s));
+      el.addEventListener("statechange", (e) => {
+        const d = e.detail;
+        let cap = td.querySelector(".cap");
+        if (d.refused) {
+          if (!cap) { cap = document.createElement("div"); cap.className = "cap"; td.appendChild(cap); }
+          cap.textContent = d.state === null || s < MANIFEST.crop.floor ? "below floor: not rendered" : `refused → ${d.state}`;
+        } else if (cap) cap.remove();
+      });
+      el.setAttribute("state", st);
+      td.appendChild(el);
+      tr.appendChild(td);
+      mounts.push(el);
+    }
+    t.appendChild(tr);
+  }
+  grid.appendChild(t);
+
+  // Speech row: an IPA sequence of the kind piper_worker.py emits for "Matic Desk here".
+  const speech = document.getElementById("speech");
+  const PHONEMES = ["m", "æ", "t", "ɪ", "k", "d", "ɛ", "s", "k", "h", "ɪ", "ɹ", "_", "ʃ", "ɜː", "əʊ", "aɪ", "θ", "_"];
+  const speakers = [];
+  for (const s of [200, 96, 64, 44]) {
+    const fig = document.createElement("figure");
+    const el = document.createElement("matic-avatar");
+    el.setAttribute("size", String(s));
+    el.setAttribute("state", "speaking");
+    fig.appendChild(el);
+    const cap = document.createElement("figcaption");
+    cap.textContent = `${s}px`;
+    fig.appendChild(cap);
+    speech.appendChild(fig);
+    speakers.push({ el, cap, s });
+  }
+  let i = 0, playing = true;
+  setInterval(() => {
+    if (!playing) return;
+    const p = PHONEMES[i++ % PHONEMES.length];
+    for (const { el, cap, s } of speakers) { el.viseme = p; cap.textContent = `${s}px · ${p} → ${el.shadowRoot.querySelector(".mav-mouth")?.getAttribute("data-shape")}`; }
+  }, 110);
+  document.getElementById("t-speak").addEventListener("click", function () {
+    playing = !playing;
+    this.setAttribute("aria-pressed", String(playing));
+    this.textContent = playing ? "Pause speech" : "Play speech";
+    if (!playing) for (const { el } of speakers) el.viseme = null;
+  });
+
+  document.getElementById("t-theme").addEventListener("click", function () {
+    const dark = this.getAttribute("aria-pressed") !== "true";
+    this.setAttribute("aria-pressed", String(dark));
+    this.textContent = dark ? "Light ground" : "Dark panel";
+    document.body.classList.toggle("dark", dark);
+    for (const el of [...mounts, ...speakers.map((x) => x.el)]) el.setAttribute("theme", dark ? "dark" : "light");
+  });
+</script>

@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Matic bust avatar — implementation harness (v7)</title>
+<!--
+  Self-contained. No build step, no network requests, no dependencies.
+  Open straight from disk.
+
+  This file is both the deliverable and its own acceptance test. The chassis
+  below is byte-identical to assets/matic-avatar.svg and the stylesheet to
+  assets/matic-avatar.css — inlined only because §6 forbids network requests.
+  Edit those files and regenerate; do not edit the copies here.
+-->
+<style>
+/* ==== assets/matic-avatar.css (inlined verbatim) ==== */
+/* ============================================================================
+   Matic bust avatar — stylesheet
+   BUST AVATAR SPECIFICATION v7 · 2026.09.09
+
+   Pairs with matic-avatar.svg (one chassis, swappable regions) and
+   matic-avatar.manifest.json (the state map — this file must agree with it).
+
+   Selectors
+   ---------
+   CSS targets CLASSES (.mav, .mav-eyes, .mav-mouth, .mav-rig ...), not ids, so
+   many avatars can coexist on one page. The ids in the SVG are kept for
+   single-instance addressability as the spec asks; if you instantiate more
+   than one, namespace or drop the ids and rely on the classes. Duplicate
+   clipPath ids are harmless here because every instance has identical
+   geometry, but namespace them too if that ever stops being true.
+
+   Contract
+   --------
+   Set ONE attribute to change state:      svg.mav[data-state="..."]
+   The rules below derive everything else: eye shape, mouth shape, gaze shift,
+   the three state colours, which accessories show, and which rig motion runs.
+
+   During speech, override the mouth directly at phoneme rate:
+       .mav-mouth[data-shape="narrow"]   etc.
+   ...and set data-visemes on the svg so the fallback chatter stops.
+
+   Performance
+   -----------
+   Integrated graphics, no discrete GPU. Everything animated here is transform
+   or opacity on a small number of nodes. No filters, no 3D transforms, no
+   will-change, nothing that forces a compositing layer.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------- tokens  */
+
+.mav,
+.matic-avatar-theme-light {
+  --matic-avatar-field: #cbe3f7;
+  --matic-avatar-shell: #fdfefe;
+  --matic-avatar-shell-shade: #d9e0e7;
+  --matic-avatar-ink: #1b3556;
+  --matic-avatar-pod: #3f7fc4;
+  --matic-avatar-pod-inner: #5c9ad9;
+  --matic-avatar-collar: #1f5fa8;
+  --matic-avatar-badge-ink: #fdfefe;
+  --matic-avatar-paper: #f2f2f3;
+  --matic-avatar-paper-line: #5980a6;
+  --matic-avatar-paper-line-dim: #b7b7ba;
+  --matic-avatar-paper-edge: #416180;
+  --matic-avatar-accent-scan: #7cd8f5;
+
+  --matic-avatar-eye-default: #bfe4f7;
+  --matic-avatar-tip-default: #3f7fc4;
+  --matic-avatar-mark-default: #1f5fa8;
+
+  --matic-avatar-eye-thinking: #c3adff;
+  --matic-avatar-tip-thinking: #a78bfa;
+  --matic-avatar-mark-thinking: #7c5cd6;
+
+  --matic-avatar-eye-success: #8df0bb;
+  --matic-avatar-tip-success: #6ee7a8;
+  --matic-avatar-mark-success: #3f8f5e;
+
+  --matic-avatar-eye-apologising: #b8cfe0;
+  --matic-avatar-tip-apologising: #8fa9bd;
+  --matic-avatar-mark-apologising: #6d8598;
+
+  --matic-avatar-eye-declining: #7fe0d8;
+  --matic-avatar-tip-declining: #2fb3ab;
+  --matic-avatar-mark-declining: #1f7a74;
+
+  --matic-avatar-eye-escalating: #f7d69e;
+  --matic-avatar-tip-escalating: #f0c27a;
+  --matic-avatar-mark-escalating: #b07b2e;
+
+  --matic-avatar-eye-error: #f7aba3;
+  --matic-avatar-tip-error: #f08a80;
+  --matic-avatar-mark-error: #b1554c;
+
+  /* Resolved per state by the [data-state] rules below. */
+  --matic-avatar-eye: var(--matic-avatar-eye-default);
+  --matic-avatar-tip: var(--matic-avatar-tip-default);
+  --matic-avatar-mark: var(--matic-avatar-mark-default);
+}
+
+/* Dark panel: v7 §05 knocks the field out entirely. A token swap on the same
+   markup — not a second asset. State colours are deliberately unchanged, so a
+   state means the same thing in either theme. */
+.matic-avatar-theme-dark {
+  --matic-avatar-field: transparent;
+  --matic-avatar-shell: #e8edf2;
+  --matic-avatar-shell-shade: #c2ccd6;
+  --matic-avatar-paper: #e8e8ea;
+  --matic-avatar-badge-ink: #12213a;
+}
+
+/* ------------------------------------------------------- region switching */
+/* All shapes live in the markup. Exactly one is shown. `display` is used
+   rather than opacity so hidden shapes cost nothing to paint. */
+
+.mav .eye-shape,
+.mav .mouth-shape { display: none; }
+
+.mav-eyes[data-shape="oval"]    > .eye-shape[data-shape="oval"],
+.mav-eyes[data-shape="round"]   > .eye-shape[data-shape="round"],
+.mav-eyes[data-shape="happy"]   > .eye-shape[data-shape="happy"],
+.mav-eyes[data-shape="lowered"] > .eye-shape[data-shape="lowered"],
+.mav-eyes[data-shape="cross"]   > .eye-shape[data-shape="cross"] { display: block; }
+
+.mav-mouth[data-shape="smile"]      > .mouth-shape[data-shape="smile"],
+.mav-mouth[data-shape="grin"]       > .mouth-shape[data-shape="grin"],
+.mav-mouth[data-shape="talk"]       > .mouth-shape[data-shape="talk"],
+.mav-mouth[data-shape="closed"]     > .mouth-shape[data-shape="closed"],
+.mav-mouth[data-shape="narrow"]     > .mouth-shape[data-shape="narrow"],
+.mav-mouth[data-shape="wideFlat"]   > .mouth-shape[data-shape="wideFlat"],
+.mav-mouth[data-shape="roundSmall"] > .mouth-shape[data-shape="roundSmall"],
+.mav-mouth[data-shape="roundLarge"] > .mouth-shape[data-shape="roundLarge"],
+.mav-mouth[data-shape="open"]       > .mouth-shape[data-shape="open"] { display: block; }
+
+/* No transition on the mouth, ever. At phoneme rate a transition either lags
+   the audio or is cut off mid-interpolation, which reads as a wobble. */
+.mav-mouth, .mav-mouth * { transition: none !important; }
+
+/* Accessories: hidden by default, shown per state. */
+.mav-badge, .mav-dots, .mav-rings, .mav-ticket,
+.mav-aperture, .mav-slot, .mav-doc, .mav-scan { display: none; }
+
+/* --------------------------------------------------------- state colours  */
+
+.mav[data-state="thinking"] {
+  --matic-avatar-eye: var(--matic-avatar-eye-thinking);
+  --matic-avatar-tip: var(--matic-avatar-tip-thinking);
+  --matic-avatar-mark: var(--matic-avatar-mark-thinking);
+}
+.mav[data-state="success"] {
+  --matic-avatar-eye: var(--matic-avatar-eye-success);
+  --matic-avatar-tip: var(--matic-avatar-tip-success);
+  --matic-avatar-mark: var(--matic-avatar-mark-success);
+}
+.mav[data-state="apologising"] {
+  --matic-avatar-eye: var(--matic-avatar-eye-apologising);
+  --matic-avatar-tip: var(--matic-avatar-tip-apologising);
+  --matic-avatar-mark: var(--matic-avatar-mark-apologising);
+}
+.mav[data-state="declining"] {
+  --matic-avatar-eye: var(--matic-avatar-eye-declining);
+  --matic-avatar-tip: var(--matic-avatar-tip-declining);
+  --matic-avatar-mark: var(--matic-avatar-mark-declining);
+}
+.mav[data-state="escalating"] {
+  --matic-avatar-eye: var(--matic-avatar-eye-escalating);
+  --matic-avatar-tip: var(--matic-avatar-tip-escalating);
+  --matic-avatar-mark: var(--matic-avatar-mark-escalating);
+}
+.mav[data-state="error"] {
+  --matic-avatar-eye: var(--matic-avatar-eye-error);
+  --matic-avatar-tip: var(--matic-avatar-tip-error);
+  --matic-avatar-mark: var(--matic-avatar-mark-error);
+}
+
+/* Eye and mouth shape per state, so [data-state] alone is sufficient — the
+   pairings here are the manifest's pairings and must not drift from it.
+
+   The :not([data-shape]) guard is what makes the speech path work: set
+   data-shape on #mouth and it wins outright, with no specificity fight and no
+   need to clear data-state. Remove data-shape and the state's mouth returns. */
+
+.mav[data-state="idle"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="oval"],
+.mav[data-state="idle"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="smile"] { display: block; }
+.mav[data-state="listening"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="round"],
+.mav[data-state="listening"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="roundSmall"] { display: block; }
+.mav[data-state="thinking"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="oval"],
+.mav[data-state="thinking"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="narrow"] { display: block; }
+.mav[data-state="speaking"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="oval"],
+.mav[data-state="speaking"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="talk"] { display: block; }
+.mav[data-state="greeting"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="oval"],
+.mav[data-state="greeting"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="grin"] { display: block; }
+.mav[data-state="success"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="happy"],
+.mav[data-state="success"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="grin"] { display: block; }
+.mav[data-state="apologising"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="lowered"],
+.mav[data-state="apologising"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="narrow"] { display: block; }
+.mav[data-state="declining"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="round"],
+.mav[data-state="declining"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="narrow"] { display: block; }
+.mav[data-state="escalating"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="oval"],
+.mav[data-state="escalating"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="narrow"] { display: block; }
+.mav[data-state="error"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="cross"],
+.mav[data-state="error"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="wideFlat"] { display: block; }
+.mav[data-state="accept"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="round"],
+.mav[data-state="accept"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="roundSmall"] { display: block; }
+.mav[data-state="ingest"] .mav-eyes:not([data-shape])  > .eye-shape[data-shape="oval"],
+.mav[data-state="ingest"] .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="narrow"] { display: block; }
+
+/* ------------------------------------------------- per-state composition  */
+/* Gaze shift, accessories and rig motion. Shapes are set in the block above. */
+
+.mav[data-state] .mav-eyes { transform: translate(0, 0); }
+
+.mav[data-state="idle"]        .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="thinking"]    .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="speaking"]    .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="success"]     .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="declining"]   .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="escalating"]  .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="accept"]      .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="ingest"]      .mav-rig { animation: matic-breathe var(--matic-breathe-duration, 4.4s) ease-in-out var(--matic-phase, 0s) infinite; }
+
+/* A two-beat that RESOLVES, then the client falls the state back to idle.
+   Not looped: a looping nod makes the panel fidget while the user reads. */
+.mav[data-state="greeting"]  .mav-rig { animation: matic-nod 1.5s ease-in-out 2 both; }
+.mav[data-state="listening"] .mav-rig { animation: matic-tilt 3s ease-in-out infinite; }
+.mav[data-state="apologising"] .mav-rig { animation: matic-bow 3.4s ease-in-out infinite; }
+/* error holds still — stillness is part of how it reads. */
+.mav[data-state="error"] .mav-rig { animation: none; }
+
+.mav[data-state="thinking"] .mav-eyes { transform: translate(-3px, -2px); }
+.mav[data-state="apologising"] .mav-eyes { transform: translate(0, 3px); }
+.mav[data-state="ingest"] .mav-eyes { transform: translate(0, 1px); }
+
+.mav .mav-tip { animation: matic-pulse 2.6s ease-in-out var(--matic-phase, 0s) infinite; }
+.mav[data-state="ingest"] .mav-tip { animation: matic-flash 0.4s steps(1, end) infinite; }
+
+.mav[data-state="speaking"]:not([data-visemes]) .mav-talk {
+  animation: matic-talk 0.42s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+/* With a viseme stream bound, the fallback chatter must be off. */
+.mav[data-visemes] .mav-talk { animation: none; }
+
+.mav[data-state="success"]     .mav-badge,
+.mav[data-state="declining"]   .mav-badge,
+.mav[data-state="escalating"]  .mav-badge,
+.mav[data-state="error"]       .mav-badge { display: block; }
+
+/* The badge disc is shared; the glyph inside is not. All four live in the same
+   coordinate space and exactly one is shown — a swap, never a re-render. */
+.mav-badge-glyph { display: none; }
+.mav[data-state="success"]    .mav-badge-glyph[data-glyph="tick"],
+.mav[data-state="declining"]  .mav-badge-glyph[data-glyph="question"],
+.mav[data-state="escalating"] .mav-badge-glyph[data-glyph="arrow"],
+.mav[data-state="error"]      .mav-badge-glyph[data-glyph="bang"] { display: block; }
+
+.mav[data-state="thinking"]   .mav-dots { display: block; }
+.mav[data-state="listening"]  .mav-rings { display: block; }
+.mav[data-state="escalating"] .mav-ticket { display: block; }
+.mav[data-state="accept"]     .mav-aperture,
+.mav[data-state="accept"]     .mav-slot { display: block; }
+.mav[data-state="ingest"]     .mav-doc,
+.mav[data-state="ingest"]     .mav-scan { display: block; }
+
+/* accept: the mark dims as the aperture opens over it. */
+.mav[data-state="accept"] .mav-mark { opacity: 0.2; }
+
+.mav .mav-dots .acc-dot { animation: matic-dot 1.1s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 50%; }
+.mav .mav-dots .acc-dot:nth-child(2) { animation-delay: 0.15s; }
+.mav .mav-dots .acc-dot:nth-child(3) { animation-delay: 0.3s; }
+
+.mav .mav-rings ellipse { animation: matic-ring 1.6s ease-out infinite; transform-box: fill-box; transform-origin: 50% 50%; }
+.mav .mav-rings ellipse:nth-child(2) { animation-delay: 0.4s; }
+
+.mav .mav-aperture { animation: matic-aperture 1.5s ease-out infinite; transform-box: fill-box; transform-origin: 50% 50%; }
+.mav .mav-doc { animation: matic-ingest 1.6s ease-in infinite; transform-box: fill-box; transform-origin: 50% 50%; }
+.mav .mav-scan { animation: matic-scan 1.4s linear infinite; }
+
+/* --------------------------------------------------------------- motion   */
+/* Values are the manifest's motion{} block. Keep the two in step. */
+
+@keyframes matic-breathe {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2.5px); }
+}
+@keyframes matic-nod {
+  0%   { transform: translateY(0) rotate(0deg); }
+  30%  { transform: translateY(-4px) rotate(-3deg); }
+  60%  { transform: translateY(1px) rotate(2deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+@keyframes matic-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-4deg); }
+}
+@keyframes matic-bow {
+  0%, 100%  { transform: translateY(0) rotate(0deg); }
+  35%, 65%  { transform: translateY(6px) rotate(3deg); }
+}
+@keyframes matic-talk {
+  0%, 100% { transform: scaleY(0.35); }
+  50%      { transform: scaleY(1.5); }
+}
+@keyframes matic-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+@keyframes matic-flash {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0.14; }
+}
+@keyframes matic-dot {
+  0%, 100% { opacity: 0.18; transform: translateY(0); }
+  40%      { opacity: 1; transform: translateY(-5px); }
+}
+@keyframes matic-ring {
+  0%   { transform: scale(0.55); opacity: 0.85; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+@keyframes matic-aperture {
+  0%   { transform: scale(0.75); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+@keyframes matic-ingest {
+  0%   { transform: translateY(-40px) scale(1); opacity: 0; }
+  18%  { opacity: 1; }
+  78%  { transform: translateY(-2px) scale(0.42); opacity: 1; }
+  100% { transform: translateY(2px) scale(0.1); opacity: 0; }
+}
+@keyframes matic-scan {
+  0%   { transform: translateY(0); opacity: 0; }
+  22%  { opacity: 0.85; }
+  100% { transform: translateY(54px); opacity: 0; }
+}
+
+/* Idle jitter. Set these two properties per mount, ONCE, and keep them stable
+   for the mount's lifetime:
+       el.style.setProperty('--matic-breathe-duration', (4.4 * (0.95 + Math.random() * 0.1)).toFixed(2) + 's');
+       el.style.setProperty('--matic-phase', '-' + (Math.random() * 5).toFixed(2) + 's');
+   Without them, two avatars on screen breathe in lockstep — an obvious tell
+   that they are one asset rather than two agents. Do not recompute on render. */
+
+/* ------------------------------------------------------------- tray dot   */
+/* 16–24px. Four reads, separated by MOTION first: at this size on an unknown
+   taskbar background, assume hue is unreadable. */
+
+.tray-dot {
+  position: relative;
+  display: inline-block;
+  width: var(--tray-size, 16px);
+  height: var(--tray-size, 16px);
+  border-radius: 50%;
+  background: var(--tray-colour, #3f7fc4);
+}
+.tray-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
+
+.tray-dot[data-read="resting"] { animation: matic-pulse 2.6s ease-in-out infinite; }
+.tray-dot[data-read="working"] { animation: matic-pulse 1s ease-in-out infinite; }
+.tray-dot[data-read="needsYou"]::after {
+  border: 1.5px solid var(--tray-colour, #3f7fc4);
+  animation: matic-tray-ring 1.6s ease-out infinite;
+}
+/* unavailable: static. Absence of motion is the signal — a statement that the
+   assistant cannot work, not a request. */
+.tray-dot[data-read="unavailable"] { animation: none; }
+/* 'none' states never reach the tray; the tray returns to resting. */
+
+@keyframes matic-tray-ring {
+  0%   { transform: scale(0.8); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* Light system themes: keep the hue, add separation. */
+.matic-tray-light .tray-dot { box-shadow: 0 0 0 1px rgba(29, 31, 32, 0.2); }
+
+/* ------------------------------------------------- prefers-reduced-motion */
+/* NOT in v7 — a design decision made for this delivery.
+
+   The structural problem: v7 makes motion the primary tray channel precisely
+   because hue is unreadable at 16px. Switch motion off and the four tray reads
+   collapse into one dot. Turning animation off is therefore not sufficient;
+   the tray needs a STATIC vocabulary that still separates four reads.
+
+   Solution: static FORM — the one channel that is neither motion nor hue.
+       resting      hollow          ring only, transparent centre  (lightest)
+       working      solid           filled circle
+       needsYou     solid + halo    filled, plus a static ring at 1.9x
+       unavailable  solid + strike  filled, with a bar knocked through
+
+   Four distinct silhouettes at 16px that survive greyscale, ordered by visual
+   weight so the motion version's urgency ranking is preserved.
+
+   Acceptance test: render all four at 16px, greyscale, animation disabled.
+   If any two are confusable, this fallback has failed. */
+
+@media (prefers-reduced-motion: reduce) {
+
+  /* Hold every rig motion at its rest pose. */
+  .mav .mav-rig { animation: none !important; transform: none !important; }
+
+  /* Tip holds at FULL opacity, not its dimmest frame. */
+  .mav .mav-tip { animation: none !important; opacity: 1 !important; }
+
+  /* Fallback chatter stops and rests closed. Phoneme-driven mouth swaps are
+     NOT animation — they are discrete state changes carrying information, and
+     they keep running. Offer a separate app-level setting for users who want
+     lip-sync off too. */
+  .mav .mav-talk { animation: none !important; transform: none !important; }
+  .mav[data-state="speaking"]:not([data-visemes]) .mav-mouth > .mouth-shape[data-shape="talk"] { display: none !important; }
+  .mav[data-state="speaking"]:not([data-visemes]) .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="closed"] { display: block; }
+
+  /* Accessories stop moving but stay VISIBLE — each one is a state's
+     differentiator, so hiding it would cost a read. */
+  .mav .mav-dots .acc-dot { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .mav .mav-rings ellipse { animation: none !important; opacity: 0.85 !important; transform: none !important; }
+  .mav .mav-aperture { animation: none !important; opacity: 0.9 !important; transform: none !important; }
+  /* ingest holds at its mid-draw frame so the state still reads. */
+  .mav .mav-doc { animation: none !important; opacity: 1 !important; transform: translateY(-2px) scale(0.42) !important; }
+  /* The scan line is the exception: a static line across the face reads as
+     damage rather than scanning, so it is hidden outright. */
+  .mav .mav-scan { animation: none !important; display: none !important; }
+
+  /* --- tray: the structural case --- */
+  .tray-dot { animation: none !important; opacity: 1 !important; }
+  .tray-dot::after { animation: none !important; }
+
+  .tray-dot[data-read="resting"] {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px var(--tray-colour, #3f7fc4);
+  }
+  .tray-dot[data-read="working"] {
+    background: var(--tray-colour, #3f7fc4);
+  }
+  .tray-dot[data-read="needsYou"]::after {
+    inset: calc(var(--tray-size, 16px) * -0.45);
+    border: 1.5px solid var(--tray-colour, #3f7fc4);
+    transform: none;
+    opacity: 1;
+  }
+  .tray-dot[data-read="unavailable"] {
+    background: var(--tray-colour, #f08a80);
+  }
+  .tray-dot[data-read="unavailable"]::after {
+    inset: auto;
+    top: 50%;
+    left: 20%;
+    width: 60%;
+    height: 2px;
+    border-radius: 1px;
+    transform: translateY(-50%);
+    background: var(--tray-ground, #1d1f20);
+  }
+}
+
+
+
+
+
+/* ==== forced reduced-motion, for the harness toggle only ====
+   A class mirror of the @media block above, generated from it so the two
+   cannot drift. Not part of the deliverable. */
+
+
+  /* Hold every rig motion at its rest pose. */
+  .force-reduced .mav .mav-rig { animation: none !important; transform: none !important; }
+
+  /* Tip holds at FULL opacity, not its dimmest frame. */
+  .force-reduced .mav .mav-tip { animation: none !important; opacity: 1 !important; }
+
+  /* Fallback chatter stops and rests closed. Phoneme-driven mouth swaps are
+     NOT animation — they are discrete state changes carrying information, and
+     they keep running. Offer a separate app-level setting for users who want
+     lip-sync off too. */
+  .force-reduced .mav .mav-talk { animation: none !important; transform: none !important; }
+  .force-reduced .mav[data-state="speaking"]:not([data-visemes]) .mav-mouth > .mouth-shape[data-shape="talk"] { display: none !important; }
+  .force-reduced .mav[data-state="speaking"]:not([data-visemes]) .mav-mouth:not([data-shape]) > .mouth-shape[data-shape="closed"] { display: block; }
+
+  /* Accessories stop moving but stay VISIBLE — each one is a state's
+     differentiator, so hiding it would cost a read. */
+  .force-reduced .mav .mav-dots .acc-dot { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .force-reduced .mav .mav-rings ellipse { animation: none !important; opacity: 0.85 !important; transform: none !important; }
+  .force-reduced .mav .mav-aperture { animation: none !important; opacity: 0.9 !important; transform: none !important; }
+  /* ingest holds at its mid-draw frame so the state still reads. */
+  .force-reduced .mav .mav-doc { animation: none !important; opacity: 1 !important; transform: translateY(-2px) scale(0.42) !important; }
+  /* The scan line is the exception: a static line across the face reads as
+     damage rather than scanning, so it is hidden outright. */
+  .force-reduced .mav .mav-scan { animation: none !important; display: none !important; }
+
+  /* --- tray: the structural case --- */
+  .force-reduced .tray-dot { animation: none !important; opacity: 1 !important; }
+  .force-reduced .tray-dot::after { animation: none !important; }
+
+  .force-reduced .tray-dot[data-read="resting"] {
+    background: transparent;
+    .force-reduced box-shadow: inset 0 0 0 2px var(--tray-colour, .force-reduced #3f7fc4);,
+  }
+  .force-reduced .tray-dot[data-read="working"] {
+    .force-reduced background: var(--tray-colour, .force-reduced #3f7fc4);,
+  }
+  .force-reduced .tray-dot[data-read="needsYou"]::after {
+    .force-reduced inset: calc(var(--tray-size, .force-reduced 16px) * -0.45);,
+    .force-reduced border: 1.5px solid var(--tray-colour, .force-reduced #3f7fc4);,
+    transform: none;
+    opacity: 1;
+  }
+  .force-reduced .tray-dot[data-read="unavailable"] {
+    .force-reduced background: var(--tray-colour, .force-reduced #f08a80);,
+  }
+  .force-reduced .tray-dot[data-read="unavailable"]::after {
+    inset: auto;
+    top: 50%;
+    left: 20%;
+    width: 60%;
+    height: 2px;
+    border-radius: 1px;
+    transform: translateY(-50%);
+    .force-reduced background: var(--tray-ground, .force-reduced #1d1f20);,
+  }
+
+
+/* ==== harness chrome (not part of the deliverable) ==== */
+/* The comparison grid holds ~60 avatars. Animating all of them at once costs
+   far more than the product ever will (it shows one, occasionally two), and it
+   makes this page heavy on the same low-spec laptops the client targets. So
+   the grid is static unless asked otherwise. Motion is what the weak-pairing
+   section below is for. */
+#state-grid table.static svg, #state-grid table.static svg * { animation: none !important; }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0 0 80px;
+  font: 14px/1.5 'Barlow', system-ui, -apple-system, sans-serif;
+  background: #f2f2f3; color: #1d1f20;
+}
+h1 { font-family: 'Barlow Condensed', system-ui, sans-serif; font-weight: 600;
+     font-size: 42px; line-height: 1; letter-spacing: .01em; text-transform: uppercase; margin: 0; }
+h2 { font-family: 'Barlow Condensed', system-ui, sans-serif; font-weight: 600;
+     font-size: 26px; line-height: 1; letter-spacing: .03em; text-transform: uppercase; margin: 0 0 6px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 40px 32px 0; }
+.kicker { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #5980a6; }
+.lede { font-size: 14px; line-height: 1.6; color: #424244; max-width: 92ch; }
+section { border-top: 1px solid rgba(29,31,32,.16); padding-top: 22px; margin-top: 52px; }
+.bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 18px 0; }
+button, select, label.tgl {
+  font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid rgba(29,31,32,.3);
+  background: #fdfefe; color: #1d1f20; border-radius: 0; cursor: pointer;
+}
+button:hover, label.tgl:hover { background: #e3ebf3; }
+button[aria-pressed="true"], label.tgl.on { background: #5980a6; color: #fdfefe; border-color: #5980a6; }
+label.tgl input { margin-right: 6px; }
+.panel { border: 1px solid rgba(29,31,32,.2); background: #fdfefe; padding: 20px; }
+.panel.dark { background: #12213a; border-color: #2c4160; color: #e8edf2; }
+table.grid { border-collapse: collapse; width: 100%; }
+table.grid th, table.grid td { border: 1px solid rgba(29,31,32,.14); padding: 8px; text-align: center; vertical-align: bottom; }
+table.grid th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #5d5d60; font-weight: 600; }
+table.grid th.st { text-align: left; font-family: 'Barlow Condensed', sans-serif; font-size: 15px; letter-spacing: .04em; }
+table.grid tr.parked { opacity: .55; }
+.slot { display: inline-block; overflow: hidden; vertical-align: bottom; }
+.slot > svg { display: block; }
+.cap { font-size: 10px; letter-spacing: .08em; color: #5d5d60; margin-top: 4px; }
+.warn { color: #b1554c; font-weight: 600; }
+.note { font-size: 12px; line-height: 1.5; color: #5d5d60; margin-top: 8px; }
+.row { display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap; }
+.tray-strip { display: flex; gap: 26px; align-items: center; padding: 14px 18px; }
+.tray-strip.light { background: #dfe3e8; }
+.tray-strip.dark { background: #1d1f20; --tray-ground: #1d1f20; }
+.tray-cell { text-align: center; font-size: 10px; letter-spacing: .08em; }
+.tray-strip.dark .tray-cell { color: #b9c2cc; }
+.tray-cell .dots { display: flex; gap: 10px; align-items: center; justify-content: center; height: 30px; }
+.pairs { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; background: rgba(89,128,166,.12); padding: 1px 4px; }
+</style>
+</head>
+<body>
+
+<template id="chassis">
+<svg xmlns="http://www.w3.org/2000/svg" id="matic-avatar" class="mav" viewBox="0 0 200 200" width="200" height="200" role="img" data-state="idle" aria-label="Matic" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYToyZGZhNTU0Mi03YWM4LTRiOGUtYWUxOC02OWQ0ZTkzZDY3NTgAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaLq9/ZNNpQ4O79+GgJojGvoAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo4YThjZTA2ZS0xZjUzLTQyNzYtYTI4OC0wZjgyZTZhNDlhNjFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoY3h5W4fMQArYhqyeAbmDTAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg8WUTUV8GpgITdj0VN8DjI3qfd5Q6PtFHW0761aBFyTykZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaPHbXrW1fIwtsM8vIk2yPRkAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRNAAAAAAAAAAAAAAAAAGRoYXNoWCD1Ji0YnQ6F/4onmPBCVI12V4/mBYznc63M52JYqGD07mRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBj5Zmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjJkZmE1NTQyLTdhYzgtNGI4ZS1hZTE4LTY5ZDRlOTNkNjc1OC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjBkMDI5ODAxLTkxY2UtNDgzNi1hYmE5LTk1MGE2MWRkYWNjMHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDxZRNRXwamAhN2PRU3wOMjep93lDo+0UdbTvrVoEXJPKJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgg5u6Qo6v4+N8JfQXGUEfjtVyfqDZCQppl1wFhb5ddr2KiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg1D/+j/s64GNRtKQXlTqqonYGNtLZ+xFz9Am75G/UiLB0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQIlABsEhr6JMfRJV+qeHokl9dF+ZcXVRTvxsD7rWFsTybYQf8N9Po2c4vyxLjMqX9zCqglY0VA8zwNT/fMPJ2i8=</c2pa:manifest></metadata>
+
+  <defs>
+    
+    <clipPath id="clip-helmet">
+      <path d="M46 91 A47 47 0 0 1 93 44 H107 A47 47 0 0 1 154 91 V119 A30 30 0 0 1 124 149 H76 A30 30 0 0 1 46 119 Z"></path>
+    </clipPath>
+    <clipPath id="clip-torso">
+      <path d="M44 179 A26 26 0 0 1 70 153 H130 A26 26 0 0 1 156 179 V200 H44 Z"></path>
+    </clipPath>
+    <clipPath id="clip-face">
+      <rect x="56" y="60" width="88" height="76" rx="23"></rect>
+    </clipPath>
+  </defs>
+
+  
+
+  
+  <circle id="field" cx="100" cy="98" r="86" fill="var(--matic-avatar-field, #cbe3f7)"></circle>
+
+  
+  <g id="rig" class="mav-rig">
+
+    <rect id="antenna-stem" x="98" y="32" width="4" height="28" rx="2" fill="var(--matic-avatar-ink, #1b3556)"></rect>
+
+    
+    <circle id="tip" class="mav-tip" cx="100" cy="25" r="11" fill="var(--matic-avatar-tip, var(--matic-avatar-tip-default, #3f7fc4))"></circle>
+
+    <g id="ear-pod-left">
+      <rect x="33" y="85" width="24" height="40" rx="9" fill="var(--matic-avatar-pod, #3f7fc4)"></rect>
+      <rect x="37" y="90" width="9" height="30" rx="5" fill="var(--matic-avatar-pod-inner, #5c9ad9)"></rect>
+    </g>
+    <g id="ear-pod-right">
+      <rect x="143" y="85" width="24" height="40" rx="9" fill="var(--matic-avatar-pod, #3f7fc4)"></rect>
+      <rect x="154" y="90" width="9" height="30" rx="5" fill="var(--matic-avatar-pod-inner, #5c9ad9)"></rect>
+    </g>
+
+    <g id="helmet">
+      <path d="M46 91 A47 47 0 0 1 93 44 H107 A47 47 0 0 1 154 91 V119 A30 30 0 0 1 124 149 H76 A30 30 0 0 1 46 119 Z" fill="var(--matic-avatar-shell, #fdfefe)"></path>
+      <g clip-path="url(#clip-helmet)">
+        <rect x="52" y="-14" width="110" height="150" transform="rotate(9 107 61)" fill="var(--matic-avatar-shell-shade, #d9e0e7)"></rect>
+      </g>
+    </g>
+
+    
+    <g id="face-screen" class="mav-face">
+      <rect x="56" y="60" width="88" height="76" rx="23" fill="var(--matic-avatar-ink, #1b3556)"></rect>
+
+      <g clip-path="url(#clip-face)">
+
+        
+        <g id="eyes" class="mav-eyes" fill="var(--matic-avatar-eye, var(--matic-avatar-eye-default, #bfe4f7))">
+
+          <g class="eye-shape" data-shape="oval">
+            <rect x="68" y="76" width="18" height="23" rx="9"></rect>
+            <rect x="114" y="76" width="18" height="23" rx="9"></rect>
+          </g>
+
+          <g class="eye-shape" data-shape="round">
+            <circle cx="77.5" cy="88.5" r="9.5"></circle>
+            <circle cx="122.5" cy="88.5" r="9.5"></circle>
+          </g>
+
+          
+          <g class="eye-shape" data-shape="happy" fill="none" stroke="var(--matic-avatar-eye, var(--matic-avatar-eye-default, #bfe4f7))" stroke-width="3" stroke-linecap="round">
+            <path d="M69.5 91.5 A8 8.5 0 0 1 85.5 91.5"></path>
+            <path d="M114.5 91.5 A8 8.5 0 0 1 130.5 91.5"></path>
+          </g>
+
+          <g class="eye-shape" data-shape="lowered">
+            <rect x="68" y="86" width="18" height="7" rx="3.5" transform="rotate(10 77 89.5)"></rect>
+            <rect x="114" y="86" width="18" height="7" rx="3.5" transform="rotate(-10 123 89.5)"></rect>
+          </g>
+
+          <g class="eye-shape" data-shape="cross">
+            <rect x="68" y="85.5" width="16" height="3" rx="1.5" transform="rotate(45 76 87)"></rect>
+            <rect x="68" y="85.5" width="16" height="3" rx="1.5" transform="rotate(-45 76 87)"></rect>
+            <rect x="116" y="85.5" width="16" height="3" rx="1.5" transform="rotate(45 124 87)"></rect>
+            <rect x="116" y="85.5" width="16" height="3" rx="1.5" transform="rotate(-45 124 87)"></rect>
+          </g>
+        </g>
+
+        
+        <g id="mouth" class="mav-mouth">
+
+          
+          <path class="mouth-shape" data-shape="smile" d="M88.5 106.5 A12 11 0 0 0 111.5 106.5" fill="none" stroke="var(--matic-avatar-eye, #bfe4f7)" stroke-width="3" stroke-linecap="round"></path>
+
+          <path class="mouth-shape" data-shape="grin" d="M84.5 104.5 A16 16 0 0 0 115.5 104.5" fill="none" stroke="var(--matic-avatar-eye, #bfe4f7)" stroke-width="3" stroke-linecap="round"></path>
+
+          <path class="mouth-shape" data-shape="closed" d="M89.5 109.5 A11 6 0 0 0 110.5 109.5" fill="none" stroke="var(--matic-avatar-eye, #bfe4f7)" stroke-width="3" stroke-linecap="round"></path>
+
+          <rect class="mouth-shape" data-shape="narrow" x="93" y="110" width="14" height="4" rx="2" fill="var(--matic-avatar-eye, #bfe4f7)"></rect>
+
+          <rect class="mouth-shape" data-shape="wideFlat" x="85" y="109" width="30" height="5" rx="2.5" fill="var(--matic-avatar-eye, #bfe4f7)"></rect>
+
+          <circle class="mouth-shape" data-shape="roundSmall" cx="100" cy="112" r="5.5" fill="none" stroke="var(--matic-avatar-eye, #bfe4f7)" stroke-width="3"></circle>
+
+          <ellipse class="mouth-shape" data-shape="roundLarge" cx="100" cy="113" rx="10.5" ry="9.5" fill="none" stroke="var(--matic-avatar-eye, #bfe4f7)" stroke-width="3"></ellipse>
+
+          <ellipse class="mouth-shape" data-shape="open" cx="100" cy="113" rx="15" ry="11" fill="var(--matic-avatar-eye, #bfe4f7)"></ellipse>
+
+          
+          <rect class="mouth-shape mav-talk" data-shape="talk" id="mouth-talk" x="92" y="104" width="16" height="13" rx="3" fill="var(--matic-avatar-eye, #bfe4f7)"></rect>
+        </g>
+
+        
+        <rect id="scan-line" class="mav-scan" x="56" y="68" width="88" height="3" fill="var(--matic-avatar-accent-scan, #7cd8f5)"></rect>
+      </g>
+    </g>
+
+    <rect id="neck" x="85" y="132" width="30" height="16" fill="var(--matic-avatar-ink, #1b3556)"></rect>
+  </g>
+
+  
+  <rect id="collar" x="69" y="143" width="62" height="15" rx="8" fill="var(--matic-avatar-collar, #1f5fa8)"></rect>
+
+  <g id="torso">
+    <path d="M44 179 A26 26 0 0 1 70 153 H130 A26 26 0 0 1 156 179 V200 H44 Z" fill="var(--matic-avatar-shell, #fdfefe)"></path>
+    <g clip-path="url(#clip-torso)">
+      <rect x="60" y="143" width="104" height="70" transform="rotate(9 112 178)" fill="var(--matic-avatar-shell-shade, #d9e0e7)"></rect>
+    </g>
+  </g>
+
+  <path id="shoulder-cap-left" d="M42 177 A11 11 0 0 1 53 166 A11 11 0 0 1 65 177 V200 H42 Z" fill="var(--matic-avatar-ink, #1b3556)"></path>
+  <path id="shoulder-cap-right" d="M135 177 A11 11 0 0 1 146 166 A11 11 0 0 1 158 177 V200 H135 Z" fill="var(--matic-avatar-ink, #1b3556)"></path>
+
+  
+  <g id="chest-mark" class="mav-mark">
+    <polygon points="100,160 113,167.25 113,181.75 100,189 87,181.75 87,167.25" fill="var(--matic-avatar-mark, var(--matic-avatar-mark-default, #1f5fa8))"></polygon>
+    <polygon points="100,162.5 110.5,168.4 110.5,180.6 100,186.5 89.5,180.6 89.5,168.4" fill="var(--matic-avatar-shell, #fdfefe)"></polygon>
+    <text x="100" y="179.5" text-anchor="middle" font-family="'Barlow Condensed', 'Barlow Semi Condensed', system-ui, sans-serif" font-weight="600" font-size="16" fill="var(--matic-avatar-mark, var(--matic-avatar-mark-default, #1f5fa8))">M</text>
+  </g>
+
+  
+
+  
+
+
+  
+    <g id="badge" class="mav-badge">
+    <circle cx="171" cy="37" r="15" fill="var(--matic-avatar-mark, var(--matic-avatar-mark-default, #1f5fa8))"></circle>
+
+    <path id="badge-tick" class="mav-badge-glyph" data-glyph="tick" d="M164 37.5 L169 42.5 L178.5 32" fill="none" stroke="var(--matic-avatar-badge-ink, #fdfefe)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+
+    <text id="badge-question" class="mav-badge-glyph" data-glyph="question" x="171" y="43.5" text-anchor="middle" font-family="'Barlow', system-ui, sans-serif" font-weight="600" font-size="18" fill="var(--matic-avatar-badge-ink, #fdfefe)">?</text>
+
+    <path id="badge-arrow" class="mav-badge-glyph" data-glyph="arrow" d="M171 45 L171 29 M164.5 35.5 L171 29 L177.5 35.5" fill="none" stroke="var(--matic-avatar-badge-ink, #fdfefe)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+
+    <text id="badge-bang" class="mav-badge-glyph" data-glyph="bang" x="171" y="43.5" text-anchor="middle" font-family="'Barlow', system-ui, sans-serif" font-weight="700" font-size="19" fill="var(--matic-avatar-badge-ink, #fdfefe)">!</text>
+  </g>
+
+  <g id="thinking-dots" class="mav-dots" fill="var(--matic-avatar-tip-thinking, #a78bfa)">
+    <circle class="acc-dot" cx="154" cy="40" r="4"></circle>
+    <circle class="acc-dot" cx="168" cy="40" r="4"></circle>
+    <circle class="acc-dot" cx="182" cy="40" r="4"></circle>
+  </g>
+
+  
+  <g id="ear-rings" class="mav-rings" fill="none" stroke="var(--matic-avatar-accent-scan, #7cd8f5)" stroke-width="3">
+    <ellipse cx="39" cy="106" rx="17" ry="22"></ellipse>
+    <ellipse cx="161" cy="106" rx="17" ry="22"></ellipse>
+  </g>
+
+  
+  <g id="ticket" class="mav-ticket" transform="rotate(-8 169 152)">
+    <rect x="146" y="136" width="46" height="32" fill="var(--matic-avatar-paper, #f2f2f3)" stroke="var(--matic-avatar-paper-edge, #416180)" stroke-width="2"></rect>
+    <rect x="152" y="142" width="34" height="2" fill="var(--matic-avatar-paper-line, #5980a6)"></rect>
+    <rect x="152" y="148" width="27" height="2" fill="var(--matic-avatar-paper-line-dim, #b7b7ba)"></rect>
+    <rect x="152" y="154" width="20" height="2" fill="var(--matic-avatar-paper-line-dim, #b7b7ba)"></rect>
+  </g>
+
+  
+  <g id="chest-aperture" class="mav-aperture">
+    <polygon points="100,156 117,165.25 117,183.75 100,193 83,183.75 83,165.25" fill="none" stroke="var(--matic-avatar-mark, var(--matic-avatar-mark-default, #1f5fa8))" stroke-width="3" stroke-dasharray="6 5"></polygon>
+  </g>
+  <rect id="chest-slot" class="mav-slot" x="90" y="171" width="20" height="7" rx="3.5" fill="var(--matic-avatar-mark, var(--matic-avatar-mark-default, #1f5fa8))"></rect>
+
+  
+  <g id="ingest-document" class="mav-doc">
+    <rect x="88" y="158" width="24" height="30" fill="var(--matic-avatar-paper, #f2f2f3)" stroke="var(--matic-avatar-paper-edge, #416180)" stroke-width="2"></rect>
+    <rect x="92" y="163" width="16" height="2" fill="var(--matic-avatar-paper-line, #5980a6)"></rect>
+    <rect x="92" y="168" width="11" height="2" fill="var(--matic-avatar-paper-line-dim, #b7b7ba)"></rect>
+    <rect x="92" y="173" width="14" height="2" fill="var(--matic-avatar-paper-line-dim, #b7b7ba)"></rect>
+  </g>
+
+</svg>
+</template>
+
+<div class="wrap">
+  <div class="kicker" style="margin-bottom:8px">Matic — conversational avatar</div>
+  <h1>Implementation harness</h1>
+  <div class="bar" style="margin-top:14px">
+    <span class="kicker">v7 · 2026.09.09</span>
+    <span class="lede" style="flex:1;min-width:320px">One chassis with swappable regions — not twelve drawings. Inline SVG, CSS only, no build, no network, no GPU. Every figure on this page is the same markup with different attributes.</span>
+  </div>
+
+  <div class="bar">
+    <button id="t-theme" aria-pressed="false">Dark panel</button>
+    <label class="tgl" id="t-reduced-l"><input type="checkbox" id="t-reduced">Reduced motion</label>
+    <label class="tgl" id="t-grey-l"><input type="checkbox" id="t-grey">Greyscale</label>
+  </div>
+
+  <section>
+    <div class="kicker">Item 1</div>
+    <h2>Twelve states × five sizes</h2>
+    <div class="lede">A shared pairing is visible <em>as</em> a shared pairing. 160 and 96 are the full bust; 64, 44 and 32 are the head crop — a fixed source box <code>26,12 → 174,160</code> that clips identically at every one of them.</div>
+    <div class="bar"><button id="t-gridmo" aria-pressed="false">Animate grid</button><span class="note" style="margin:0">Static by default — 60 avatars animating at once costs more than the product ever will, and shapes are easier to compare still.</span></div>
+    <div id="state-grid"></div>
+  </section>
+
+  <section>
+    <div class="kicker">Item 2</div>
+    <h2>Six speech shapes, at rate</h2>
+    <div class="lede">Driven by a single attribute write on <code>.mav-mouth</code> at phoneme rate. The rig keeps breathing throughout — the swap never restarts it, because they are different elements and different properties.</div>
+    <div class="bar">
+      <button id="sp-play" aria-pressed="true">Pause</button>
+      <select id="sp-rate">
+        <option value="1">1× — realistic (~85ms)</option>
+        <option value="3">0.33× — slow</option>
+        <option value="8">0.125× — step through</option>
+      </select>
+      <span class="kicker">Shape <strong id="sp-now" style="color:#416180">closed</strong></span>
+    </div>
+    <div class="row" id="speech-row"></div>
+  </section>
+
+  <section>
+    <div class="kicker">Item 3</div>
+    <h2>Four tray treatments, 16 and 24px</h2>
+    <div class="lede">Separated by motion first: at this size on an unknown taskbar background, assume hue is unreadable. Toggle <strong>reduced motion</strong> above to see the static form fallback — hollow, solid, haloed, struck.</div>
+    <div class="row" style="margin-top:16px">
+      <div class="tray-strip light" id="tray-light"></div>
+      <div class="tray-strip dark" id="tray-dark"></div>
+    </div>
+    <div class="note">Acceptance test for the fallback: switch on reduced motion <em>and</em> greyscale. If any two of the four are confusable at 16px, it has failed.</div>
+  </section>
+
+  <section>
+    <div class="kicker">Item 6</div>
+    <h2>The two known-weak pairings</h2>
+    <div class="lede">Rendered at the sizes where they are weak, so the constraint is visible rather than only written down. <strong>This is expected behaviour, not a defect</strong> — v7's reasoning is settled.</div>
+    <div class="pairs" style="margin-top:18px">
+      <div class="panel">
+        <div class="kicker" style="margin-bottom:10px">oval + narrow at 64px — <span class="warn">escalating fails</span></div>
+        <div class="row" id="weak-esc"></div>
+        <div class="note">The ticket sits at <code>146,136</code>, outside the crop box — 46% visible. The amber tip is hue, which is never a differentiator in this spec. So at 64px <code>escalating</code> <strong>is</strong> <code>thinking</code>. It is a full-bust state: 96px and up. Compare with the 96px pair below, where the ticket returns.</div>
+        <div class="row" id="weak-esc-ok" style="margin-top:14px"></div>
+      </div>
+      <div class="panel">
+        <div class="kicker" style="margin-bottom:10px">round + roundSmall at 64px — accept is weak</div>
+        <div class="row" id="weak-acc"></div>
+        <div class="note">Separated only by the <em>absence</em> of listening's head tilt — accept's chest aperture is 11% visible under the crop, while listening's ear rings survive at 88%. Legible, but prefer the full bust. Watch them for a few seconds: the tilt is the tell.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Reference</div>
+    <h2>Files in this delivery</h2>
+    <div class="lede">
+      <strong>assets/matic-avatar.svg</strong> — the chassis. One figure, all five eye shapes and all nine mouth shapes present in one coordinate space, stable ids, every colour a token.<br>
+      <strong>assets/matic-avatar.css</strong> — tokens (light + dark as a token swap), state composition, all motion values, and the reduced-motion behaviour.<br>
+      <strong>assets/matic-avatar.manifest.json</strong> — the machine-readable state map, phoneme table, crop bands, motion values and reduced-motion spec. <em>Make this the source; do not transcribe from the PDF.</em><br>
+      <strong>this file</strong> — the harness.
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var STATES = ["idle","listening","thinking","speaking","greeting","success","apologising","declining","escalating","error","accept","ingest"];
+  var MOUTHS = ["closed","narrow","wideFlat","roundSmall","roundLarge","open"];
+  var SIZES = [160, 96, 64, 44, 32];
+  var HEAD = { x: 26, y: 12, w: 148, h: 148 };
+  var PARKED = { ingest: 1 };
+  var MIN = { escalating: 96, accept: 64 };
+  var TRAY = {
+    resting: ['idle · greeting', '#3f7fc4'],
+    working: ['listening · thinking\nspeaking · ingest', '#a78bfa'],
+    needsYou: ['declining · accept', '#2fb3ab'],
+    unavailable: ['error', '#f08a80']
+  };
+  var tpl = document.getElementById('chassis');
+
+  // One avatar at a given size. Full bust below 96px switches to the head
+  // crop by swapping the viewBox — the crop is declared, not re-derived.
+  function make(state, size, opts) {
+    opts = opts || {};
+    var svg = tpl.content.firstElementChild.cloneNode(true);
+    var head = opts.forceFull ? false : size < 96;
+    if (head) svg.setAttribute('viewBox', HEAD.x + ' ' + HEAD.y + ' ' + HEAD.w + ' ' + HEAD.h);
+    svg.setAttribute('width', size);
+    svg.setAttribute('height', size);
+    svg.setAttribute('data-state', state);
+    svg.removeAttribute('id');
+    // Idle jitter: once per mount, stable for its lifetime.
+    svg.style.setProperty('--matic-breathe-duration', (4.4 * (0.95 + Math.random() * 0.1)).toFixed(2) + 's');
+    svg.style.setProperty('--matic-phase', '-' + (Math.random() * 5).toFixed(2) + 's');
+    // Nothing else is set. Eye shape, mouth shape and badge glyph all follow
+    // from data-state in CSS — that is acceptance §9.2, demonstrated rather
+    // than asserted. The speech section below is the one place data-shape is
+    // written directly, which is exactly how the client should drive visemes.
+    var slot = document.createElement('span');
+    slot.className = 'slot';
+    slot.style.width = size + 'px';
+    slot.style.height = size + 'px';
+    slot.appendChild(svg);
+    return slot;
+  }
+
+  window.__MAV_STATES = {
+    idle:        { eyes: 'oval',    mouth: 'smile' },
+    listening:   { eyes: 'round',   mouth: 'roundSmall' },
+    thinking:    { eyes: 'oval',    mouth: 'narrow' },
+    speaking:    { eyes: 'oval',    mouth: 'talk' },
+    greeting:    { eyes: 'oval',    mouth: 'grin' },
+    success:     { eyes: 'happy',   mouth: 'grin', badge: '\u2713' },
+    apologising: { eyes: 'lowered', mouth: 'narrow' },
+    declining:   { eyes: 'round',   mouth: 'narrow', badge: '?' },
+    escalating:  { eyes: 'oval',    mouth: 'narrow', badge: '\u2192' },
+    error:       { eyes: 'cross',   mouth: 'wideFlat', badge: '!' },
+    accept:      { eyes: 'round',   mouth: 'roundSmall' },
+    ingest:      { eyes: 'oval',    mouth: 'narrow' }
+  };
+
+  // ---- item 1: the grid
+  var t = document.createElement('table');
+  t.className = 'grid';
+  var head = '<tr><th class="st">State</th>';
+  SIZES.forEach(function (s) {
+    head += '<th>' + s + '<br><span style="font-weight:400;text-transform:none;letter-spacing:0">' + (s >= 96 ? 'full bust' : 'head crop') + '</span></th>';
+  });
+  t.innerHTML = head + '</tr>';
+  t.classList.add('static');
+  STATES.forEach(function (st) {
+    var tr = document.createElement('tr');
+    if (PARKED[st]) tr.className = 'parked';
+    var th = document.createElement('th');
+    th.className = 'st';
+    th.innerHTML = st + (PARKED[st] ? '<br><span style="font-weight:400;font-size:10px;letter-spacing:.1em;color:#5d5d60">PARKED</span>' : '');
+    tr.appendChild(th);
+    SIZES.forEach(function (s) {
+      var td = document.createElement('td');
+      td.appendChild(make(st, s));
+      if (MIN[st] && s < MIN[st]) {
+        var c = document.createElement('div');
+        c.className = 'cap warn';
+        c.textContent = st === 'escalating' ? 'reads as thinking' : 'weak';
+        td.appendChild(c);
+      }
+      tr.appendChild(td);
+    });
+    t.appendChild(tr);
+  });
+  document.getElementById('state-grid').appendChild(t);
+  document.getElementById('t-gridmo').addEventListener('click', function () {
+    var on = this.getAttribute('aria-pressed') !== 'true';
+    this.setAttribute('aria-pressed', String(on));
+    t.classList.toggle('static', !on);
+    this.textContent = on ? 'Pause grid motion' : 'Animate grid';
+  });
+
+  // ---- item 2: speech
+  var spRow = document.getElementById('speech-row');
+  [[160, 'INSPECTION'], [96, 'PANEL'], [44, 'HEADER']].forEach(function (p) {
+    var d = document.createElement('div');
+    d.style.textAlign = 'center';
+    var slot = make('speaking', p[0], { forceFull: p[0] >= 96 });
+    slot.querySelector('svg').setAttribute('data-visemes', '');
+    slot.classList.add('sp-target');
+    d.appendChild(slot);
+    var c = document.createElement('div');
+    c.className = 'cap';
+    c.textContent = p[0] + ' · ' + p[1];
+    d.appendChild(c);
+    spRow.appendChild(d);
+  });
+  var spI = 0, spPlaying = true, spRate = 1, spTimer = null;
+  function spStep() {
+    var shape = MOUTHS[spI % MOUTHS.length];
+    spI++;
+    document.querySelectorAll('.sp-target .mav-mouth').forEach(function (m) {
+      m.setAttribute('data-shape', shape);
+    });
+    document.getElementById('sp-now').textContent = shape;
+    spTimer = setTimeout(spStep, 85 * spRate);
+  }
+  spStep();
+  document.getElementById('sp-play').addEventListener('click', function () {
+    spPlaying = !spPlaying;
+    this.setAttribute('aria-pressed', String(spPlaying));
+    this.textContent = spPlaying ? 'Pause' : 'Play';
+    if (spPlaying) spStep(); else clearTimeout(spTimer);
+  });
+  document.getElementById('sp-rate').addEventListener('change', function () {
+    spRate = parseFloat(this.value);
+  });
+
+  // ---- item 3: tray
+  function trayStrip(el, label) {
+    var h = '<div class="tray-cell" style="min-width:64px;text-align:left"><strong>' + label + '</strong></div>';
+    Object.keys(TRAY).forEach(function (read) {
+      h += '<div class="tray-cell"><div class="dots">' +
+        '<span class="tray-dot" data-read="' + read + '" style="--tray-size:16px;--tray-colour:' + TRAY[read][1] + '"></span>' +
+        '<span class="tray-dot" data-read="' + read + '" style="--tray-size:24px;--tray-colour:' + TRAY[read][1] + '"></span>' +
+        '</div>' + read + '</div>';
+    });
+    el.innerHTML = h;
+  }
+  trayStrip(document.getElementById('tray-light'), 'Light');
+  trayStrip(document.getElementById('tray-dark'), 'Dark');
+
+  // ---- item 6: the weak pairings
+  function pair(el, a, b, size, forceFull) {
+    [a, b].forEach(function (st) {
+      var d = document.createElement('div');
+      d.style.textAlign = 'center';
+      d.appendChild(make(st, size, { forceFull: forceFull }));
+      var c = document.createElement('div');
+      c.className = 'cap';
+      c.textContent = st + ' · ' + size;
+      d.appendChild(c);
+      el.appendChild(d);
+    });
+  }
+  pair(document.getElementById('weak-esc'), 'thinking', 'escalating', 64);
+  pair(document.getElementById('weak-esc-ok'), 'thinking', 'escalating', 96, true);
+  pair(document.getElementById('weak-acc'), 'listening', 'accept', 64);
+
+  // ---- controls
+  document.getElementById('t-theme').addEventListener('click', function () {
+    var on = this.getAttribute('aria-pressed') !== 'true';
+    this.setAttribute('aria-pressed', String(on));
+    this.textContent = on ? 'Light ground' : 'Dark panel';
+    document.querySelectorAll('.panel, .wrap').forEach(function (n) {
+      n.classList.toggle('matic-avatar-theme-dark', on);
+      n.classList.toggle('matic-avatar-theme-light', !on);
+    });
+    document.body.style.background = on ? '#12213a' : '#f2f2f3';
+    document.body.style.color = on ? '#e8edf2' : '#1d1f20';
+  });
+  document.getElementById('t-reduced').addEventListener('change', function () {
+    document.documentElement.classList.toggle('force-reduced', this.checked);
+    document.getElementById('t-reduced-l').classList.toggle('on', this.checked);
+  });
+  document.getElementById('t-grey').addEventListener('change', function () {
+    document.documentElement.style.filter = this.checked ? 'grayscale(1)' : '';
+    document.getElementById('t-grey-l').classList.toggle('on', this.checked);
+  });
+})();
+</script>
+</body>
+</html>
