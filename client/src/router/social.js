@@ -1,6 +1,9 @@
 // @ts-check
+import persona from "./persona.json" with { type: "json" };
 /**
- * The social layer. D165, amended by D198. Built 2026-09-04.
+ * The social layer. D165, amended by D198. Built 2026-09-04. Persona-driven since 2026-09-10 (D234):
+ * every fixed sentence below is read from persona.json, rotated so a repeated greeting gets a
+ * different line, and the file's rules (no capability named, no outcome claimed) are a test.
  *
  * ---------------------------------------------------------------------------------------------
  * THIS IS A SAFETY REQUIREMENT, NOT POLISH, AND D198 IS WHY.
@@ -92,30 +95,45 @@ function midSentence(title) {
  * @param {{ capabilities?: Array<{id:string,title?:string,tier?:string,tierInfo?:{label?:string}}> }} deps
  */
 export function capabilityReply({ capabilities = [] } = {}) {
+  const P = persona.capability;
   if (capabilities.length === 0) {
     // Not a hypothetical: an unsigned or unreadable catalog leaves the broker with none, and
     // claiming abilities from a catalog that failed to load is exactly what this file prevents.
-    return "I can't see my own list of actions at the moment, so I'd rather not promise anything. "
-      + "Tell me what's wrong and I'll either find company guidance for it or pass it to IT.";
+    return P.noCatalog;
   }
 
   const titles = capabilities.map((c) => midSentence(c.title ?? c.id));
   const disruptive = capabilities.filter((c) => (c.tierInfo?.label ?? "").toLowerCase().includes("disruptive"));
 
+  // The SENTENCES are persona data; the LIST inside them is the catalog. That split is the whole
+  // point: warmth is editable, the claim is generated.
   const parts = [
-    `On this machine I can ${andList(titles)}.`,
-    "I always show you exactly what I'm about to do and wait for you to approve it — nothing happens until you do.",
+    P.intro.replace("{abilities}", andList(titles)),
+    P.consent,
   ];
   if (disruptive.length) {
     // Named rather than summarised: "one of them you will notice" is the kind of sentence that
     // sounds reassuring and tells the user nothing.
-    parts.push(`${disruptive.length === 1 ? "One of those" : "Some of those"} — ${andList(disruptive.map((c) => midSentence(c.title ?? c.id)))} — you'll notice happen, so I'll say so before asking.`);
+    const tpl = disruptive.length === 1 ? P.noticeOne : P.noticeSome;
+    parts.push(tpl.replace("{disruptive}", andList(disruptive.map((c) => midSentence(c.title ?? c.id)))));
   }
-  parts.push(
-    "Anything beyond that list I can't do myself. I can look for company guidance on it, or hand it to IT with what I've already checked.",
-  );
+  parts.push(P.boundary);
   return parts.join(" ");
 }
+
+/**
+ * Rotate through a persona list in order, one position per call per list, so the second "hello"
+ * of a session gets the second line. Deterministic (no randomness) so a test can predict it, and
+ * per-process, so the rotation survives across turns. `resetRotation()` is for tests.
+ */
+const rotation = new Map();
+export function pickVariant(key, list) {
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const i = rotation.get(key) ?? 0;
+  rotation.set(key, (i + 1) % list.length);
+  return list[i];
+}
+export function resetRotation() { rotation.clear(); }
 
 /**
  * The templates. Keyed by the subkind `classify()` returns.
@@ -127,27 +145,22 @@ export function capabilityReply({ capabilities = [] } = {}) {
  * @type {Record<string, (deps: any) => string>}
  */
 const TEMPLATES = {
-  greeting: () =>
-    "Hello. I'm here to help with anything wrong on this machine — tell me what you're seeing and I'll take a look.",
+  greeting: () => pickVariant("greeting", persona.social.greeting),
 
   // "How are you" gets an answer rather than a deflection, and then hands the turn back. A bot that
   // will not answer a pleasantry reads as broken rather than as focused.
-  howareyou: () =>
-    "I'm running fine, thanks for asking. What's going on with your machine?",
+  howareyou: () => pickVariant("howareyou", persona.social.howareyou),
 
-  thanks: () =>
-    "You're welcome. If anything else looks wrong, just say.",
+  thanks: () => pickVariant("thanks", persona.social.thanks),
 
-  farewell: () =>
-    "Right you are. I'll be here in the taskbar if something else comes up.",
+  farewell: () => pickVariant("farewell", persona.social.farewell),
 
   capability: (deps) => capabilityReply(deps),
 
   // OFF-TOPIC. Redirects without being arch about it, and without pretending the question was
   // unclear — the user knows the weather is not an IT problem, and saying "I did not understand"
   // to a question we understood perfectly is a small lie that makes the assistant seem stupid.
-  offtopic: () =>
-    "That's outside what I do, I'm afraid — I only look after this machine. Anything wrong with it, though, and I'm your first stop.",
+  offtopic: () => pickVariant("offtopic", persona.social.offtopic),
 };
 
 /**
@@ -162,7 +175,7 @@ const TEMPLATES = {
 export function socialReply(subkind, deps = {}) {
   const t = TEMPLATES[subkind];
   if (!t) return null;
-  const s = t(deps).trim();
+  const s = String(t(deps) ?? "").trim();
   return s.length ? s : null;
 }
 

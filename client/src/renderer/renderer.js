@@ -7,6 +7,9 @@
  * appearing in this file, the Phase 1 refactor becomes a rewrite.
  */
 import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
+// The boot line comes from the same persona file as every other social line (D234), so the name
+// and the tone are decided in one place. A JSON module, like the avatar manifest.
+import persona from "../router/persona.json" with { type: "json" };
 
 const avatar = document.getElementById("avatar");
 const stateLabel = document.getElementById("state");
@@ -745,6 +748,6 @@ const ttsSettled = new Promise((resolve) => {
   applyHubStatus(await window.matic.hubStatus());
 
   setState("greeting");
-  await say("Matic Desk here. Tell me what's not working and I'll take a look at this machine.", "idle");
+  await say(persona.boot[0], "idle");
   inputEl.focus();
 })();

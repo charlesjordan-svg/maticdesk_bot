@@ -15,6 +15,7 @@ import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
 import { classify } from "../router/classify.js";
 import { socialReply } from "../router/social.js";
+import persona from "../router/persona.json" with { type: "json" };
 import { diagnoseOffline } from "../router/offline-guide.js";
 import { escalationReply } from "./prompt.js";
 
@@ -265,9 +266,8 @@ export class Agent {
         // while the connectivity pill beside it said "hub: reachable", and Charles read the reply as
         // the hub being down. HubClient already keeps the distinction (no `reason` on a 5xx); the
         // sentence now keeps it too.
-        reply: cloudResult.reason === "connection"
-          ? `I could not reach the service desk, and what you described is not something I can act on from this machine on its own. The panel on the left shows what I can see; a person will be better placed to help with this one.`
-          : `The service desk answered, but its model did not give me anything I can act on, and what you described is not something I can fix from this machine on its own. The panel on the left shows what I can see; a person will be better placed to help with this one.`,
+        // Wording lives in persona.json (D234); the two keys keep the two facts apart.
+        reply: cloudResult.reason === "connection" ? persona.fallback.hubUnreachable : persona.fallback.hubNoAnswer,
       };
     }
 

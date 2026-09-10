@@ -1,4 +1,5 @@
 // @ts-check
+import persona from "./persona.json" with { type: "json" };
 /**
  * Is this a QUESTION to answer, or a REQUEST to change the machine? (D211, 2026-09-04)
  *
@@ -133,17 +134,30 @@ export function normalise(t) {
 const SOCIAL = [
   // Order matters within a subkind's list only for the log message; across subkinds, the first
   // match wins, so the more specific "how are you" is tested before the bare greetings.
-  { subkind: "howareyou", markers: ["how are you", "howre you", "how are things", "hows it going", "you ok", "you alright"] },
+  //
+  // Widened 2026-09-10 after Charles's first two runs: "hello matic how are you today?" and "what can
+  // you fix?" both went to the hub. A pleasantry with one extra word ("today", "doing") or a
+  // synonym ("fix" for "do") must still be a pleasantry - see FILLER and VOCATIVES below too.
+  { subkind: "howareyou", markers: [
+    "how are you", "howre you", "how are things", "hows it going", "how is it going", "hows things",
+    "how you doing", "how are you doing", "how have you been", "hows your day", "how is your day",
+    "you ok", "you alright", "you good", "you doing ok", "hows life", "how goes it", "whats up",
+  ] },
   { subkind: "capability", markers: [
     "what can you do", "what do you do", "what are you able", "what can you help",
     "what else can you do", "who are you", "what are you", "can you help me with",
     "what are your capabilities", "list your", "what can i ask",
+    "what can you fix", "what do you fix", "what problems can you", "what kind of problems",
+    "what kinds of problems", "what sort of things", "what kind of things", "what are you good at",
+    "how can you help", "what do you know how", "what should i ask", "what can you actually do",
+    "introduce yourself", "tell me about yourself",
   ] },
-  { subkind: "thanks", markers: ["thanks", "thank you", "cheers", "much appreciated", "appreciate it"] },
-  { subkind: "farewell", markers: ["goodbye", "good bye", "bye", "see you", "thats all", "nothing else", "were done", "im done"] },
+  { subkind: "thanks", markers: ["thanks", "thank you", "thank u", "thx", "ta", "cheers", "much appreciated", "appreciate it", "nice one", "well done", "good job", "great job", "brilliant", "perfect", "legend"] },
+  { subkind: "farewell", markers: ["goodbye", "good bye", "bye for now", "bye", "see you", "see ya", "see you soon", "later", "thats all", "nothing else", "were done", "im done", "good night", "night", "have a good one", "ttyl", "catch you later"] },
   { subkind: "greeting", markers: [
-    "hello", "hi", "hey", "hiya", "good morning", "good afternoon", "good evening",
-    "morning", "howdy", "greetings",
+    "hello", "hi", "hey", "hiya", "good morning", "good afternoon", "good evening", "good day",
+    "morning", "afternoon", "evening", "howdy", "greetings", "yo", "hey there", "hello there",
+    "nice to meet you", "pleased to meet you", "sup",
   ] },
   // OFF-TOPIC. A short, explicit list, and it must STAY short: anything not matched here goes to
   // the ordinary path, which is the conservative direction. Guessing that an unrecognised sentence
@@ -175,7 +189,14 @@ function hasMarker(paddedText, marker) {
  * Filler that carries no problem statement. Removed alongside the social markers so that
  * "hello there, thanks" reduces to nothing rather than to "there".
  */
-const FILLER = ["there", "please", "mate", "buddy", "again", "quickly", "just", "so", "ok", "okay", "well", "um", "uh", "hi", "hey"];
+const FILLER = [
+  "there", "please", "mate", "buddy", "again", "quickly", "just", "so", "ok", "okay", "well", "um", "uh", "hi", "hey",
+  // 2026-09-10: "how are you TODAY", "how are you DOING", "good morning EVERYONE", "hello THIS
+  // MORNING". Time-of-day and pleasantry padding, none of which is ever the subject of a complaint.
+  "today", "tonight", "doing", "this", "morning", "afternoon", "evening", "everyone", "all", "going",
+  "now", "then", "yeah", "yes", "friend", "pal", "dear", "sir", "maam",
+  // NOT "my": "hi my printer is broken" must keep "my printer is broken" whole.
+];
 
 /**
  * The assistant's own name, used as a vocative. "hello matic how are you?" is a greeting addressed
@@ -184,8 +205,10 @@ const FILLER = ["there", "please", "mate", "buddy", "again", "quickly", "just", 
  * the new avatar and it went to the hub, cost a cold model load, and came back as "I could not reach
  * the model" (D198's defect, through the residue test rather than the ordering). Removed as whole
  * phrases, longest first. NOT "desk" alone: "my desk phone is dead" is a complaint.
+ *
+ * Read from persona.json (D234), so the name lives in one place with everything else it says.
  */
-const VOCATIVES = ["matic desk", "matic"];
+const VOCATIVES = [...persona.vocatives].sort((a, b) => b.length - a.length);
 
 /**
  * What is left of an utterance once the social markers and filler are taken out.

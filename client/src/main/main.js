@@ -38,7 +38,11 @@ let hubLink = null;
 
 const log = (line) => {
   console.log(line);
-  win?.webContents.send("app:log", line);
+  // `win` outlives its window: after close the BrowserWindow object is destroyed but the variable
+  // still holds it, and `webContents.send` throws "Object has been destroyed". The Piper worker's
+  // exit line arrives exactly then (tts.stop() runs on window-all-closed), which is how this became
+  // an uncaught-exception dialog on every close (Charles, 2026-09-10). Same guard on hub:link below.
+  if (win && !win.isDestroyed()) win.webContents.send("app:log", line);
 };
 
 async function createWindow() {
@@ -56,6 +60,7 @@ async function createWindow() {
       nodeIntegration: false,
     },
   });
+  win.on("closed", () => { win = null; });
   await win.loadFile(join(ROOT, "src/renderer/index.html"));
 }
 
@@ -123,7 +128,7 @@ app.whenReady().then(async () => {
     hubLink = new HubLink({
       hubUrl,
       onLog: log,
-      onChange: (_prev, _next, status) => win?.webContents.send("hub:link", status),
+      onChange: (_prev, _next, status) => { if (win && !win.isDestroyed()) win.webContents.send("hub:link", status); },
     });
     cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), timeoutMs: hubTimeoutMs, onLog: log, link: hubLink });
     hubUrlForTickets = hubUrl;

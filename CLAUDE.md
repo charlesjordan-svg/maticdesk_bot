@@ -110,7 +110,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 650 assertions across 13 files (2026-09-10).
+#                            headless, no key, no admin, no hub: 746 assertions across 14 files (2026-09-10).
 npm.cmd run avatar:build   # regenerate src/renderer/avatar/matic-avatar.assets.js from the delivered SVG + CSS.
 #                            NEVER hand-edit the generated file; avatar.test.mjs fails while it is stale.
 npm.cmd run avatar:check   # is it stale? (exit 1 if so)
@@ -436,6 +436,15 @@ These are in the register, but the register is not what a session reads first. E
   There is **no outbound email**, so per D86 the store is a record and not a queue. `notified:
   false` is on the response, `/v1/health`, the review card, the transcript and every CLI listing —
   five surfaces, so that claiming otherwise means ignoring a value rather than not knowing one.
+- **Write a social line, a fallback sentence or the assistant's name anywhere but
+  `client/src/router/persona.json`** (**D234**). Greetings, how-are-you, thanks, farewell, off-topic,
+  the boot line and the two last-resort sentences are persona DATA, rotated by `social.js`; the
+  classifier reads the vocatives from the same file. `test/persona.test.mjs` fails if a persona line
+  names a capability (checked against the catalog's own words) or claims an outcome — which is why
+  the file holds the NAME and not the capabilities, whatever a request says. Hub prose (declines,
+  answers) is H5-attributed and is not the persona's to rewrite.
+- **Send to `win.webContents` without `isDestroyed()`.** The Piper worker's exit line arrives after
+  the window is gone and produced an uncaught-exception dialog on every close (2026-09-10).
 - **Hand-write a list of what the assistant can do.** The capability answer is generated from
   `broker.listCapabilities()` (D165, D212): a hand-written list is a claim, a generated one is a
   fact, and with an unreadable catalog the assistant promises nothing rather than claiming from

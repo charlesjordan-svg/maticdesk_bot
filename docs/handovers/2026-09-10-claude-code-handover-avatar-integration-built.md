@@ -254,6 +254,48 @@ two things were wrong on the client:
 D218 is why it no longer gives up first. What was wrong is that a greeting should never have started
 that clock.
 
+## 7b. The second run — "I am not feeling the love" (D234)
+
+Charles ran again with the vocative fix in. Screenshot: *"Hello Matic How are you today?"* still went
+to the hub (residue: `today`), *"What is the shortcut to hide desktop"* was declined with `retrieved 0
+chunk(s) from 0 article(s)`, *"what can you fix?"* became an escalation offer, and closing the app
+threw an uncaught `TypeError: Object has been destroyed` dialog. His read: the hub is connected but has
+no KB access; the assistant needs a local persona file with its name and capabilities; it should
+answer "how are you doing?"; it should be personable with excellent customer service.
+
+**Fixed:**
+
+1. **Crash on close.** `main.js`'s `log()` sent to `win.webContents` after the window was destroyed —
+   the Piper worker's exit line arrives exactly when `tts.stop()` runs on `window-all-closed`. Guarded
+   with `isDestroyed()`, `win` nulled on `closed`, same guard on the `hub:link` push.
+2. **The persona file, `client/src/router/persona.json`** — name, vocatives, boot line, every social
+   line (several per subkind, rotated so a second "hello" gets a second line), the sentences around
+   the generated capability list, the two last-resort sentences. Read by `classify.js`, `social.js`,
+   `agent.js` and the renderer. **It does NOT list capabilities** — that stays generated from the
+   catalog (D165/D212), and `test/persona.test.mjs` fails if any persona line contains a word from a
+   catalog title or claims an outcome ("notified", "fixed"). Charles asked for "name, capabilities"
+   in the file; the name is in it, the capabilities are deliberately not, and the reason is the same
+   one D165 gave: a hand-written list is a claim, a generated one is a fact.
+3. **Wider social recognition.** "how are you today / doing / how's it going", "what can you fix /
+   what kinds of problems / introduce yourself", "good morning matic desk", "nice one", "bye for now",
+   and time-of-day filler. The swallowing tests are unchanged and still pass: "hey matic, my printer
+   is broken", "what's up with my printer", "my desk phone is dead" are all still problems.
+
+**Not a client defect — the hub was degraded.** `GET /v1/health` on the running hub reported
+`embedder: { name: "none" }` while its corpus showed 18 chunks embedded with
+`snowflake-arctic-embed2:568m` and Ollama listed that model. A hub whose embedder probe fails at
+start logs `/v1/ask will retrieve through the LEXICAL LEG ONLY` and stays that way; the lexical leg
+is `websearch_to_tsquery` (every term must match), and "shortcut hide desktop" matches nothing in
+the shortcuts article, so it declined honestly. **Restart the hub through the Desktop launcher**,
+which warms the embed model before starting; the same question then reaches the semantic leg. This
+is also why the launcher exists (D220), and it is recorded here because "the hub can't see the KB"
+was a reasonable reading of a screen that said otherwise only in the dev log.
+
+**Still hub-authored, and still flat:** the decline prose (*"I do not have company guidance covering
+this. I can raise a ticket for you."*) comes from the hub's answer tool and is attributed (H5); the
+persona does not and must not rewrite it. If it should be warmer, that is a change to the hub's
+prompt in `server/src/kb/ask.js`, a separate pass.
+
 ## 8. The tray status dot — scoped, not built (handover §6)
 
 There is no Electron `Tray`. Building one is: `new Tray(nativeImage)` in `main.js`; a 16/24px icon
