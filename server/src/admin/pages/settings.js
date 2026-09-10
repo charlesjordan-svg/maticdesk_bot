@@ -76,15 +76,16 @@ async function auditPage(ctx) {
   const body = html`
 <p><a href="/admin/settings">← Settings</a></p>
 <h1>Audit log</h1>
-<p class="lede">Every admin action, refusal and record view against ${ctx.tenant.displayName} (D156). Newest first, last ${rows.length}.</p>
-<div class="panel">
-  <table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Subject</th><th>Detail</th></tr></thead>
+<p class="lede">Every admin action, refusal and record view against ${ctx.tenant.displayName} (D156). Newest first.</p>
+<h2>Entries<span class="count">last ${rows.length}</span></h2>
+<div class="panel" style="padding:0 0 4px">
+  <table><thead><tr><th style="padding-inline-start:20px">When</th><th>Who</th><th>Action</th><th>Subject</th><th style="padding-inline-end:20px">Detail</th></tr></thead>
   <tbody>${rows.map((r) => html`<tr>
-    <td title="${new Date(r.at).toISOString()}">${when(r.at)}<div class="muted" style="font-size:12px">${ago(r.at)}</div></td>
-    <td>${r.email ?? html`<span class="muted">—</span>`}</td>
+    <td class="mono" style="padding-inline-start:20px;white-space:nowrap" title="${new Date(r.at).toISOString()}">${when(r.at)}<div class="muted" style="font-size:12px;font-family:var(--body)">${ago(r.at)}</div></td>
+    <td class="mono">${r.email ?? html`<span class="muted">—</span>`}</td>
     <td class="mono">${r.action}${r.eventClass !== "normal" ? html` <span class="pill">${r.eventClass}</span>` : ""}${r.stepUp ? html` <span class="pill">step-up</span>` : ""}</td>
     <td class="mono">${r.subject ?? ""}</td>
-    <td class="mono muted" style="font-size:12px">${r.detail ? JSON.stringify(r.detail) : ""}</td>
+    <td class="mono muted" style="font-size:12px;padding-inline-end:20px">${r.detail ? JSON.stringify(r.detail) : ""}</td>
   </tr>`)}</tbody></table>
   ${rows.length === 0 ? html`<p class="muted">Nothing yet — which cannot be, since you signed in to read this. If you see this, the audit write is failing and that is a defect.</p>` : ""}
 </div>

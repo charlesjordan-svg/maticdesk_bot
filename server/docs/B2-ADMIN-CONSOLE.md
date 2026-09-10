@@ -332,3 +332,25 @@ over the handback's inline-base64 suggestion because inline fonts would ride on 
 uncacheable); the properties that mattered — same origin, offline-safe, no third party — hold either
 way. Provenance in `src/admin/assets/SOURCES.md`. Fetched from Google Fonts on 2026-09-09 with the
 founder's go-ahead; the files are unmodified.
+
+### 9.2 The handback's two leftovers, done by engineering
+
+The handback's did-not-do list (its §5) left two items that turned out to be engineering-sized, so
+they were done here rather than sent back to design:
+
+- **Sticky table headers.** The open decision was the scroll container. Decided: **the page is the
+  scroll container** — nothing on the console scrolls inside a box — so a  sticks to the
+  viewport's top with an opaque ground. One rule in the stylesheet. With it, **the ticket list pages
+  at 50** (, the pager reuses the filter-row markup and appears only when there is more than
+  one page);  gained an .
+- **The audit log.** Given the gap list's row treatment as the handback suggested: a mono actor
+  column, hairline rows running to the frame, the entry count in the section rule.
+
+Verified by the existing suites (Unknown command: "test"
+
+
+Did you mean this?
+  npm test # Test a package
+To see a list of supported npm commands, run:
+  npm help 323,  193) and by paging the dev
+tenant's seven tickets three at a time from a script.

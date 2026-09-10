@@ -28,8 +28,15 @@ async function listPage(ctx) {
   const state = ctx.url.searchParams.get("state");
   const filter = state && TICKET_STATES.includes(state) ? state : null;
   const schema = ctx.tenant.schemaName;
-  const [rows, counts] = await Promise.all([listTickets(schema, { state: filter, limit: 200 }), countTicketsByState(schema)]);
+  // Paging at 50 (handback §3): the design does not change at 300 rows, the list just has pages.
+  const PAGE = 50;
+  const counts = await countTicketsByState(schema);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const inFilter = filter ? counts[filter] : total;
+  const pages = Math.max(1, Math.ceil(inFilter / PAGE));
+  const page = Math.min(Math.max(Number(ctx.url.searchParams.get("page")) || 1, 1), pages);
+  const rows = await listTickets(schema, { state: filter, limit: PAGE, offset: (page - 1) * PAGE });
+  const pageHref = (p) => `/admin/tickets?${filter ? `state=${filter}&` : ""}page=${p}`;
   const body = html`
 <h1>Tickets</h1>
 <p class="lede">${total} in ${ctx.tenant.displayName}.</p>
@@ -50,6 +57,7 @@ ${limit(NOBODY_EMAILED)}
     </tr>`)}</tbody>
   </table>` : empty(filter ? `No tickets in state "${filter}".` : "No tickets have been filed in this tenant. The endpoint files one when a user accepts an escalation (POST /v1/ticket).")}
 </div>
+${pages > 1 ? html`<p class="filters pager"><strong>Page</strong>${page > 1 ? html`<a href="${pageHref(page - 1)}">Previous</a>` : ""}<a class="current" href="${pageHref(page)}">${page} of ${pages}</a>${page < pages ? html`<a href="${pageHref(page + 1)}">Next</a>` : ""}<span class="muted">${inFilter} ticket${inFilter === 1 ? "" : "s"}, ${PAGE} a page</span></p>` : ""}
 <p class="muted">The same rows, from a terminal: <span class="mono">npm.cmd run tickets -- list${filter ? ` --state ${filter}` : ""}</span> (server/).</p>`;
   await ctx.render(200, body, { title: "Tickets", current: "/admin/tickets" });
 }

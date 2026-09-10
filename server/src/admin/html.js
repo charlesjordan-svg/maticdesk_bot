@@ -553,6 +553,12 @@ footer.foot {
 .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap }
 .row > * { margin: 0 }
 .row select { width: auto; min-width: 200px }
+/* Sticky table headers (handback §5): the page is the scroll container, so a header sticks to the
+   viewport's top. Opaque ground, or the rows scroll through it. */
+thead th { position: sticky; top: 0; background: var(--bg); z-index: 1 }
+/* the pager reuses the filter row */
+.pager { margin-top: 12px }
+.pager .muted { margin-left: 12px; font-size: 13px }
 `;
 
 /**

@@ -70,22 +70,23 @@ const shapeRow = (r) => ({
  * The queue, newest first. Optionally one state.
  *
  * @param {string} schema
- * @param {{ state?: string|null, limit?: number }} [opts]
+ * @param {{ state?: string|null, limit?: number, offset?: number }} [opts]
  * @returns {Promise<TicketRow[]>}
  */
-export async function listTickets(schema, { state = null, limit = 50 } = {}) {
+export async function listTickets(schema, { state = null, limit = 50, offset = 0 } = {}) {
   if (state !== null && !TICKET_STATES.includes(state)) {
     throw new Error(`state must be one of: ${TICKET_STATES.join(", ")}`);
   }
   const cap = Math.min(Math.max(Number(limit) || 50, 1), 500);
+  const skip = Math.max(Number(offset) || 0, 0);
   return withTenant(schema, async (c) => {
     const { rows } = await c.query(
       `SELECT t.reference, t.state, t.category, t.suggested_owner, t.machine_name, t.created_at, t.updated_at,
               u.first_name, u.last_name, u.location, u.contact_id, u.os_username
          FROM tickets t LEFT JOIN users u ON u.id = t.user_id
-        ${state ? "WHERE t.state = $2" : ""}
-        ORDER BY t.created_at DESC LIMIT $1`,
-      state ? [cap, state] : [cap],
+        ${state ? "WHERE t.state = $3" : ""}
+        ORDER BY t.created_at DESC LIMIT $1 OFFSET $2`,
+      state ? [cap, skip, state] : [cap, skip],
     );
     return rows.map(shapeRow);
   });
