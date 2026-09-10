@@ -16,6 +16,9 @@
  */
 import { withControl } from "../db/pool.js";
 import { corpusStatus } from "../kb/ingest.js";
+// D229: the review page names the retention window; it reads it through here rather than importing
+// src/kb/retrieve.js itself, because a page must not reach the retrieval legs directly (admin-static §5a).
+export { questionLoggingEnabled, questionRetentionDays } from "../kb/retrieve.js";
 
 /** The tenant an admin session is scoped to. */
 export async function tenantById(tenantId) {

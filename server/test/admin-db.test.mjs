@@ -53,6 +53,7 @@ import { lexicalLeg } from "../src/kb/retrieve.js";
 import { verifyPassword } from "../src/admin/auth.js";
 import { revokeUserSessions } from "../src/admin/session.js";
 import { totpCode, totpStep } from "../src/admin/auth.js";
+import { logRetrieval, pruneQuestionText, questionRetentionDays } from "../src/kb/retrieve.js";
 import { resetLoginThrottle } from "../src/admin/router.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -208,6 +209,41 @@ try {
     check("the 404 route list has no admin entry", !nf.routes.some((r) => /admin/.test(r)));
     const health = await fetch(`${base}/v1/health`);
     check("API responses still say x-matic-hub-auth: none", health.headers.get("x-matic-hub-auth") === "none");
+  }
+
+  console.log("\n=== D229: logged question text expires at the window; the row and its counts stay ===");
+  {
+    const LABEL = "d229-test";
+    const saved = { log: process.env.MATIC_KB_LOG_QUERIES, days: process.env.MATIC_KB_QUESTION_RETENTION_DAYS };
+    try {
+      await withControl((c) => c.query("DELETE FROM control.kb_retrieval_log WHERE tenant_label = $1", [LABEL]));
+      // Plant two rows by hand: one 100 days old, one 30 days old, both with text.
+      await withControl((c) => c.query(
+        `INSERT INTO control.kb_retrieval_log (tenant_label, query_text, retrieved, answered, at)
+         VALUES ($1, 'old question', '[]'::jsonb, false, now() - interval '100 days'),
+                ($1, 'recent question', '[]'::jsonb, false, now() - interval '30 days')`, [LABEL]));
+      process.env.MATIC_KB_LOG_QUERIES = "1"; delete process.env.MATIC_KB_QUESTION_RETENTION_DAYS;
+      check("the default window is 90 days", questionRetentionDays() === 90);
+      const id = await logRetrieval({ query: "a fresh question", platform: "windows", tenantLabel: LABEL, result: { chunks: [], topScore: 0, floorApplied: false }, answered: false });
+      const { rows } = await getPool().query("SELECT id, query_text, at FROM control.kb_retrieval_log WHERE tenant_label = $1 ORDER BY at", [LABEL]);
+      check("three rows remain — the sweep clears text, it never deletes a row", rows.length === 3);
+      check("the 100-day-old row's text is gone", rows[0].query_text === null);
+      check("the 30-day-old row's text survives", rows[1].query_text === "recent question");
+      check("the fresh row keeps its text because logging is on", rows[2].query_text === "a fresh question" && Number(rows[2].id) === id);
+      process.env.MATIC_KB_QUESTION_RETENTION_DAYS = "7";
+      check("a customer may shorten the window", questionRetentionDays() === 7);
+      const n = await pruneQuestionText();
+      check("the manual sweep at 7 days clears the 30-day row and nothing else", n === 1 && (await getPool().query("SELECT query_text FROM control.kb_retrieval_log WHERE tenant_label = $1 AND query_text IS NOT NULL", [LABEL])).rows.length === 1);
+      process.env.MATIC_KB_QUESTION_RETENTION_DAYS = "400";
+      check("nobody may lengthen it past 90", questionRetentionDays() === 90);
+      process.env.MATIC_KB_QUESTION_RETENTION_DAYS = "0";
+      const id0 = await logRetrieval({ query: "should not be kept", platform: null, tenantLabel: LABEL, result: { chunks: [], topScore: 0, floorApplied: false }, answered: false });
+      check("retention 0 logs the row with NO text even with the switch on", (await getPool().query("SELECT query_text FROM control.kb_retrieval_log WHERE id = $1", [id0])).rows[0].query_text === null);
+    } finally {
+      if (saved.log === undefined) delete process.env.MATIC_KB_LOG_QUERIES; else process.env.MATIC_KB_LOG_QUERIES = saved.log;
+      if (saved.days === undefined) delete process.env.MATIC_KB_QUESTION_RETENTION_DAYS; else process.env.MATIC_KB_QUESTION_RETENTION_DAYS = saved.days;
+      await withControl((c) => c.query("DELETE FROM control.kb_retrieval_log WHERE tenant_label = $1", [LABEL]));
+    }
   }
 
   console.log("\n=== fonts: self-hosted, no session needed, allow-listed (D225) ===");

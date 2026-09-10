@@ -163,6 +163,8 @@ node bin/admin.mjs reset devco you@example.com  # NEW PASSWORD AND NEW TOTP SECR
 #                            replay state cleared and every live session revoked. The remedy for a lost
 #                            authenticator secret; it keeps the row, so the audit trail stays that person's.
 node bin/admin.mjs audit devco --limit 50 # every console action, refusal and record view (D156)
+node bin/kb.mjs prune-questions           # D229: clear logged question text older than 90 days (the hub also does this on every write)
+# MATIC_KB_LOG_QUERIES=1 is set BY THE LAUNCHER (D227). Running `npm.cmd start` by hand logs no text unless you set it.
 # then http://127.0.0.1:8787/admin/login in a browser. LOOPBACK ONLY; the login page says so.
 ollama pull snowflake-arctic-embed2:568m  # the DEV embedder. NOT D199's model - see D203
 npm.cmd start              # http://127.0.0.1:8787 - needs Ollama with mistral-small:24b resident
@@ -360,10 +362,12 @@ These are in the register, but the register is not what a session reads first. E
   are stripped of it in `src/admin/kb-search.js` on purpose, so the rule cannot be broken by
   forgetting a condition, and `test/admin-static.test.mjs` §5a fails if the strip is removed. It is
   not markdown; `raw()` stays unused.
-- **Turn `MATIC_KB_LOG_QUERIES` on before D229 is answered** (D227, deferred behind it by the
-  founder on 2026-09-09). A table of what employees typed needs a retention rule before it has rows
-  in it. The cost of the deferral is real and is stated where it lands: every gap row in the review
-  queue reads "Question text was not logged".
+- **Log question text without the sweep, or raise its retention past 90 days** (D229, ratified
+  2026-09-09; D227 followed and the demo hub logs). `logRetrieval()` clears text older than the
+  window inside every write and `questionRetentionDays()` caps the window at 90 — a customer may
+  shorten it, nobody may lengthen it, 0 turns text off. The row stays; only the sentence expires.
+  A logged question has no user attached, so deletion is by expiry, not by person — that belongs in
+  D127's disclosure wording, which still does not exist.
 - **Write SQL against `tickets` anywhere but `server/src/tickets/`** (D224). The CLI and the console
   read through `query.js`; when the console is doubted the CLI is what gets trusted, and that only
   proves something if the two cannot disagree.

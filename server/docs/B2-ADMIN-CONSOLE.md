@@ -564,3 +564,27 @@ could work out. It does **not** re-enable a disabled account — a reset is abou
 - **No file upload.** There is no multipart parser and D221 forbids a dependency for one, so the
   ingest is a textarea and the page says so. The form body ceiling rose from 64 kB to 1 MB for this,
   and the page states the number.
+
+---
+
+## 11. D229 ratified and logging on (2026-09-09, evening)
+
+The founder ratified D229 as recommended and D227 followed the same evening. From the next hub start
+through the launcher, the retrieval log keeps the question text — so a gap in the review queue says
+what was asked, and "Search the corpus for this" becomes a live control on real rows.
+
+**The terms, as built:** text is kept **90 days** and then cleared, **the row staying** so no count on
+Metrics or the review queue moves. The sweep runs **inside every log write** (`logRetrieval()` in
+`src/kb/retrieve.js`); `node bin/kb.mjs prune-questions` is the manual form. The window is
+configurable **downward only** through `MATIC_KB_QUESTION_RETENTION_DAYS` (a higher value is held at
+90 and the hub says so at startup; 0 logs no text). An answered or dismissed gap clears its text at
+once — a term the answer route must honour when it exists. `tools/launchers/start-hub.ps1` sets
+`MATIC_KB_LOG_QUERIES=1` for the hub it starts; a hub started by hand logs nothing unless you set it.
+
+**Not retroactive.** The 33 rows written before this evening stay without text; the review queue will
+show real sentences from the next question asked.
+
+**Verified:** `test/admin-static.test.mjs` §8b (ten source rules) and a live block in
+`test/admin-db.test.mjs` that plants a 100-day-old and a 30-day-old row, logs a fresh one with the
+switch on, and watches only the old text vanish; then shortens the window to 7 and watches the 30-day
+row go; then sets 400 and sees 90; then sets 0 and sees a row logged with no text.

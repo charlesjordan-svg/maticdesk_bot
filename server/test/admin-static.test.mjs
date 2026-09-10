@@ -242,6 +242,21 @@ console.log("\n=== 8a. fonts are self-hosted, never fetched (D225) ===");
   check("assets/SOURCES.md records the licence and where each file came from", /SIL Open Font License/.test(read("src/admin/assets/SOURCES.md")) && /fonts\.gstatic\.com/.test(read("src/admin/assets/SOURCES.md")));
 }
 
+console.log("\n=== 8b. logged question text expires (D229), and the demo hub logs (D227) ===");
+{
+  const retrieveJs = jsCode(read("src/kb/retrieve.js"));
+  check("the retention window defaults to 90 and cannot be raised above it", /QUESTION_RETENTION_MAX_DAYS = 90/.test(retrieveJs) && /Math\.min\(n, QUESTION_RETENTION_MAX_DAYS\)/.test(retrieveJs));
+  check("MATIC_KB_QUESTION_RETENTION_DAYS=0 turns text logging off entirely", /questionRetentionDays\(\) > 0/.test(retrieveJs));
+  check("the sweep NULLs the text and keeps the row", /SET query_text = NULL/.test(retrieveJs) && !/DELETE FROM control\.kb_retrieval_log/.test(retrieveJs));
+  check("the sweep runs INSIDE every log write, on the same client — not a scheduled job", retrieveJs.indexOf("await pruneQuestionText({ client: cl })") > retrieveJs.indexOf("INSERT INTO control.kb_retrieval_log") && /if \(keepQuery\) await pruneQuestionText/.test(retrieveJs));
+  check("logRetrieval decides whether to keep the sentence through questionLoggingEnabled()", /const keepQuery = questionLoggingEnabled\(\);/.test(retrieveJs));
+  check("bin/kb.mjs has the manual sweep", /case "prune-questions"/.test(read("bin/kb.mjs")) && /prune-questions/.test(read("bin/kb.mjs").split("usage:")[1] ?? ""));
+  check("the demo launcher turns logging on for the hub it starts (D227)", /\$env:MATIC_KB_LOG_QUERIES = '1'/.test(read("../tools/launchers/start-hub.ps1")));
+  check("src/index.js says at startup whether text is logged and for how long", /question text IS LOGGED/.test(read("src/index.js")) && /question text is NOT logged/.test(read("src/index.js")));
+  check("the review page tells the admin the window, from the same function", /questionRetentionDays\(\)/.test(read("src/admin/pages/review.js")) && /D229/.test(read("src/admin/pages/review.js")));
+  check("no scheduled worker was added for this (the control plane has none)", !/setInterval|cron|schedule/i.test(retrieveJs));
+}
+
 console.log("\n=== 9. escaping is the default ===");
 const htmlJs = read("src/admin/html.js");
 check("html`` escapes every interpolation unless Safe", /if \(v instanceof Safe\) return v\.s;/.test(htmlJs) && /return esc\(v\);/.test(htmlJs));

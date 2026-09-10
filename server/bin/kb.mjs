@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import { closePool } from "../src/db/pool.js";
 import { corpusStatus, embedPending, ingestAndEmbed } from "../src/kb/ingest.js";
 import { embeddingProviderFromEnv } from "../src/kb/embed.js";
-import { fuseRRF, lexicalLeg, semanticLeg, retrieve, RRF_K, DEFAULT_TOP_K, RELEVANCE_FLOOR } from "../src/kb/retrieve.js";
+import { fuseRRF, lexicalLeg, semanticLeg, retrieve, RRF_K, DEFAULT_TOP_K, RELEVANCE_FLOOR, pruneQuestionText, questionRetentionDays, questionLoggingEnabled } from "../src/kb/retrieve.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_BUNDLE = join(HERE, "..", "..", "docs", "kb", "generic-kb-v2.json");
@@ -151,6 +151,16 @@ async function main() {
       break;
     }
 
+    case "prune-questions": {
+      // D229, by hand. The same sweep every log write performs; here for an operator who wants to
+      // see it happen, or to run it on a hub that has not answered a question in a while.
+      const days = questionRetentionDays();
+      const n = await pruneQuestionText({ days });
+      log(`  cleared the text of ${n} logged question(s) older than ${days} day(s); the rows stay (D229)`);
+      log(`  question logging is ${questionLoggingEnabled() ? "ON" : "OFF"} on this configuration (MATIC_KB_LOG_QUERIES=${process.env.MATIC_KB_LOG_QUERIES ?? "unset"}, retention ${days} day(s))`);
+      break;
+    }
+
     default:
       log(`usage:
   node bin/kb.mjs ingest [path]     read a bundle, write articles + chunks, then embed
@@ -158,7 +168,8 @@ async function main() {
   node bin/kb.mjs reembed           re-embed everything (after an embedder change)
   node bin/kb.mjs status            what is loaded, and which model embedded it
   node bin/kb.mjs legs <query>      the two retrieval legs, side by side, unfused
-  node bin/kb.mjs retrieve <query>  both legs, then the fusion  [--platform windows]`);
+  node bin/kb.mjs retrieve <query>  both legs, then the fusion  [--platform windows]
+  node bin/kb.mjs prune-questions   clear logged question text older than the retention window (D229)`);
       process.exitCode = cmd ? 1 : 0;
   }
 }

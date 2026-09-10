@@ -267,6 +267,10 @@ Step '8. Start the hub'
 if (-not $alreadyRunning) {
   # Its own console window, so the startup banners (NO AUTHENTICATION, the tenant line, the
   # embedder line) stay visible for the whole session and a crash leaves its output on screen.
+  # D227, decided 2026-09-09 once D229 (retention) was ratified: the demo and dev hubs LOG the
+  # question text, so the review queue's gaps say what was asked. Kept 90 days, then cleared by
+  # the hub itself (src/kb/retrieve.js). Not retroactive. Set in this window so the child inherits it.
+  if (-not $env:MATIC_KB_LOG_QUERIES) { $env:MATIC_KB_LOG_QUERIES = '1' }
   Start-Process -FilePath 'node' -ArgumentList 'src/index.js' -WorkingDirectory $server -WindowStyle Normal
   $deadline = (Get-Date).AddSeconds(60)
   $h = $null

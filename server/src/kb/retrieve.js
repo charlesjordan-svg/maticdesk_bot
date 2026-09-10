@@ -336,9 +336,15 @@ export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder
  * a retrieval miss and a reasoning miss have different fixes, and without the split a bad answer
  * is just a bad answer.
  *
- * The user's sentence is stored ONLY when MATIC_KB_LOG_QUERIES=1. A hub-side table of what
- * employees typed is the transcript-access problem D154 exists to constrain, and B7a has no admin
- * model, no tenancy and no retention policy to constrain it with. Default off.
+ * The user's sentence is stored ONLY when MATIC_KB_LOG_QUERIES=1 (`questionLoggingEnabled()`). A
+ * hub-side table of what employees typed is the transcript-access problem D154 exists to constrain.
+ * B7a had no admin model, no tenancy and no retention policy to constrain it with; the admin model
+ * arrived with B2 (D223 says who may read a logged question) and the retention policy is D229,
+ * ratified 2026-09-09: text is kept QUESTION_RETENTION_DAYS and then cleared, the row staying so the
+ * counts do not move. THE SWEEP RUNS HERE, inside every write, so retention is a property of
+ * logging rather than of a job somebody remembers to schedule — the control plane has no worker
+ * loop, and "we will prune later" is how a log becomes permanent by default. `node bin/kb.mjs
+ * prune-questions` is the manual form of the same statement.
  *
  * @param {{
  *   query: string, platform?: string|null, tenantLabel?: string|null,
@@ -346,8 +352,50 @@ export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder
  *   cited?: string[], answered?: boolean|null, model?: string|null, client?: any,
  * }} opts
  */
+/**
+ * The ceiling on how long a logged question may be kept, in days (D229). Configurable DOWNWARD
+ * only: a customer-hosted hub may keep less, never more, and there is no "forever" value.
+ */
+export const QUESTION_RETENTION_MAX_DAYS = 90;
+
+/**
+ * How many days a logged question is kept before its text is cleared (D229). Default and maximum
+ * 90; `MATIC_KB_QUESTION_RETENTION_DAYS` lowers it; a value above the maximum is held at the
+ * maximum (and src/index.js says so at startup); 0 means "log no text at all".
+ */
+export function questionRetentionDays() {
+  const raw = process.env.MATIC_KB_QUESTION_RETENTION_DAYS;
+  if (raw === undefined || raw === "") return QUESTION_RETENTION_MAX_DAYS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) return QUESTION_RETENTION_MAX_DAYS;
+  return Math.min(n, QUESTION_RETENTION_MAX_DAYS);
+}
+
+/** Is the user's sentence being stored? MATIC_KB_LOG_QUERIES=1 AND a retention window above zero. */
+export function questionLoggingEnabled() {
+  return process.env.MATIC_KB_LOG_QUERIES === "1" && questionRetentionDays() > 0;
+}
+
+/**
+ * Clear question text older than the retention window. The ROW stays — the fact that a question
+ * was asked, what was retrieved and whether it was answered are what Metrics and the review queue
+ * count; only the sentence expires. Returns how many rows were cleared.
+ *
+ * @param {{ client?: any, days?: number }} [opts]
+ * @returns {Promise<number>}
+ */
+export async function pruneQuestionText({ client, days = questionRetentionDays() } = {}) {
+  const sql = `
+    UPDATE control.kb_retrieval_log
+       SET query_text = NULL
+     WHERE query_text IS NOT NULL
+       AND at < now() - ($1 || ' days')::interval`;
+  const run = async (cl) => (await cl.query(sql, [String(Math.max(0, Math.floor(days)))])).rowCount ?? 0;
+  return client ? run(client) : withControl(run);
+}
+
 export async function logRetrieval({ query, platform, tenantLabel = null, result, cited = [], answered = null, model = null, client }) {
-  const keepQuery = process.env.MATIC_KB_LOG_QUERIES === "1";
+  const keepQuery = questionLoggingEnabled();
   const retrieved = result.chunks.map((c) => ({
     chunkId: c.chunkId, articleId: c.articleId, kind: c.kind,
     lexRank: c.lexRank ?? null, semRank: c.semRank ?? null,
@@ -369,6 +417,12 @@ export async function logRetrieval({ query, platform, tenantLabel = null, result
       (tenant_label, query_text, platform, retrieved, top_score, floor_applied, cited, answered, model)
     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
     RETURNING id`;
-  const run = async (cl) => Number((await cl.query(sql, params)).rows[0].id);
+  const run = async (cl) => {
+    const id = Number((await cl.query(sql, params)).rows[0].id);
+    // D229: every write sweeps. Same client, same transaction, so a row can never be written by a
+    // process that has forgotten to prune — the sweep is not optional and not scheduled.
+    if (keepQuery) await pruneQuestionText({ client: cl });
+    return id;
+  };
   return client ? run(client) : withControl(run);
 }

@@ -393,4 +393,4 @@ them, and all three are consequences rather than news:
   keeping rule *before* it has rows in it. So the switch stays off, `query_text` is null on all 33
   rows, and the review queue keeps showing declines without their text — a named cost, not an
   oversight. **D229 is cheap to answer precisely because nothing has been logged yet**: no
-  migration and no deletion is needed to comply with whatever it says.
+  migration and no deletion is needed to comply with whatever it says. **Ratified the same evening (register v2.24): 90 days, the row stays, the sweep runs inside every write, configurable downward only; the launcher sets `MATIC_KB_LOG_QUERIES=1` and the hub prints the policy at startup.** `B2-ADMIN-CONSOLE.md` §11.

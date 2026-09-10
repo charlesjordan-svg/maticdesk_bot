@@ -41,7 +41,11 @@
  *   MATIC_EMBED_PROVIDER "ollama" | "none"                  (src/kb/embed.js; "none" = lexical only)
  *   MATIC_EMBED_MODEL   default snowflake-arctic-embed2:568m
  *   MATIC_KB_TENANT_LABEL a development label for retrieval logs. NOT a tenant. NOT authenticated.
- *   MATIC_KB_LOG_QUERIES "1" to store the user's sentence in the retrieval log. Default OFF.
+ *   MATIC_KB_LOG_QUERIES "1" to store the user's sentence in the retrieval log. Default OFF in the
+ *                       code; the demo launcher sets it (D227, once D229 was ratified 2026-09-09).
+ *   MATIC_KB_QUESTION_RETENTION_DAYS how long a logged question's text is kept before it is cleared
+ *                       (D229). Default and MAXIMUM 90; lower is allowed, higher is held at 90;
+ *                       0 logs no text at all. The sweep runs inside every log write.
  */
 import http from "node:http";
 import { pathToFileURL } from "node:url";
@@ -51,6 +55,7 @@ import { askHandler } from "./kb/ask.js";
 import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
+import { questionLoggingEnabled, questionRetentionDays, QUESTION_RETENTION_MAX_DAYS } from "./kb/retrieve.js";
 import { adminHandler } from "./admin/router.js";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
@@ -328,6 +333,13 @@ if (isMain) {
     console.log(`[hub]   GET  /admin        the admin console (B2) - a browser surface with its own sign-in, not an API route`);
     console.log(`[hub] provider ${provider.name} -> ${provider.baseUrl} model ${provider.model} (claimed as hubProvider "local")`);
     console.log(`[hub] holds no catalog: the endpoint sends its tool schemas with every turn (D149)`);
+    // D229: say what happens to what employees type, every start, in one line.
+    if (questionLoggingEnabled()) {
+      console.log(`[hub] question text IS LOGGED (MATIC_KB_LOG_QUERIES=1) and kept ${questionRetentionDays()} day(s), then cleared; the row stays (D229)`);
+      if (Number(process.env.MATIC_KB_QUESTION_RETENTION_DAYS) > QUESTION_RETENTION_MAX_DAYS) console.log(`[hub] !! MATIC_KB_QUESTION_RETENTION_DAYS=${process.env.MATIC_KB_QUESTION_RETENTION_DAYS} exceeds the ceiling; held at ${QUESTION_RETENTION_MAX_DAYS} (D229: configurable downward only)`);
+    } else {
+      console.log(`[hub] question text is NOT logged (MATIC_KB_LOG_QUERIES unset or retention 0); the review queue's gaps carry no sentence`);
+    }
     console.log("");
     for (const l of banner([
       "/v1/ask HAS NO TENANCY. The corpus it reads is the GENERIC KB, which is",

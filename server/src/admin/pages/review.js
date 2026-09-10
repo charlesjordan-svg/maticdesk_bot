@@ -29,6 +29,7 @@
 import { html, notYet, empty, when, ago, csrfField } from "../html.js";
 import { gapFeed } from "../queries.js";
 import { route } from "../route.js";
+import { questionLoggingEnabled, questionRetentionDays } from "../queries.js";
 
 const UNLOGGED_SHORT = "Question text was not logged";
 const UNLOGGED_LONG = html`The question text was not logged. <span class="mono">MATIC_KB_LOG_QUERIES</span> was off when this was asked (the hub default), so only the fact of the decline and what was retrieved are here.`;
@@ -122,7 +123,7 @@ async function reviewPage(ctx) {
 </div>
 
 <h2>KB gaps<span class="count">${gaps.length} open</span></h2>
-<p class="muted">Every question the assistant could not attribute to an article and therefore declined (D205). A gap record is a single question, not a transcript, and is readable by any role with the review permission (D223, founder 2026-09-09). <strong>Hub-wide, not tenant-scoped:</strong> the retrieval log's tenant label is a development label, not an identity, until device authentication exists (D61/D132).</p>
+<p class="muted">Every question the assistant could not attribute to an article and therefore declined (D205). A gap record is a single question, not a transcript, and is readable by any role with the review permission (D223, founder 2026-09-09). <strong>Hub-wide, not tenant-scoped:</strong> the retrieval log's tenant label is a development label, not an identity, until device authentication exists (D61/D132). ${questionLoggingEnabled() ? html`A logged question carries no user identity and its text is kept <strong>${questionRetentionDays()} days</strong>, then cleared; the record of the decline stays (D229).` : html`This hub is <strong>not logging question text</strong> right now; new declines will show no sentence either.`}</p>
 ${gaps.length
   ? html`<div class="gaps">${gaps.map((g, i) => gapRow(ctx, g, i === 0))}</div>`
   : empty("No declined questions in the retrieval log. Either nobody has asked the assistant anything yet, or everything asked was covered.")}
