@@ -14,7 +14,7 @@
  * "NOBODY HAS BEEN EMAILED" travels here too. That makes six surfaces for D213's caveat, and the
  * redundancy is the point (B6-TICKET-STORE.md §0).
  */
-import { html, notYet, empty, when, ago, csrfField } from "../html.js";
+import { html, notYet, empty, when, ago, csrfField, limit } from "../html.js";
 import { route } from "../route.js";
 import { countTicketsByState, getTicket, listTickets, setTicketState, NEXT_STATES, TICKET_STATES } from "../../tickets/query.js";
 
@@ -32,28 +32,41 @@ async function listPage(ctx) {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const body = html`
 <h1>Tickets</h1>
-<p class="lede">${total} in ${ctx.tenant.displayName}. ${NOBODY_EMAILED}</p>
-<div class="grid">
-  ${TICKET_STATES.map((s) => html`<a class="stat" href="/admin/tickets?state=${s}" style="text-decoration:none;color:inherit"><div class="n">${counts[s]}</div><div class="l">${s}</div></a>`)}
-</div>
-<div class="panel">
-  <p class="filters"><strong>Show:</strong> <a href="/admin/tickets" class="${filter ? "" : "current"}">all</a>${TICKET_STATES.map((s) => html`<a href="/admin/tickets?state=${s}">${s}</a>`)}</p>
+<p class="lede">${total} in ${ctx.tenant.displayName}.</p>
+${limit(NOBODY_EMAILED)}
+<p class="filters"><strong>Show</strong><a href="/admin/tickets" class="${filter ? "" : "current"}">All<span class="n">${total}</span></a>${TICKET_STATES.map((s) => html`<a href="/admin/tickets?state=${s}" class="${filter === s ? "current" : ""}">${s}<span class="n">${counts[s]}</span></a>`)}</p>
+<div class="panel" style="padding:0 0 4px">
   ${rows.length ? html`
   <table>
-    <thead><tr><th>Ref</th><th>State</th><th>Category</th><th>Suggested owner</th><th>Reporter</th><th>Machine</th><th>Filed</th></tr></thead>
+    <thead><tr><th style="padding-inline-start:20px">Ref</th><th>State</th><th>Category</th><th>Suggested owner</th><th>Reporter</th><th>Machine</th><th style="padding-inline-end:20px">Filed</th></tr></thead>
     <tbody>${rows.map((t) => html`<tr>
-      <td class="mono"><a href="/admin/tickets/${t.reference}">${t.reference}</a></td>
+      <td class="mono" style="padding-inline-start:20px"><a href="/admin/tickets/${t.reference}">${t.reference}</a></td>
       <td>${pill(t.state)}</td>
       <td>${category(t.category)}</td>
       <td>${owner(t.suggestedOwner)}</td>
       <td>${t.reporter ?? html`<span class="muted">unknown</span>`}<div class="muted" style="font-size:12px">${t.location ?? "no location"}</div></td>
       <td class="mono">${t.machineName ?? "-"}</td>
-      <td title="${t.createdAt.toISOString()}">${when(t.createdAt)}<div class="muted" style="font-size:12px">${ago(t.createdAt)}</div></td>
+      <td title="${t.createdAt.toISOString()}" style="padding-inline-end:20px">${when(t.createdAt)}<div class="muted" style="font-size:12px">${ago(t.createdAt)}</div></td>
     </tr>`)}</tbody>
   </table>` : empty(filter ? `No tickets in state "${filter}".` : "No tickets have been filed in this tenant. The endpoint files one when a user accepts an escalation (POST /v1/ticket).")}
 </div>
 <p class="muted">The same rows, from a terminal: <span class="mono">npm.cmd run tickets -- list${filter ? ` --state ${filter}` : ""}</span> (server/).</p>`;
   await ctx.render(200, body, { title: "Tickets", current: "/admin/tickets" });
+}
+
+/** The one action on the detail page: select and button on one row (handback §3). */
+function stateBlock(ctx, t, next) {
+  if (!ctx.permissions.has("tickets.write")) return html`<p class="muted">Your roles (${ctx.roles.join(", ")}) can read tickets but not change them.</p>`;
+  if (!next.length) return html`<p class="muted">No further transitions from ${t.state}.</p>`;
+  return html`<form method="post" action="/admin/tickets/${t.reference}/state">
+    ${csrfField(ctx.csrf)}
+    <label for="next">Move ${t.reference} from <strong>${t.state}</strong> to</label>
+    <div class="row">
+      <select id="next" name="next">${next.map((s) => html`<option value="${s}">${s}</option>`)}</select>
+      <button class="primary" type="submit">Change state</button>
+      <span class="muted" style="font-size:13px">Recorded in the audit log with who did it.</span>
+    </div>
+  </form>`;
 }
 
 async function detailPage(ctx) {
@@ -63,16 +76,18 @@ async function detailPage(ctx) {
     return ctx.render(404, html`<h1>No ticket ${ref}</h1><p class="lede">Not in ${ctx.tenant.displayName}.</p><p><a href="/admin/tickets">Back to tickets</a></p>`, { title: "Not found", current: "/admin/tickets" });
   }
   await ctx.audit("ticket.view", { subject: t.reference });
-  const canWrite = ctx.permissions.has("tickets.write");
   const next = NEXT_STATES[t.state] ?? [];
   const flash = ctx.url.searchParams.get("changed");
 
   const body = html`
 <p><a href="/admin/tickets">← Tickets</a></p>
 <h1><span class="mono">${t.reference}</span> ${pill(t.state)}</h1>
-<p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}. Nobody has been emailed (D86).</p>
+<p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
+${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
 ${flash ? html`<div class="flash">State changed to ${t.state}.</div>` : ""}
 
+<div class="detail">
+<div>
 <div class="panel">
   <h2>What the user said</h2>
   <blockquote>${t.description}</blockquote>
@@ -83,7 +98,12 @@ ${flash ? html`<div class="flash">State changed to ${t.state}.</div>` : ""}
   <blockquote>${t.whatWasChecked ?? "-"}</blockquote>
 </div>
 
-<div class="grid">
+<div class="panel">
+  <h2>State — the one action on this page</h2>
+  ${stateBlock(ctx, t, next)}
+</div>
+</div>
+<div>
   <div class="panel">
     <h2>Routing</h2>
     <dl class="kv">
@@ -105,18 +125,7 @@ ${flash ? html`<div class="flash">State changed to ${t.state}.</div>` : ""}
   </div>
 </div>
 
-<div class="panel">
-  <h2>State</h2>
-  ${canWrite
-    ? (next.length
-      ? html`<form method="post" action="/admin/tickets/${t.reference}/state">
-          ${csrfField(ctx.csrf)}
-          <label for="next">Move ${t.reference} from <strong>${t.state}</strong> to</label>
-          <select id="next" name="next">${next.map((s) => html`<option value="${s}">${s}</option>`)}</select>
-          <p><button class="primary" type="submit">Change state</button> <span class="muted">Recorded in the audit log with who did it.</span></p>
-        </form>`
-      : html`<p class="muted">No further transitions from ${t.state}.</p>`)
-    : html`<p class="muted">Your roles (${ctx.roles.join(", ")}) can read tickets but not change them.</p>`}
+</div>
 </div>
 
 ${notYet({

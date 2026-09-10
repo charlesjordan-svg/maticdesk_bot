@@ -17,8 +17,8 @@ async function agentsPage(ctx) {
 <h1>Agents</h1>
 <p class="lede">The endpoints enrolled with this hub, the ones waiting for approval, and whether approval is automatic.</p>
 ${notYet({
-  heading: "Device enrollment is not in this build",
-  missing: "No endpoint can identify itself to this hub, so there is nothing to list, approve or revoke.",
+  heading: "Device enrollment",
+  missing: "Device enrollment is not in this build. No endpoint can identify itself to this hub, so there is nothing to list, approve or revoke.",
   why: "The hub authenticates no device (D61/D132 not built; every API response says x-matic-hub-auth: none). Enrollment is B3 — a signed device token from a TPM-resident key (D60, D146), a pending queue with auto-approve and a per-tenant toggle, a rotatable time-boxed enrollment secret, rate limiting with fallback to queued approval (D83), and bulk revocation by batch (D83a). The review sized it at six to eight engineer-weeks. The tables exist (control.devices, control.enrollment_requests); nothing writes them, and this page will not show you an empty table as if it were a fleet of zero.",
   arrives: "B3 (device enrollment), after B2",
 })}

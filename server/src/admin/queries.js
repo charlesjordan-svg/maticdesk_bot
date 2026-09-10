@@ -74,7 +74,7 @@ export async function gapFeed({ limit = 50 } = {}) {
       const { rows: arts } = await c.query("SELECT id, title FROM control.kb_articles WHERE id = ANY($1)", [[...ids]]);
       for (const a of arts) titles.set(a.id, a.title);
     }
-    return rows.map((r) => {
+    const shaped = rows.map((r) => {
       /** @type {Map<string, { articleId: string, title: string|null, bestScore: number }>} */
       const byArticle = new Map();
       for (const ch of r.retrieved ?? []) {
@@ -88,7 +88,31 @@ export async function gapFeed({ limit = 50 } = {}) {
         retrieved: [...byArticle.values()].sort((a, b) => b.bestScore - a.bestScore),
       };
     });
+    return groupGaps(shaped);
   });
+}
+
+/**
+ * Group declines on the normalised question text, so a row can carry a REAL hit count (handback
+ * §3: "a real count or nothing"). Rows without text cannot be deduplicated and stay one row each
+ * with hits = 1, which the page renders as no count. Newest first, by last occurrence.
+ *
+ * @param {Array<{ id: number, at: Date, queryText: string|null, [k: string]: any }>} rows  newest first
+ */
+export function groupGaps(rows) {
+  /** @type {Map<string, any>} */
+  const byText = new Map();
+  const out = [];
+  for (const r of rows) {
+    const key = r.queryText ? r.queryText.trim().toLowerCase().replace(/\s+/g, " ") : null;
+    if (key === null) { out.push({ ...r, hits: 1, firstAt: r.at, lastAt: r.at }); continue; }
+    const g = byText.get(key);
+    if (g) { g.hits += 1; g.firstAt = r.at; continue; } // rows arrive newest first, so each later row is earlier in time
+    const fresh = { ...r, hits: 1, firstAt: r.at, lastAt: r.at };
+    byText.set(key, fresh);
+    out.push(fresh);
+  }
+  return out;
 }
 
 /** How many gaps there are — the review queue's badge, drawn on every screen. */

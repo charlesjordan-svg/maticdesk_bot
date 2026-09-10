@@ -16,9 +16,10 @@ Handover it answers: [`../../docs/handovers/2026-09-05-claude-code-handover-admi
 > and as an auditor, changes a ticket's state through a CSRF-protected form, compares the page with
 > `bin/tickets.mjs`, tries five transcript-shaped URLs, and reads the audit table after each step.
 >
-> **What has NOT happened: nobody has clicked through it in a browser.** The session that built it
-> cannot enter a password into a form (its own rule), so every page was exercised over HTTP from
-> Node and the rendered HTML was looked at, not the live site. §7 is the click-through, for Charles.
+> **Charles clicked through it on 2026-09-09** (signed in as the dev tenant owner; the review queue, its
+> badges and the gap cards matched §7). The session that built it cannot enter a password into a form
+> (its own rule), so its own checks ran over HTTP from Node. **The design pass was applied the same
+> day — §9.**
 >
 > Nothing here is measured. Login latency, scrypt cost, page render time: not measured.
 
@@ -282,3 +283,49 @@ adjusting the list.
   CLI path; the live test creates one directly) so the refusal could be tested.
 - **The review card on the endpoint is still unrendered** (carried from the demo-prep handover).
   Unrelated to this pass and still true.
+
+---
+
+## 9. The design pass, applied (2026-09-09, later the same day)
+
+Claude Design answered the brief the same day ([`2026-09-09-admin-console-design-brief.md`](2026-09-09-admin-console-design-brief.md));
+the handback is filed at [`../../docs/handovers/2026-09-09-claude-design-handback-admin-console.md`](../../docs/handovers/2026-09-09-claude-design-handback-admin-console.md)
+and its artboards at `C:\Users\Charles\Downloads\Claude Handover Files\admin-console-design-handback-2026-09-09\`. **The
+design system is the founder's "Industry" system** (register D225): steel on paper, Barlow Condensed
+over Barlow, square corners, hairline frames, one accent, registration marks reserved for the gap
+card and the honest stub.
+
+**Applied, exactly as handed back:**
+
+- The `CSS` constant in `src/admin/html.js` is the handback's stylesheet plus six lines of
+  engineering additions at its foot (the two-column ticket detail, a generic `.row`, and
+  `min-width: 0` on the ellipsised question, without which the 1fr column will not shrink).
+- `notYet()` wears `marks`; `limit()` is a new component so a limitation sentence is a thing, not
+  a paragraph; `page()` gained `bare` for the sign-in page.
+- **Review queue:** fourteen cards became a list of native `<details>` rows, the first open. The
+  "answer this gap" form is drawn **and disabled**, with the sentence saying why above its buttons
+  (the handback's preferred honest state). The hit count is grouped on the normalised question
+  text (`groupGaps()` in `queries.js`) and shown only when it is more than one — a gap with no
+  text cannot be deduplicated and gets no count rather than a 1. Section count in the rule.
+- **Tickets:** the four tiles went; one filters row carries the counts. "Nobody has been emailed" is
+  a `limit()`. The detail is two columns with the state select and button on one row under
+  "State — the one action on this page", and the limitation gained its second sentence.
+- **Sign-in:** the two-column page; the loopback notice is the first thing on it, every word kept.
+- **Agents:** the heading dropped "is not in this build" because the CSS kicker now says it — and
+  the sentence was put back into the body, because the words stay in the markup, not in a
+  stylesheet.
+- The CSP gained `img-src data:` (the registration mark and select chevron are inline SVG data
+  URIs) and `font-src 'self'` (for §9.1).
+
+**Verified:** `npm.cmd test` 296 and `npm.cmd run test:db` 188, unchanged counts, all passing —
+including the rules the design had to respect (no script on any page, every form still carries its
+token, no `raw()`). Every restyled page rendered and inspected as owner and as auditor.
+
+### 9.1 Not done: the fonts
+
+The stylesheet declares Barlow and Barlow Condensed with `src: local()` fallbacks, so on a machine
+without them installed the console renders in the system face — the handback's intended degraded
+state. The faces are not yet shipped. **The plan is to self-host the woff2 files from the hub**
+(same origin, `font-src 'self'`, works offline, cacheable) rather than inline them as base64 as
+the handback suggested, because inline fonts add roughly 100 KB to every page and cannot be cached.
+Downloading the three files needs the founder's go-ahead; nothing was fetched in this pass.

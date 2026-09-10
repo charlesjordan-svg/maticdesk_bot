@@ -170,7 +170,7 @@ export function adminHandler({ log = () => {} } = {}) {
         "referrer-policy": "same-origin",
         "x-content-type-options": "nosniff",
         "x-frame-options": "DENY",
-        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         ...extraHeaders,
       });
       res.end(htmlText);
@@ -209,7 +209,8 @@ export function adminHandler({ log = () => {} } = {}) {
         }), true);
       },
       renderPublic: async (status, body, { title = "Matic Desk", notice = null } = {}) => {
-        writeHtml(status, page({ title, body, notice }), false);
+        // Public pages (sign-in) are their own composition: no header, nav or footer.
+        writeHtml(status, page({ title, body, notice, bare: true }), false);
       },
       redirect: (path) => { res.writeHead(303, { location: path, "cache-control": "no-store", "x-matic-hub-auth": session ? "admin-session" : "none" }); res.end(); },
       audit: (action, { subject = null, detail = null } = {}) => audit({ adminUserId: user?.id ?? null, tenantId: tenant?.id ?? user?.tenantId ?? null, action, subject, detail }),
