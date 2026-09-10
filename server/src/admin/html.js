@@ -237,6 +237,15 @@ nav.primary a.current { border-bottom-color: var(--accent); background: var(--ac
   background: var(--accent-tint); border-bottom: 1px solid var(--accent);
   color: var(--ink); padding: 9px var(--pad); font-size: 13px;
 }
+/* The degraded-retrieval banner (D236, 2026-09-10). The one standing warning the console has:
+   drawn on EVERY page while /v1/health says retrieval is not running both legs, because a decline
+   made in that state is not evidence of a gap and an admin working the queue has to know before
+   they author an article. Steel, not the danger red - nothing is broken, something is missing. */
+.notice.warn {
+  background: var(--accent-tint-2); border-bottom: 1px solid var(--accent-ink);
+  font-weight: 500;
+}
+.notice.warn .mono { font-weight: 400; color: var(--muted) }
 
 main { max-width: var(--w); margin: 0 auto; padding: 28px var(--pad) 40px }
 
@@ -389,6 +398,14 @@ td .mono a { font-weight: 500 }
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .gap .chev { width: 18px; color: var(--accent); font-size: 12px; text-align: right }
+/* the retrieval-mode flag (D236): drawn ONLY on a row whose decline was made under degraded
+   retrieval or before the mode was recorded. A hybrid row carries nothing - the flag means "do
+   not author from this", and a flag on every row would mean nothing. */
+.gap .mode {
+  font: 600 11px/16px var(--head); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--accent-ink); border: 1px solid var(--accent); padding: 0 6px; white-space: nowrap;
+}
+.gap .mode.unknown { color: var(--faint); border-color: var(--line-2) }
 .gap[open] { border-color: var(--accent); position: relative; z-index: 1 }
 .gap[open] > summary { background: var(--accent-tint); border-bottom: 1px solid var(--accent) }
 .gap[open] .chev { transform: rotate(90deg); display: inline-block }
@@ -591,11 +608,16 @@ td.mono { font-variant-numeric: tabular-nums }
  *   who?: { email: string, roles: string[], tenant: string } | null,
  *   csrf?: string | null,
  *   notice?: string | null,
+ *   warning?: string | null,
  *   bare?: boolean,
  * }} p
  * @returns {string}
+ *
+ * `warning` is the standing banner (D236): the router fills it from the hub's own retrieval-health
+ * reader on every authenticated page while retrieval is degraded, and it renders ABOVE `notice`
+ * because a flash about the last action is less important than the state every action is made in.
  */
-export function page({ title, body, nav = [], current = "", who = null, csrf = null, notice = null, bare = false }) {
+export function page({ title, body, nav = [], current = "", who = null, csrf = null, notice = null, warning = null, bare = false }) {
   const navHtml = nav.map((d) => html`<a href="${d.path}" class="${d.path === current ? "current" : ""}">${d.label}${
     d.count === null || d.count === undefined ? "" : html`<span class="badge ${d.count === 0 ? "zero" : ""}">${d.count}</span>`
   }</a>`);
@@ -608,6 +630,7 @@ export function page({ title, body, nav = [], current = "", who = null, csrf = n
 <title>${esc(title)} · Matic Desk admin</title><style>${CSS}</style></head>
 <body>
 ${bare ? body : `<header class="top"><div class="brand">Matic Desk<small>admin console</small></div><nav class="primary">${navHtml.join("")}</nav>${whoHtml}</header>
+${warning ? `<div class="notice warn">${esc(warning)}</div>` : ""}
 ${notice ? `<div class="notice">${esc(notice)}</div>` : ""}
 <main>${body}</main>
 <footer class="foot">Loopback only. Server-rendered; every form works without JavaScript.</footer>`}

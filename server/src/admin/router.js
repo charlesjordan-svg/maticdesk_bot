@@ -174,9 +174,31 @@ async function navFor(ctx) {
  * null — a hub started with `MATIC_EMBED_PROVIDER=none`, or in a test — and both the search page
  * and the ingest form say so in words rather than showing a shorter list.
  *
- * @param {{ log?: (s: string) => void, embedder?: any|null }} [deps]
+ * `retrievalHealth` is THE SAME READER `/v1/health` answers from (src/kb/health.js, D236): the
+ * console draws a banner on every authenticated page while it says retrieval is degraded, and it
+ * has to be the same function so the banner and the health route cannot describe two different
+ * hubs. Optional, like the embedder: a test or a hub without one gets no banner and no error.
+ *
+ * @param {{ log?: (s: string) => void, embedder?: any|null, retrievalHealth?: (() => Promise<{ degraded: boolean, mode: string, why: string|null }>)|null }} [deps]
  */
-export function adminHandler({ log = () => {}, embedder = null } = {}) {
+export function adminHandler({ log = () => {}, embedder = null, retrievalHealth = null } = {}) {
+  /**
+   * The banner text, or null. Best-effort: a health reader that throws must not take the console
+   * down with it, so the failure becomes a banner of its own rather than a 500.
+   */
+  async function degradedBanner() {
+    if (!retrievalHealth) return null;
+    let h;
+    try { h = await retrievalHealth(); }
+    catch (err) { return `Retrieval health could not be read (${err.message}). Treat declines made now as unverified, not as gaps.`; }
+    if (!h?.degraded) return null;
+    const mode = h.mode;
+    const what = mode === "lexicalOnly" ? "the semantic leg is not running"
+      : mode === "emptyCorpus" ? "the corpus is empty"
+        : "the knowledge base cannot be read";
+    return `Retrieval is degraded (${mode}): ${what}. A question declined now is NOT evidence of a gap, and the review queue's badge does not count it. ${h.why ?? ""}`.trim();
+  }
+
   return async function handleAdmin(req, res) {
     const url = new URL(req.url ?? "/", "http://admin.local");
     if (url.pathname !== ADMIN_PREFIX && !url.pathname.startsWith(ADMIN_PREFIX + "/")) return false;
@@ -227,11 +249,13 @@ export function adminHandler({ log = () => {}, embedder = null } = {}) {
       csrf: session ? csrfToken(session) : null,
       form: {}, params: null, log, embedder, maxFormBytes: MAX_FORM_BYTES,
       render: async (status, body, { title = "Matic Desk", current = url.pathname, notice = null } = {}) => {
-        const nav = await navFor(ctx);
+        // The nav badges and the degraded-retrieval banner (D236) are independent reads; neither is
+        // worth a 500, and both are drawn on every authenticated page.
+        const [nav, warning] = await Promise.all([navFor(ctx), degradedBanner()]);
         writeHtml(status, page({
           title, body, nav, current,
           who: user ? { email: user.email, roles, tenant: tenant?.displayName ?? tenant?.slug ?? "no tenant" } : null,
-          csrf: ctx.csrf, notice,
+          csrf: ctx.csrf, notice, warning,
         }), true);
       },
       renderPublic: async (status, body, { title = "Matic Desk", notice = null } = {}) => {

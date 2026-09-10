@@ -285,3 +285,22 @@ export function readAnswerCall(body, { suppliedArticleIds }) {
 export const DECLINE_REPLY =
   "I don't have company guidance covering that, so I'd rather not guess - a wrong answer here could "
   + "cost you more time than the question. I can raise a ticket for someone in IT to pick up, if you'd like.";
+
+/**
+ * The decline when the knowledge base COULD NOT BE CHECKED (D236, 2026-09-10): retrieval mode
+ * `emptyCorpus` or `unavailable`. The founder's question was whether the user-facing decline should
+ * change when retrieval is degraded, and this is the answer as recommended and recorded:
+ *
+ *   - `hybrid` and `lexicalOnly` keep DECLINE_REPLY. Under lexicalOnly it is still literally true —
+ *     nothing was found — and naming the degradation would leak infrastructure state to an end user
+ *     who can do nothing with it.
+ *   - `emptyCorpus` and `unavailable` say the guidance could not be checked, because under those two
+ *     "I don't have company guidance covering that" is a FALSE statement about coverage: nothing was
+ *     consulted. It still offers the ticket, so the user's path is the same.
+ *
+ * It names neither the embedder nor the hub's internals. Hub-authored, so it is H5 prose: attributed,
+ * inert, and not the persona's to rewrite.
+ */
+export const UNCHECKED_DECLINE_REPLY =
+  "I couldn't check the company guidance just now, so I'd rather not guess at this one. I can raise a "
+  + "ticket for someone in IT to pick up, if you'd like.";

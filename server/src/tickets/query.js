@@ -148,8 +148,33 @@ export async function getTicket(schema, reference) {
       whatWasChecked: t.what_was_checked ?? null,
       profileSource: t.profile_source ?? null,
       sessionId: t.session_id ?? null,
+      closeNote: t.close_note ?? null,
     };
   });
+}
+
+/**
+ * How many tickets each of the given sessions produced. Takes the caller's TENANT-SCOPED CLIENT
+ * (from `withTenant()`) rather than a schema, because the caller - src/sessions/store.js - is
+ * already inside a tenant transaction and this is one more read in it.
+ *
+ * Here and not in the sessions store because of D224: SQL against `tickets` lives in this
+ * directory and nowhere else, so the CLI, the console and the sessions store cannot disagree about
+ * what a ticket row is. test/admin-static.test.mjs §5 fails if the query moves.
+ *
+ * @param {any} client
+ * @param {string[]} sessionIds
+ * @returns {Promise<Map<string, number>>}  sessionId -> count (absent = 0)
+ */
+export async function ticketCountsBySession(client, sessionIds) {
+  const out = new Map();
+  if (!sessionIds.length) return out;
+  const { rows } = await client.query(
+    "SELECT session_id, count(*)::int AS n FROM tickets WHERE session_id = ANY($1::uuid[]) GROUP BY session_id",
+    [sessionIds],
+  );
+  for (const r of rows) out.set(String(r.session_id), r.n);
+  return out;
 }
 
 /**
@@ -159,23 +184,30 @@ export async function getTicket(schema, reference) {
  * allows anything). This function only refuses a state that the database would refuse anyway,
  * so the error is a sentence rather than a constraint violation.
  *
+ * `note` (tenant/004, D239's "somewhere for the second-phase result to land"): the human's own
+ * account of what fixed it, written when they move the ticket to resolved or closed. Optional;
+ * kept when the next move carries none; not read by anything yet except the detail page and the
+ * CLI. The ticket-close-to-draft loop is the thing this column exists for and is NOT built.
+ *
  * @param {string} schema
  * @param {string} reference
  * @param {string} next
+ * @param {{ note?: string|null }} [opts]
  * @returns {Promise<{ from: string, to: string }|null>}
  */
-export async function setTicketState(schema, reference, next) {
+export async function setTicketState(schema, reference, next, { note = null } = {}) {
   if (!TICKET_STATES.includes(next)) throw new Error(`state must be one of: ${TICKET_STATES.join(", ")}`);
+  const trimmed = typeof note === "string" && note.trim() ? note.trim().slice(0, 4000) : null;
   return withTenant(schema, async (c) => {
     const { rows } = await c.query(
-      `UPDATE tickets t SET state = $2, updated_at = now()
+      `UPDATE tickets t SET state = $2, updated_at = now(), close_note = COALESCE($3, t.close_note)
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
         WHERE t.id = prev.id
         RETURNING prev.was`,
-      [reference, next],
+      [reference, next, trimmed],
     );
     if (!rows.length) return null;
-    return { from: rows[0].was, to: next };
+    return { from: rows[0].was, to: next, noted: trimmed !== null };
   });
 }
 

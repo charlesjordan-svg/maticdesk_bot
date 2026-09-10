@@ -58,6 +58,8 @@
 import { readJson } from "../turn.js";
 import { withTenant } from "../db/tenant.js";
 import { listTenants } from "../db/tenants.js";
+import { UUID_SHAPE } from "../kb/ask.js";
+import { acceptStartedAt, markEscalated } from "../sessions/store.js";
 
 /** The escalation enums, duplicated from the client on purpose — see checkTicketRequest. */
 export const TICKET_CATEGORIES = [
@@ -118,6 +120,16 @@ export function checkTicketRequest(body) {
     return `suggestedOwner, when present, must be null or one of: ${TICKET_OWNERS.join(", ")}`;
   }
 
+  // D237/D239: the session this ticket came from. Optional (a ticket filed by curl or by an
+  // endpoint whose session begin never landed still files), shape-checked, self-asserted like the
+  // reporter. When present, the insert flips that session to `escalated` in the same transaction.
+  if (body.sessionId !== undefined && body.sessionId !== null && !(typeof body.sessionId === "string" && UUID_SHAPE.test(body.sessionId))) {
+    return "sessionId, when present, must be a uuid";
+  }
+  if (body.sessionStartedAt !== undefined && body.sessionStartedAt !== null && typeof body.sessionStartedAt !== "string") {
+    return "sessionStartedAt, when present, must be an ISO timestamp string";
+  }
+
   const r = body.reporter;
   if (!r || typeof r !== "object") return "reporter must be an object";
   if (!str(r.osUsername)) return "reporter.osUsername must be a non-empty string";
@@ -166,17 +178,34 @@ export async function createTicket(schema, body) {
     ]);
     const userId = userRes.rows[0].id;
 
+    // THE SESSION BECOMES ESCALATED HERE, IN THIS TRANSACTION (D89: "escalated = a ticket was
+    // created"; D239: set automatically, never asked, never sent by the client as an event). The
+    // row is upserted first because the endpoint's `begin` is best-effort and may not have landed
+    // (src/sessions/store.js, "self-healing") — and `tickets.session_id` is a foreign key, so the
+    // row has to exist before the ticket can point at it. The ticket's category is the session's
+    // category from here on (D186 groups by it).
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : null;
+    if (sessionId) {
+      await markEscalated(client, {
+        id: sessionId,
+        category: body.category,
+        startedAt: acceptStartedAt(body.sessionStartedAt),
+        machineName: str(body.machineName),
+      });
+    }
+
     // The reference is drawn from the sequence inside the same transaction. A rolled-back insert
     // burns a number — sequences are non-transactional by design — which is correct: a reference
     // must never be reused, and a gap in MD-#### is meaningless to everyone who reads one.
     const ticketSql = `
       INSERT INTO tickets
-        (reference, user_id, description, summary, what_was_checked, machine_name, category, suggested_owner)
+        (reference, user_id, session_id, description, summary, what_was_checked, machine_name, category, suggested_owner)
       VALUES
-        ('MD-' || nextval('ticket_reference_seq'), $1, $2, $3, $4, $5, $6, $7)
+        ('MD-' || nextval('ticket_reference_seq'), $1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id, reference, created_at`;
     const t = await client.query(ticketSql, [
       userId,
+      sessionId,
       str(body.description),
       str(body.summary),
       str(body.whatWasChecked),
@@ -189,6 +218,7 @@ export async function createTicket(schema, body) {
       reference: t.rows[0].reference,
       ticketId: t.rows[0].id,
       userId,
+      sessionId,
       createdAt: t.rows[0].created_at.toISOString(),
     };
   });

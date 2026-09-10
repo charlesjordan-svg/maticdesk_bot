@@ -107,6 +107,39 @@ export const DEFAULT_TOP_K = 5;
 export const RELEVANCE_FLOOR = null;
 
 /**
+ * HOW a retrieval ran — recorded on every log row since migration control/005 (D236, 2026-09-10).
+ *
+ * The hub always knew this at query time (`legs` below has said which legs ran since B7a) and wrote
+ * none of it down, so a decline made with the embedder down was indistinguishable in the review
+ * queue from a real gap, and D227 logs every decline. The review queue's badge counts `hybrid`
+ * declines ONLY; the others are shown and flagged.
+ *
+ *   hybrid       both legs ran — the only mode a decline can be called a gap under
+ *   lexicalOnly  the semantic leg did not run (no embedder configured, or it failed on this call)
+ *   emptyCorpus  no chunk was eligible for this platform — nothing to retrieve from at all
+ *   unavailable  retrieve() itself threw (the database, most likely) — no legs ran
+ */
+export const RETRIEVAL_MODES = Object.freeze(["hybrid", "lexicalOnly", "emptyCorpus", "unavailable"]);
+
+/**
+ * Classify a retrieval. PURE, so test/kb-static.test.mjs pins every branch with no database.
+ *
+ * Order matters and is the honest one: a failed retrieval is `unavailable` whatever else is true;
+ * an empty corpus is `emptyCorpus` even if the embedder was also down, because "nothing to search"
+ * is the more fundamental fact and the one the admin has to fix first; only then does the leg
+ * question arise.
+ *
+ * @param {{ result?: { legs?: { lexical?: boolean, semantic?: boolean }, eligibleChunks?: number|null }|null, error?: string|null }} p
+ * @returns {"hybrid"|"lexicalOnly"|"emptyCorpus"|"unavailable"}
+ */
+export function retrievalModeOf({ result = null, error = null } = {}) {
+  if (error || !result) return "unavailable";
+  if (result.eligibleChunks === 0) return "emptyCorpus";
+  if (!result.legs?.semantic) return "lexicalOnly";
+  return "hybrid";
+}
+
+/**
  * @typedef {object} Candidate
  * @property {number} chunkId
  * @property {string} articleId
@@ -285,6 +318,17 @@ export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder
   const legs = { lexical: false, semantic: false, semanticError: null };
 
   return withControl(async (client) => {
+    // HOW MANY CHUNKS THE PRE-FILTER EVEN ADMITTED. Zero is `emptyCorpus` (D236): a decline over
+    // nothing is not a gap in the corpus, it is the absence of one, and the two used to log
+    // identically. Same shape as the console's search-scope count (src/admin/kb-search.js), and the
+    // same platform rule: `'any'` admits `platform = 'any'` only.
+    const pf = typeof platform === "string" && platform.trim() && platform.trim().toLowerCase() !== "any" ? platform.trim().toLowerCase() : "any";
+    const { rows: [scope] } = await client.query(
+      "SELECT count(*) FILTER (WHERE platform = 'any' OR platform = $1)::int AS eligible FROM control.kb_chunks",
+      [pf],
+    );
+    const eligibleChunks = Number(scope.eligible);
+
     const lexical = await lexicalLeg({ query, platform, client });
     legs.lexical = true;
 
@@ -327,7 +371,7 @@ export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder
       articles = articleIds.map((id) => rows.find((r) => r.id === id)).filter(Boolean);
     }
 
-    return { chunks, articles, legs, topScore, floorApplied, floor, candidates: { lexical: lexical.length, semantic: semantic.length } };
+    return { chunks, articles, legs, topScore, floorApplied, floor, eligibleChunks, candidates: { lexical: lexical.length, semantic: semantic.length } };
   });
 }
 
@@ -346,10 +390,16 @@ export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder
  * loop, and "we will prune later" is how a log becomes permanent by default. `node bin/kb.mjs
  * prune-questions` is the manual form of the same statement.
  *
+ * `mode` is the retrieval mode (D236, `retrievalModeOf`) and is REQUIRED from the caller rather than
+ * recomputed here, because the caller is the one that saw the error: a `result` that arrived means
+ * retrieval ran, and only ask.js knows whether it did. `sessionId` is the endpoint's session (D237),
+ * a bare uuid or null, validated by the route before it gets here.
+ *
  * @param {{
  *   query: string, platform?: string|null, tenantLabel?: string|null,
  *   result: { chunks: any[], topScore: number, floorApplied: boolean },
  *   cited?: string[], answered?: boolean|null, model?: string|null, client?: any,
+ *   mode: "hybrid"|"lexicalOnly"|"emptyCorpus"|"unavailable", sessionId?: string|null,
  * }} opts
  */
 /**
@@ -394,9 +444,14 @@ export async function pruneQuestionText({ client, days = questionRetentionDays()
   return client ? run(client) : withControl(run);
 }
 
-export async function logRetrieval({ query, platform, tenantLabel = null, result, cited = [], answered = null, model = null, client }) {
+export async function logRetrieval({ query, platform, tenantLabel = null, result, cited = [], answered = null, model = null, client, mode, sessionId = null }) {
+  if (!RETRIEVAL_MODES.includes(mode)) {
+    // A row without a mode is the row that produced the false-gap problem. Refuse to write one
+    // rather than default it: a default here is a claim about a retrieval nobody looked at.
+    throw new Error(`logRetrieval: mode must be one of ${RETRIEVAL_MODES.join(", ")} (got ${JSON.stringify(mode)})`);
+  }
   const keepQuery = questionLoggingEnabled();
-  const retrieved = result.chunks.map((c) => ({
+  const retrieved = (result?.chunks ?? []).map((c) => ({
     chunkId: c.chunkId, articleId: c.articleId, kind: c.kind,
     lexRank: c.lexRank ?? null, semRank: c.semRank ?? null,
     score: Number(c.score.toFixed(6)),
@@ -406,16 +461,18 @@ export async function logRetrieval({ query, platform, tenantLabel = null, result
     keepQuery ? query : null,
     platform ?? null,
     JSON.stringify(retrieved),
-    result.topScore,
-    result.floorApplied,
+    result?.topScore ?? 0,
+    result?.floorApplied ?? false,
     cited,
     answered,
     model,
+    mode,
+    sessionId,
   ];
   const sql = `
     INSERT INTO control.kb_retrieval_log
-      (tenant_label, query_text, platform, retrieved, top_score, floor_applied, cited, answered, model)
-    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
+      (tenant_label, query_text, platform, retrieved, top_score, floor_applied, cited, answered, model, retrieval_mode, session_id)
+    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)
     RETURNING id`;
   const run = async (cl) => {
     const id = Number((await cl.query(sql, params)).rows[0].id);

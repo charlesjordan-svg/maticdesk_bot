@@ -67,6 +67,8 @@ import { askHandler } from "./kb/ask.js";
 import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
+import { sessionHandler } from "./sessions/route.js";
+import { retrievalHealthReader } from "./kb/health.js";
 import { enrollHandler } from "./devices/route.js";
 import { questionLoggingEnabled, questionRetentionDays, QUESTION_RETENTION_MAX_DAYS } from "./kb/retrieve.js";
 import { adminHandler } from "./admin/router.js";
@@ -132,14 +134,21 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // B3. Unlike /v1/ask and /v1/ticket, this route DOES take a tenant from the client — see
   // src/devices/route.js's header for why that is not the same mistake those two routes refuse.
   const handleEnroll = enrollHandler({ log });
+  // D237/D239: the endpoint's session lifecycle. SAME tenant resolution as tickets, so a session and
+  // the ticket it produces land in one schema without either side naming it (src/sessions/route.js).
+  const handleSession = sessionHandler({ tenantSchema: ticketTenant, log });
+  // D236: what retrieval would do RIGHT NOW — the embedder verified live (not described from its
+  // constructor), the corpus, and the resulting mode. ONE reader for /v1/health AND the console's
+  // degraded-retrieval banner, so the two cannot disagree (src/kb/health.js).
+  const retrievalHealth = retrievalHealthReader({ embedder, kb });
   // The admin console (B2, D221). HTML, session-authenticated, mounted under /admin and nowhere
   // else. It is NOT one of the API routes and is deliberately absent from the route lists below:
   // it has its own authentication, and listing it beside routes that carry x-matic-hub-auth: none
   // would blur the one property those lists exist to state. src/admin/router.js is the front door.
   // It takes the SAME embedder instance handleAsk got, because the console's Knowledge search
   // exists to say what the endpoint's retrieval does. Two providers would make it a report about a
-  // pipeline nobody runs.
-  const handleAdmin = admin ? adminHandler({ log, embedder }) : null;
+  // pipeline nobody runs. And the same health reader, for the same reason.
+  const handleAdmin = admin ? adminHandler({ log, embedder, retrievalHealth }) : null;
 
   return http.createServer(async (req, res) => {
     const send = (status, body) => {
@@ -186,15 +195,19 @@ export function createHubServer({ provider, hubProvider = "local", log = console
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
       return handleEnroll(req, res, send);
     }
+    if (req.url === "/v1/session") {
+      if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
+      return handleSession(req, res, send);
+    }
     if (req.url === "/v1/health" && req.method === "GET") {
       // The corpus figures are best-effort: /v1/health must answer when the database does not,
       // because "is the hub up" and "is the corpus loaded" are different questions and the second
-      // one failing is not the first one failing.
-      let corpus = null;
-      if (kb) {
-        try { corpus = await corpusStatus(); }
-        catch (err) { corpus = { error: err.message }; }
-      }
+      // one failing is not the first one failing. Since D236 the embedder figures are LIVE too —
+      // `available` is a verify() that ran within the last few seconds, not the constructor's
+      // description — and `retrieval.mode` is what a question asked now would be retrieved under.
+      let health = { embedder: null, corpus: null, mode: "unavailable", degraded: true, why: "health reader failed" };
+      try { health = await retrievalHealth(); }
+      catch (err) { health = { ...health, why: `health reader failed: ${err.message}` }; }
       return send(200, {
         ok: true,
         hub: "matic-desk-hub",
@@ -202,8 +215,16 @@ export function createHubServer({ provider, hubProvider = "local", log = console
         auth: "none",
         tenancy: "none - MATIC_KB_TENANT_LABEL is a development label, not an authenticated tenant",
         provider: { name: provider.name, model: provider.model, hubProvider },
-        embedder: embedder ? { name: embedder.name, model: embedder.model, dimensions: embedder.dimensions } : null,
-        corpus,
+        embedder: health.embedder,
+        corpus: health.corpus,
+        // D236. `degraded: true` means a decline made now is NOT evidence of a gap, and the console
+        // shows a banner for as long as this says so.
+        retrieval: { mode: health.mode, degraded: health.degraded, why: health.why },
+        // D237/D239. Whether this hub records sessions at all; the endpoint's session id is
+        // self-asserted either way.
+        sessions: ticketTenant
+          ? { enabled: true, tenant: ticketTenant, note: "POST /v1/session; ids are the endpoint's own claim (no device auth, D61)" }
+          : { enabled: false, why: "no endpoint tenant is configured (MATIC_TICKET_TENANT, or a single tenant in control.tenants)" },
         // B6-lite (D213). `notifies` is false in EVERY build that has a ticket store, until
         // outbound email exists (D86) — a client reading this must not conclude that filing a
         // ticket tells anybody, because that is the one wrong thing it would be convenient to say.
@@ -242,6 +263,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
           { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
           { method: "POST", path: "/v1/enroll", what: "a device asks to join a tenant (B3). The one route that DOES take a tenant from the client - the enrollment secret is what authenticates the claim", body: { tenant: "string (the tenant's slug)", deviceKeyId: "string (opaque device identity)", secret: "string (the tenant's enrollment secret)", mode: "'standalone' | 'joined' (optional)" } },
+          { method: "POST", path: "/v1/session", what: "the endpoint's conversation began / was confirmed fixed / was confirmed not fixed / ended (D237, D239). The row is written at BEGIN, defaulting to unresolved; 'escalated' is set by POST /v1/ticket, never by this route; 'suppressed' is reserved", body: { event: "'begin' | 'resolved' | 'not_fixed' | 'end'", sessionId: "uuid, minted by the endpoint - SELF-ASSERTED", startedAt: "ISO timestamp (optional)", category: "slug (optional, with resolved: the capability confirmed)", machineName: "string (optional)" } },
         ],
         // The admin console (B2). A separate field, NOT an entry in routes: it is a browser surface
         // with its own session authentication, not an API, and it must not read as one (exit
@@ -259,7 +281,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     return send(404, {
       ok: false,
       error: `no such route: ${req.method} ${req.url}`,
-      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll"],
+      routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session"],
     });
   });
 }

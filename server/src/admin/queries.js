@@ -49,22 +49,47 @@ export async function tenantBySlug(slug) {
 // ---- the review queue (D177) ------------------------------------------------------------------
 
 /**
+ * The gap-feed filters (D236). `hybrid` is what the badge counts; `degraded` is every decline made
+ * under lexicalOnly / emptyCorpus / unavailable OR before the mode was recorded (NULL); `all` is both.
+ * Named here so the page's links and the query cannot disagree about what each word admits.
+ */
+export const GAP_FILTERS = Object.freeze(["all", "hybrid", "degraded"]);
+
+/** The WHERE fragment for a gap filter. `l` is the retrieval-log alias. */
+function gapFilterSql(filter) {
+  if (filter === "hybrid") return "AND l.retrieval_mode = 'hybrid'";
+  if (filter === "degraded") return "AND (l.retrieval_mode IS NULL OR l.retrieval_mode <> 'hybrid')";
+  return "";
+}
+
+/**
  * Feed 2 of D177: KB gaps. Every question the hub DECLINED (D205's `answered: false`) is a gap
  * candidate with, when MATIC_KB_LOG_QUERIES=1 was set, the question attached. D223: a gap record
  * is not a transcript and is readable by any admin with review.read.
  *
- * Feeds 1, 3 and 4 (drafts from resolved sessions, staleness, duplicates) need session outcomes
- * that nothing writes yet; the page says so rather than showing them empty.
+ * SINCE D236 EVERY ROW CARRIES ITS RETRIEVAL MODE, AND A DEGRADED ROW IS FLAGGED, NOT HIDDEN. A
+ * decline made with the embedder down (lexicalOnly), over an empty corpus, or with the database
+ * gone is not evidence that the corpus lacks an article - the system could not have found one - and
+ * D227 logs every decline. Hiding those rows would lose real questions asked in a degraded period;
+ * counting them as gaps is how the queue filled with false gaps. So they are returned with
+ * `retrievalMode` set, the page marks them, and `filter` lets the admin see one kind at a time. NULL
+ * is a row written before migration control/005 whose mode is NOT KNOWN; it is shown as such and
+ * grouped with the degraded rows because it cannot be called a gap either.
  *
- * @param {{ limit?: number }} [opts]
+ * Feeds 1, 3 and 4 (drafts from resolved sessions, staleness, duplicates) are still not built;
+ * sessions ARE recorded now (D237/D239), which is what feeds 1 and 3 were waiting on.
+ *
+ * @param {{ limit?: number, filter?: "all"|"hybrid"|"degraded" }} [opts]
  */
-export async function gapFeed({ limit = 50 } = {}) {
+export async function gapFeed({ limit = 50, filter = "all" } = {}) {
   const cap = Math.min(Math.max(Number(limit) || 50, 1), 500);
+  const f = GAP_FILTERS.includes(filter) ? filter : "all";
   return withControl(async (c) => {
     const { rows } = await c.query(
-      `SELECT l.id, l.at, l.tenant_label, l.query_text, l.platform, l.retrieved, l.top_score, l.model
+      `SELECT l.id, l.at, l.tenant_label, l.query_text, l.platform, l.retrieved, l.top_score, l.model,
+              l.retrieval_mode, l.session_id
          FROM control.kb_retrieval_log l
-        WHERE l.answered = false
+        WHERE l.answered = false ${gapFilterSql(f)}
         ORDER BY l.at DESC LIMIT $1`,
       [cap],
     );
@@ -88,6 +113,11 @@ export async function gapFeed({ limit = 50 } = {}) {
       return {
         id: Number(r.id), at: r.at, tenantLabel: r.tenant_label, queryText: r.query_text, platform: r.platform,
         topScore: r.top_score, model: r.model,
+        // D236. null = written before control/005; the page says "mode unknown".
+        retrievalMode: r.retrieval_mode ?? null,
+        // D237. The endpoint's session, when it sent one. Not resolved to a tenant row here: the log
+        // is control-plane and the session is in a tenant schema. Shown as an id.
+        sessionId: r.session_id ?? null,
         retrieved: [...byArticle.values()].sort((a, b) => b.bestScore - a.bestScore),
       };
     });
@@ -95,34 +125,82 @@ export async function gapFeed({ limit = 50 } = {}) {
   });
 }
 
+/** Is this decline evidence of a gap? Only a decline made with BOTH legs running (D236). */
+export const isGapEvidence = (mode) => mode === "hybrid";
+
 /**
  * Group declines on the normalised question text, so a row can carry a REAL hit count (handback
  * §3: "a real count or nothing"). Rows without text cannot be deduplicated and stay one row each
  * with hits = 1, which the page renders as no count. Newest first, by last occurrence.
  *
- * @param {Array<{ id: number, at: Date, queryText: string|null, [k: string]: any }>} rows  newest first
+ * D236: a group also carries `hybridHits` (how many of its declines were made under full retrieval)
+ * and `modes` (the distinct modes seen, so the page can say "3 asked, 1 under full retrieval"). A
+ * group with `hybridHits === 0` is flagged whole: nothing in it is evidence of a gap.
+ *
+ * @param {Array<{ id: number, at: Date, queryText: string|null, retrievalMode?: string|null, [k: string]: any }>} rows  newest first
  */
 export function groupGaps(rows) {
   /** @type {Map<string, any>} */
   const byText = new Map();
   const out = [];
+  const start = (r) => ({
+    ...r, hits: 1, firstAt: r.at, lastAt: r.at,
+    hybridHits: isGapEvidence(r.retrievalMode) ? 1 : 0,
+    modes: [r.retrievalMode ?? null],
+  });
   for (const r of rows) {
     const key = r.queryText ? r.queryText.trim().toLowerCase().replace(/\s+/g, " ") : null;
-    if (key === null) { out.push({ ...r, hits: 1, firstAt: r.at, lastAt: r.at }); continue; }
+    if (key === null) { out.push(start(r)); continue; }
     const g = byText.get(key);
-    if (g) { g.hits += 1; g.firstAt = r.at; continue; } // rows arrive newest first, so each later row is earlier in time
-    const fresh = { ...r, hits: 1, firstAt: r.at, lastAt: r.at };
+    if (g) {
+      g.hits += 1;
+      g.firstAt = r.at; // rows arrive newest first, so each later row is earlier in time
+      if (isGapEvidence(r.retrievalMode)) g.hybridHits += 1;
+      if (!g.modes.includes(r.retrievalMode ?? null)) g.modes.push(r.retrievalMode ?? null);
+      continue;
+    }
+    const fresh = start(r);
     byText.set(key, fresh);
     out.push(fresh);
   }
   return out;
 }
 
-/** How many gaps there are — the review queue's badge, drawn on every screen. */
+/**
+ * How many gaps there are — the review queue's badge, drawn on every screen.
+ *
+ * COUNTS `hybrid` DECLINES ONLY (D236). The badge is what decides whether an admin opens the queue
+ * at all, so an inflated badge is the actual harm of the false-gap problem: it sends someone to
+ * author articles for questions the system could already answer. A degraded decline is still IN
+ * the queue (flagged, filterable) - it is simply not a reason to open it.
+ */
 export async function gapCount() {
   return withControl(async (c) => {
-    const { rows } = await c.query("SELECT count(*)::int AS n FROM control.kb_retrieval_log WHERE answered = false");
+    const { rows } = await c.query("SELECT count(*)::int AS n FROM control.kb_retrieval_log WHERE answered = false AND retrieval_mode = 'hybrid'");
     return rows[0].n;
+  });
+}
+
+/**
+ * The declines by mode, for the review page's tiles: how many are gaps, how many were made under
+ * degraded retrieval, how many predate the mode column. `hybrid` here equals `gapCount()` by
+ * construction - same table, same predicate.
+ */
+export async function gapCounts() {
+  return withControl(async (c) => {
+    const { rows: [r] } = await c.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE retrieval_mode = 'hybrid')::int AS hybrid,
+              count(*) FILTER (WHERE retrieval_mode = 'lexicalOnly')::int AS lexical_only,
+              count(*) FILTER (WHERE retrieval_mode = 'emptyCorpus')::int AS empty_corpus,
+              count(*) FILTER (WHERE retrieval_mode = 'unavailable')::int AS unavailable,
+              count(*) FILTER (WHERE retrieval_mode IS NULL)::int AS unknown
+         FROM control.kb_retrieval_log WHERE answered = false`,
+    );
+    return {
+      total: r.total, hybrid: r.hybrid, lexicalOnly: r.lexical_only, emptyCorpus: r.empty_corpus,
+      unavailable: r.unavailable, unknown: r.unknown, degraded: r.total - r.hybrid,
+    };
   });
 }
 
@@ -134,12 +212,18 @@ export async function gapCount() {
  * declined question is not an unresolved session and an answered one is not a resolved one.
  */
 export async function questionCounts() {
+  // D236: a window that contained degraded retrieval is MARKED. `degraded` counts every question
+  // retrieved under lexicalOnly / emptyCorpus / unavailable (or before the mode was recorded), and
+  // `declined_degraded` the declines among them - the ones that are NOT gaps.
+  const DEGRADED = "(retrieval_mode IS NULL OR retrieval_mode <> 'hybrid')";
   return withControl(async (c) => {
     const { rows: [all] } = await c.query(
       `SELECT count(*)::int AS asked,
               count(*) FILTER (WHERE answered = true)::int  AS answered,
               count(*) FILTER (WHERE answered = false)::int AS declined,
               count(*) FILTER (WHERE answered IS NULL)::int AS unknown,
+              count(*) FILTER (WHERE ${DEGRADED})::int AS degraded,
+              count(*) FILTER (WHERE answered = false AND ${DEGRADED})::int AS declined_degraded,
               count(query_text)::int AS with_text,
               min(at) AS first_at, max(at) AS last_at
          FROM control.kb_retrieval_log`,
@@ -147,7 +231,9 @@ export async function questionCounts() {
     const { rows: [week] } = await c.query(
       `SELECT count(*)::int AS asked,
               count(*) FILTER (WHERE answered = true)::int  AS answered,
-              count(*) FILTER (WHERE answered = false)::int AS declined
+              count(*) FILTER (WHERE answered = false)::int AS declined,
+              count(*) FILTER (WHERE ${DEGRADED})::int AS degraded,
+              count(*) FILTER (WHERE answered = false AND ${DEGRADED})::int AS declined_degraded
          FROM control.kb_retrieval_log WHERE at > now() - interval '7 days'`,
     );
     const { rows: byPlatform } = await c.query(

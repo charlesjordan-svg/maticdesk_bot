@@ -59,8 +59,11 @@
  *     whole point of B7a and there is no flag for it.
  */
 import { readJson } from "../turn.js";
-import { buildAnswerInput, readAnswerCall, DECLINE_REPLY } from "./answer.js";
-import { retrieve, logRetrieval, DEFAULT_TOP_K } from "./retrieve.js";
+import { buildAnswerInput, readAnswerCall, DECLINE_REPLY, UNCHECKED_DECLINE_REPLY } from "./answer.js";
+import { retrieve, logRetrieval, retrievalModeOf, DEFAULT_TOP_K } from "./retrieve.js";
+
+/** A uuid as the endpoint mints them (D237). Anything else is refused, not coerced. */
+export const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Shape check. Request validation, not answer validation.
@@ -76,6 +79,12 @@ export function checkAskRequest(body) {
   if (typeof body.text !== "string" || !body.text.trim()) return "text must be a non-empty string";
   if (body.probe !== undefined && (body.probe === null || typeof body.probe !== "object")) {
     return "probe, when present, must be an object (machine state)";
+  }
+  // D237: the endpoint's session id rides on the question so a gap can be correlated with the
+  // session's outcome later. Optional (curl sends none), shape-checked, NOT authenticated — it is
+  // the endpoint's own claim, like everything else it sends until D61 exists.
+  if (body.sessionId !== undefined && body.sessionId !== null && !(typeof body.sessionId === "string" && UUID_SHAPE.test(body.sessionId))) {
+    return "sessionId, when present, must be a uuid";
   }
   // The guard described in the header. A client that can name its own tenant IS the tenancy model.
   if (body.tenant !== undefined || body.tenantId !== undefined || body.tenantLabel !== undefined) {
@@ -135,11 +144,12 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
     if (problem) return send(400, errorBody(problem));
     const body = parsed.value;
     const platform = platformFromProbe(body.probe);
+    const sessionId = body.sessionId ?? null;
 
     // ---- Retrieval. A failure here is DEGRADED, NOT FATAL (acceptance item 7). --------------
     // An empty corpus and an unreachable database both produce zero chunks, and zero chunks is a
     // valid input to the answer path: the prompt declines. The turn completes either way.
-    let retrieval = { chunks: [], articles: [], legs: { lexical: false, semantic: false, semanticError: null }, topScore: 0, floorApplied: false, floor: null, candidates: { lexical: 0, semantic: 0 } };
+    let retrieval = { chunks: [], articles: [], legs: { lexical: false, semantic: false, semanticError: null }, topScore: 0, floorApplied: false, floor: null, eligibleChunks: null, candidates: { lexical: 0, semantic: 0 } };
     let retrievalError = null;
     try {
       retrieval = await retrieve({ query: body.text, platform, topK, embedder, log });
@@ -148,54 +158,74 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
       log(`[ask] retrieval failed, answering with no articles (the decline path): ${err.message}`);
     }
 
+    // HOW it retrieved (D236). Recorded on the log row and returned to the endpoint, because a
+    // decline under `lexicalOnly` is not evidence of a gap and the review queue has to know that.
+    const mode = retrievalModeOf({ result: retrievalError ? null : retrieval, error: retrievalError });
+
     const suppliedArticleIds = retrieval.articles.map((a) => a.id);
     log(`[ask] retrieved ${retrieval.chunks.length} chunks from ${suppliedArticleIds.length} articles`
       + ` (lexical ${retrieval.candidates.lexical}, semantic ${retrieval.candidates.semantic}`
       + `${retrieval.legs.semantic ? "" : ", SEMANTIC LEG DID NOT RUN"})`
-      + ` platform ${platform ?? "any-only"} top score ${retrieval.topScore.toFixed(5)}`);
+      + ` platform ${platform ?? "any-only"} top score ${retrieval.topScore.toFixed(5)} mode ${mode}`);
 
-    // ---- The model call. --------------------------------------------------------------------
-    let out;
-    try {
-      out = await provider.complete(buildAnswerInput({ text: body.text, retrieval }));
-    } catch (err) {
-      const timeout = err?.name === "TimeoutError" || err?.name === "AbortError";
-      log(`[ask] provider ${provider.name}/${provider.model} ${timeout ? "timed out" : "unreachable"}: ${err.message}`);
-      return send(timeout ? 504 : 502, errorBody(timeout
-        ? `the model behind the hub did not answer in time (${provider.model})`
-        : `the hub could not reach the model (${provider.model}): ${err.message}`));
-    }
-    if (out.status !== 200) {
-      const detail = out.body?.error?.message ?? out.body?.error ?? JSON.stringify(out.body ?? {}).slice(0, 200);
-      log(`[ask] provider returned HTTP ${out.status}: ${detail}`);
-      return send(502, errorBody(`the model endpoint behind the hub returned ${out.status}: ${detail}`));
-    }
-
-    const read = readAnswerCall(out.body, { suppliedArticleIds });
-
-    // A model that failed to call the tool at all is NOT turned into a general-knowledge answer.
-    // It becomes a decline, because a decline is true and an invented answer is not.
+    // ---- The model call — UNLESS THERE WAS NOTHING TO CHECK. ---------------------------------
+    //
+    // Under `emptyCorpus` and `unavailable` the answer is a decline BY CONSTRUCTION: no article was
+    // or could have been supplied, and the prompt with no articles says "call answer with answered:
+    // false". Calling a 24B model to have it say so costs a cold load (up to 265 s measured, §5.22a)
+    // and buys nothing, so it is not called; the decline is the hub's own sentence, and it says the
+    // guidance could not be CHECKED rather than that none covers the question — which under these
+    // two modes would be false (D236, the decline-wording decision). `hybrid` and `lexicalOnly`
+    // still go to the model unchanged: retrieval RAN, and a decline there is the model's to make.
+    let out, read;
     let answered, reply, cited, problems;
-    if (read.error) {
-      log(`[ask] ${read.error} - returning a decline`);
-      answered = false; reply = DECLINE_REPLY; cited = []; problems = [read.error];
+    if (mode === "emptyCorpus" || mode === "unavailable") {
+      log(`[ask] retrieval mode ${mode}: nothing to check, declining without a model call`);
+      out = { ms: 0, body: null };
+      read = { finishReason: null };
+      answered = false; reply = UNCHECKED_DECLINE_REPLY; cited = []; problems = [];
     } else {
-      ({ answered, reply, cited, problems } = read);
+      try {
+        out = await provider.complete(buildAnswerInput({ text: body.text, retrieval }));
+      } catch (err) {
+        const timeout = err?.name === "TimeoutError" || err?.name === "AbortError";
+        log(`[ask] provider ${provider.name}/${provider.model} ${timeout ? "timed out" : "unreachable"}: ${err.message}`);
+        return send(timeout ? 504 : 502, errorBody(timeout
+          ? `the model behind the hub did not answer in time (${provider.model})`
+          : `the hub could not reach the model (${provider.model}): ${err.message}`));
+      }
+      if (out.status !== 200) {
+        const detail = out.body?.error?.message ?? out.body?.error ?? JSON.stringify(out.body ?? {}).slice(0, 200);
+        log(`[ask] provider returned HTTP ${out.status}: ${detail}`);
+        return send(502, errorBody(`the model endpoint behind the hub returned ${out.status}: ${detail}`));
+      }
+
+      read = readAnswerCall(out.body, { suppliedArticleIds });
+
+      // A model that failed to call the tool at all is NOT turned into a general-knowledge answer.
+      // It becomes a decline, because a decline is true and an invented answer is not.
+      if (read.error) {
+        log(`[ask] ${read.error} - returning a decline`);
+        answered = false; reply = DECLINE_REPLY; cited = []; problems = [read.error];
+      } else {
+        ({ answered, reply, cited, problems } = read);
+      }
+      for (const p of problems) log(`[ask] answer was corrected: ${p}`);
     }
-    for (const p of problems) log(`[ask] answer was corrected: ${p}`);
 
     // ---- The retrieval log (D166). Separate from the outcome. -------------------------------
-    // A logging failure must not fail a turn the user is waiting on.
+    // A logging failure must not fail a turn the user is waiting on. Attempted in EVERY mode now
+    // (it used to be skipped on a retrieval error): under `unavailable` the write will usually fail
+    // too, and that is fine — but a retrieval that failed for a reason other than the database is
+    // exactly the row the review queue most needs to see flagged.
     let logId = null;
-    if (!retrievalError) {
-      try {
-        logId = await logRetrieval({
-          query: body.text, platform, tenantLabel, result: retrieval,
-          cited, answered, model: provider.model,
-        });
-      } catch (err) {
-        log(`[ask] could not write the retrieval log: ${err.message}`);
-      }
+    try {
+      logId = await logRetrieval({
+        query: body.text, platform, tenantLabel, result: retrieval,
+        cited, answered, model: provider.model, mode, sessionId,
+      });
+    } catch (err) {
+      log(`[ask] could not write the retrieval log: ${err.message}`);
     }
 
     log(`[ask] ${provider.model} ${answered ? `answered citing ${cited.join(", ")}` : "DECLINED"} in ${out.ms} ms`);
@@ -212,6 +242,9 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
         chunks: retrieval.chunks.length,
         articles: suppliedArticleIds,
         legs: { lexical: retrieval.legs.lexical, semantic: retrieval.legs.semantic },
+        // D236: the endpoint can read HOW this was retrieved. It changes nothing it says (the hub's
+        // reply already reflects the mode) but it is on the response so the transcript can carry it.
+        mode,
         topScore: Number(retrieval.topScore.toFixed(6)),
         floorApplied: retrieval.floorApplied,
         // Loud: any quality judgement made from this response is a FLOOR, not a measurement.
