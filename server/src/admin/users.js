@@ -161,6 +161,43 @@ export async function createAdminUser({ tenantId, email, roleName, password }) {
   });
 }
 
+/**
+ * NEW PASSWORD AND NEW AUTHENTICATOR SECRET for an existing admin, printed once by
+ * `bin/admin.mjs reset`. Returns what the operator must hand over; nothing is stored in the clear.
+ *
+ * WHY THIS EXISTS. `create-user` prints the TOTP secret once and there is no QR code and no
+ * enrolment page, so a secret that was not written down is gone — and on day one one was, which
+ * left `disable` + `create-user` as the only remedy: a new account, a new row, and the old one's
+ * audit history detached from the person still using the console. This makes the remedy a reset.
+ *
+ * THREE THINGS MOVE TOGETHER AND ALL THREE MATTER:
+ *   - `totp_last_step` is CLEARED. It is the replay defence (RFC 6238 §5.2), and it holds a step
+ *     number from the OLD secret. A step number means nothing against a new secret, but leaving a
+ *     stale one in place makes the first code from the new authenticator refusable for no reason
+ *     the person could work out. NULL is the honest value for "this secret has never been used".
+ *   - Every live session is revoked BY THE CALLER (`revokeUserSessions`), because a reset that
+ *     leaves the old browser signed in has not taken the account back.
+ *   - The row keeps its id, so the audit trail stays attached to the same person.
+ *
+ * It does NOT re-enable a disabled account. A reset is about credentials; `enable` is about
+ * status, and quietly doing both would make one command two decisions.
+ *
+ * @param {{ adminUserId: string, password?: string }} p
+ * @returns {Promise<{ password: string, totpSecret: Buffer }>}
+ */
+export async function resetAdminCredentials({ adminUserId, password }) {
+  const initial = password ?? randomToken(18);
+  const passwordHash = hashPassword(initial);
+  const totpSecret = newTotpSecret();
+  await withControl((c) => c.query(
+    `UPDATE control.admin_users
+        SET password_hash = $2, totp_secret = $3, totp_last_step = NULL
+      WHERE id = $1`,
+    [adminUserId, passwordHash, totpSecret],
+  ));
+  return { password: initial, totpSecret };
+}
+
 /** Record a successful login: the TOTP step just accepted (replay defence) and the time. */
 export async function recordLogin(adminUserId, totpStep) {
   await withControl((c) => c.query(

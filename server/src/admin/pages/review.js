@@ -34,8 +34,26 @@ const UNLOGGED_SHORT = "Question text was not logged";
 const UNLOGGED_LONG = html`The question text was not logged. <span class="mono">MATIC_KB_LOG_QUERIES</span> was off when this was asked (the hub default), so only the fact of the decline and what was retrieved are here.`;
 const AUTHORING_NOT_YET = "Answering a gap writes an article, and article authoring arrives with the knowledge editor.";
 
+/**
+ * "Search for this" — the gap row's one working action (handover Task 3).
+ *
+ * DRAWN ONLY FOR A ROW THAT HAS THE QUESTION TEXT, because a row without it has nothing to search
+ * for: `MATIC_KB_LOG_QUERIES` was off, so the record holds the fact of the decline and what was
+ * retrieved, and no sentence. A link that searched for an empty string would be a control that
+ * looks like the answer to "why was this declined" and is not.
+ *
+ * And only for a session with `knowledge.read`: an `it_agent` and an owner have it, and a role that
+ * does not would get a 403 and an `access.denied` audit row for clicking a link this page drew.
+ * The nav follows the same rule — a destination a role cannot open is not drawn at all.
+ */
+function searchLink(ctx, g) {
+  if (!g.queryText || !ctx.permissions.has("knowledge.read")) return "";
+  return html`<p class="retrieved"><a href="/admin/knowledge/search?q=${encodeURIComponent(g.queryText)}${g.platform ? `&platform=${encodeURIComponent(g.platform)}` : ""}">Search the corpus for this</a>
+          <span class="muted">— the same retrieval that declined it, both legs shown separately, so you can see whether the article is missing or merely unfindable.</span></p>`;
+}
+
 /** One row of the gap list. `open` on the first only. */
-function gapRow(g, open) {
+function gapRow(ctx, g, open) {
   const logged = Boolean(g.queryText);
   return html`
     <details class="gap ${open ? "marks" : ""}" ${open ? html`open=""` : ""}>
@@ -57,6 +75,7 @@ function gapRow(g, open) {
         <p class="retrieved">${g.retrieved.length
           ? html`Retrieved and not enough: ${g.retrieved.map((r, i) => html`${i ? ", " : ""}<a href="/admin/knowledge#${r.articleId}">${r.title ?? r.articleId}</a>`)}`
           : "Nothing was retrieved."}</p>
+        ${searchLink(ctx, g)}
         ${answerForm(g)}
       </div>
     </details>`;
@@ -105,7 +124,7 @@ async function reviewPage(ctx) {
 <h2>KB gaps<span class="count">${gaps.length} open</span></h2>
 <p class="muted">Every question the assistant could not attribute to an article and therefore declined (D205). A gap record is a single question, not a transcript, and is readable by any role with the review permission (D223, founder 2026-09-09). <strong>Hub-wide, not tenant-scoped:</strong> the retrieval log's tenant label is a development label, not an identity, until device authentication exists (D61/D132).</p>
 ${gaps.length
-  ? html`<div class="gaps">${gaps.map((g, i) => gapRow(g, i === 0))}</div>`
+  ? html`<div class="gaps">${gaps.map((g, i) => gapRow(ctx, g, i === 0))}</div>`
   : empty("No declined questions in the retrieval log. Either nobody has asked the assistant anything yet, or everything asked was covered.")}
 
 ${notYet({

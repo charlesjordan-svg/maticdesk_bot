@@ -559,6 +559,25 @@ thead th { position: sticky; top: 0; background: var(--bg); z-index: 1 }
 /* the pager reuses the filter row */
 .pager { margin-top: 12px }
 .pager .muted { margin-left: 12px; font-size: 13px }
+
+/* --- engineering addition, KB search (2026-09-09) ------------------------
+   TWO EQUAL COLUMNS, for the two retrieval legs side by side. The .detail
+   grid is 1fr/400px (a record and its metadata) and .grid collapses
+   hairlines into a rail of measures; neither is two peers. NOTE: no
+   backticks in this comment — the sheet is a JS template literal, and one
+   stray backtick here ended it and broke every page (caught 2026-09-09).
+   The legs have to be peers on the
+   page, because the whole reason for showing them unfused is that EITHER can
+   be the broken half — a narrower column would read as the lesser leg.
+   Stacks below 900px rather than squeezing two tables side by side.
+   Nothing else is new: the result tables, pills, panels, empty states and
+   stat rail are the existing components, and registration marks stay
+   reserved for the gap card and the honest stub. */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start }
+.cols > .panel { margin-bottom: 0; min-width: 0 }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr } }
+/* A rank and a score are read DOWN a column, so the digits have to line up. */
+td.mono { font-variant-numeric: tabular-nums }
 `;
 
 /**

@@ -6,6 +6,7 @@
  *   node bin/admin.mjs create-user <tenant-slug> <email> --role <role> [--password <p>]
  *   node bin/admin.mjs users [<tenant-slug>]
  *   node bin/admin.mjs roles
+ *   node bin/admin.mjs reset   <tenant-slug> <email> [--password <p>]
  *   node bin/admin.mjs disable <tenant-slug> <email>
  *   node bin/admin.mjs enable  <tenant-slug> <email>
  *   node bin/admin.mjs audit [<tenant-slug>] [--limit N]
@@ -24,12 +25,19 @@
  * TOTP IS NOT OPTIONAL. There is no flag to create a user without one, because D156 says TOTP from
  * day one and a flag to skip it would be used on the day it mattered.
  *
+ * WHAT `reset` IS FOR. A secret printed once and not written down is gone, and on day one one was:
+ * the only remedy was `disable` + `create-user`, which is a NEW ROW — a new account for the same
+ * person, with the old one's audit history attached to nobody who can sign in. `reset` mints a new
+ * password and a new authenticator secret on the SAME row, clears the TOTP replay state, and
+ * revokes every live session. See `resetAdminCredentials()` in src/admin/users.js for why all
+ * three move together.
+ *
  * Connects to MATIC_DB_URL, default the docker-compose.yml database. No production entry point,
  * same as bin/db.mjs.
  */
 import { closePool } from "../src/db/pool.js";
 import { base32Decode, base32Encode, otpauthUri, totpCode } from "../src/admin/auth.js";
-import { createAdminUser, findAdminByEmail, listAdminUsers, listRoles, setAdminStatus } from "../src/admin/users.js";
+import { createAdminUser, findAdminByEmail, listAdminUsers, listRoles, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { revokeUserSessions } from "../src/admin/session.js";
 import { audit, recentAudit } from "../src/admin/audit.js";
 import { tenantBySlug } from "../src/admin/queries.js";
@@ -69,6 +77,7 @@ const USAGE = [
   "  node bin/admin.mjs create-user <tenant-slug> <email> --role <role> [--password <p>]",
   "  node bin/admin.mjs users [<tenant-slug>]",
   "  node bin/admin.mjs roles",
+  "  node bin/admin.mjs reset   <tenant-slug> <email> [--password <p>]",
   "  node bin/admin.mjs disable <tenant-slug> <email>",
   "  node bin/admin.mjs enable  <tenant-slug> <email>",
   "  node bin/admin.mjs audit [<tenant-slug>] [--limit N]",
@@ -114,6 +123,33 @@ async function main() {
       for (const r of await listRoles()) {
         out(`  ${r.name.padEnd(14)} ${r.scope.padEnd(7)} ${r.permissions.length ? r.permissions.join(" ") : "(no permissions — vendor access is a grant, D153)"}`);
       }
+      break;
+    }
+
+    case "reset": {
+      const [slug, email] = positional;
+      if (!slug || !email) throw new Error("usage: reset <tenant-slug> <email> [--password <p>]");
+      const tenant = await resolveTenant(slug);
+      const u = await findAdminByEmail(tenant.id, email);
+      if (!u) throw new Error(`no admin ${email} in ${tenant.slug}`);
+      const fresh = await resetAdminCredentials({ adminUserId: u.id, password: flag("password") ?? undefined });
+      // Revoked AFTER the credentials change, so there is no window in which the old browser is
+      // still signed in with the new secret already live.
+      const revoked = await revokeUserSessions(u.id);
+      await audit({ tenantId: tenant.id, action: "admin.reset", subject: u.email, detail: { by: "bin/admin.mjs", sessionsRevoked: revoked, totpReplayStateCleared: true } });
+      out("");
+      out(`  reset ${u.email} in ${tenant.slug}${revoked ? ` (${revoked} live session(s) revoked)` : ""}`);
+      out("");
+      out("  HAND THESE TO THE PERSON ONCE. They are not stored in the clear and cannot be shown again.");
+      out("");
+      out(`  new password         ${fresh.password}`);
+      out(`  authenticator secret ${base32Encode(fresh.totpSecret)}`);
+      out(`  otpauth URI          ${otpauthUri({ secret: fresh.totpSecret, email: u.email })}`);
+      out("");
+      out("  The OLD password and the OLD authenticator entry no longer work — delete the old entry");
+      out("  from the authenticator app, or it will keep offering codes that are refused.");
+      if (u.status !== "active") out(`  NOTE: this account is ${u.status}. A reset changes credentials, not status: node bin/admin.mjs enable ${tenant.slug} ${u.email}`);
+      out("");
       break;
     }
 

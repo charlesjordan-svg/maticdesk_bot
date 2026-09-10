@@ -115,7 +115,10 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // else. It is NOT one of the API routes and is deliberately absent from the route lists below:
   // it has its own authentication, and listing it beside routes that carry x-matic-hub-auth: none
   // would blur the one property those lists exist to state. src/admin/router.js is the front door.
-  const handleAdmin = admin ? adminHandler({ log }) : null;
+  // It takes the SAME embedder instance handleAsk got, because the console's Knowledge search
+  // exists to say what the endpoint's retrieval does. Two providers would make it a report about a
+  // pipeline nobody runs.
+  const handleAdmin = admin ? adminHandler({ log, embedder }) : null;
 
   return http.createServer(async (req, res) => {
     const send = (status, body) => {

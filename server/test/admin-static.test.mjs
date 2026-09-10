@@ -115,6 +115,92 @@ check("bin/tickets.mjs imports from src/tickets/query.js and holds no SQL", /fro
 check("the console's ticket page imports the same module", /from "\.\.\/\.\.\/tickets\/query\.js"/.test(read("src/admin/pages/tickets.js")));
 check("the console's ticket page says nobody has been emailed (D213's sixth surface)", /[Nn]obody has been emailed/.test(read("src/admin/pages/tickets.js")));
 
+console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and the CLI (D224's pattern) ===");
+{
+  const kbSearch = jsCode(read("src/admin/kb-search.js"));
+  const knowledgePage = jsCode(read("src/admin/pages/knowledge.js"));
+  // The console's search must COMPOSE src/kb/retrieve.js, not re-implement it. A console that
+  // wrote its own SQL over kb_chunks could disagree with /v1/ask about what retrieval is, and it
+  // would then be evidence about nothing. Same argument as tickets (§5 above).
+  check("the console's search imports the legs and the fusion from src/kb/retrieve.js",
+    /from "\.\.\/kb\/retrieve\.js"/.test(kbSearch) && /lexicalLeg/.test(kbSearch) && /semanticLeg/.test(kbSearch) && /fuseRRF/.test(kbSearch));
+  check("…and writes no SQL against kb_chunks beyond the platform-scope count, and none against tsv or embedding",
+    !/FROM control\.kb_chunks c\b|websearch_to_tsquery|<=>|ts_rank/.test(kbSearch),
+    "retrieval belongs to src/kb/retrieve.js; a second copy here is a second answer");
+  // A page RENDERS. It may name `ts_rank` in a sentence explaining a column — pages/knowledge.js
+  // does — but it must not issue a query or reach into retrieve.js itself, or the composition in
+  // kb-search.js stops being the single definition of what the console searched.
+  //
+  // metrics.js is the ONE page that issues SQL, and §7 below constrains it to counts. It is named
+  // here rather than excluded silently: an exception a rule does not mention is a rule that has
+  // quietly stopped applying.
+  const sqlPages = pageFiles.filter((f) => /\.query\(/.test(jsCode(readFileSync(f, "utf8")))).map(rel);
+  check("metrics.js is still the only page that issues SQL at all",
+    sqlPages.length === 1 && sqlPages[0] === "src/admin/pages/metrics.js", sqlPages.join(","));
+  check("no admin page imports the retrieval legs directly — the composition in kb-search.js is the console's one definition of a search",
+    pageFiles.every((f) => !/from "[^"]*kb\/retrieve\.js"/.test(jsCode(readFileSync(f, "utf8")))));
+  check("the console's ingest goes through ingestAndEmbed() in src/kb/ingest.js",
+    /ingestAndEmbed/.test(knowledgePage) && /from "\.\.\/\.\.\/kb\/ingest\.js"/.test(knowledgePage));
+  check("bin/kb.mjs ingest calls THE SAME function, so the CLI and the console cannot disagree",
+    /ingestAndEmbed\(\{/.test(jsCode(read("bin/kb.mjs"))));
+  check("the console never writes to kb_articles or kb_chunks itself",
+    adminFiles.every((f) => !/(INSERT INTO|UPDATE|DELETE FROM)\s+control\.kb_/.test(jsCode(readFileSync(f, "utf8")))));
+
+  // CLAUDE.md's Never list: "Embed a corpus with two different models."
+  const ingestJs = jsCode(read("src/kb/ingest.js"));
+  check("a second embedding model is refused by a pure function over corpusStatus(), not by a guess at a call site",
+    /export function embeddingModelConflict\(status, model\)/.test(ingestJs) && /present\.length === 1 && present\[0\] === model/.test(ingestJs));
+  check("ingestAndEmbed consults it BEFORE embedding, and the ingest still lands when it refuses",
+    ingestJs.indexOf("embed.refused = embeddingModelConflict") < ingestJs.indexOf("await embedPending(") &&
+    ingestJs.indexOf("await ingestBundle(") < ingestJs.indexOf("embed.refused = embeddingModelConflict"));
+
+  // §5.16c and D207 and D203. These are the three caveats CLAUDE.md forbids quoting a retrieval
+  // figure without, and the search page is the console's only retrieval figure.
+  check("the search page carries the no-reranker caveat (D207)", /D207/.test(knowledgePage) && /reranker/.test(knowledgePage));
+  check("…the dev-embedder caveat (D203)", /D203/.test(knowledgePage));
+  check("…and says NO THRESHOLD is drawn and why (§5.16c)",
+    /5\.16c/.test(knowledgePage) && /threshold/.test(knowledgePage) && /2\/61/.test(read("src/admin/pages/knowledge.js")));
+  check("the search page draws no floor, threshold or 'good match' line in code either",
+    !/RELEVANCE_FLOOR|floor\s*[:=]|score\s*[<>]=?\s*0\./.test(jsCode(read("src/admin/pages/knowledge.js"))));
+  check("the platform select offers exactly the values a real probe can produce (D162), not free text",
+    /SEARCH_PLATFORMS = Object\.freeze\(\["any", "windows", "macos", "linux"\]\)/.test(kbSearch)
+    && /normalisePlatform/.test(knowledgePage));
+
+  // D226, DECIDED 2026-09-09 AND DECIDED NARROWER THAN PROPOSED: the text of a chunk the model
+  // receives is on the page; the text of a chunk below DEFAULT_TOP_K is not. These four assertions
+  // are the whole of that guarantee, and they check it STRUCTURALLY — the view model carries no
+  // text for an unsent chunk, so a page cannot leak one by forgetting a condition.
+  check("chunk text reaches the view model ONLY through sentText, guarded by forModel (D226)",
+    /sentText: forModel \? c\.text : null/.test(kbSearch)
+    && (kbSearch.match(/c\.text/g) ?? []).length === 1, (kbSearch.match(/c\.text/g) ?? []).join(","));
+  check("…and the legs, the fusion and the sent list are stripped of text before they leave this module",
+    /const noText = \(c\) => \{ const \{ text, \.\.\.rest \} = c; return rest; \}/.test(kbSearch)
+    && /lexical: legs\.lexical\.map\(noText\), semantic: legs\.semantic\.map\(noText\)/.test(kbSearch)
+    && /fused: fused\.map\(noText\)/.test(kbSearch) && /forModel: forModel\.map\(noText\)/.test(kbSearch));
+  check("no console page reads a chunk's `.text` at all — it can only read `.sentText`",
+    pageFiles.every((f) => !/\b(c|chunk|ch)\.text\b/.test(jsCode(readFileSync(f, "utf8")))),
+    pageFiles.filter((f) => /\b(c|chunk|ch)\.text\b/.test(jsCode(readFileSync(f, "utf8")))).map(rel).join(","));
+  check("the page renders sentText escaped, through the html tag, and never as markdown",
+    /<blockquote>\$\{c\.sentText\}<\/blockquote>/.test(read("src/admin/pages/knowledge.js"))
+    && !/\braw\(/.test(jsCode(read("src/admin/pages/knowledge.js"))));
+  check("the page says what is shown, what is not, and cites D226 and D53",
+    /D226/.test(knowledgePage) && /D53/.test(knowledgePage) && /what the model was given/.test(read("src/admin/pages/knowledge.js")));
+
+  // A search names nobody, so it is not audited — and that is stated where a reader will look.
+  check("search is NOT audited, and the file says why rather than leaving it to inference",
+    !/ctx\.audit\("kb\.search/.test(knowledgePage) && /SEARCH IS NOT AUDITED/.test(read("src/admin/pages/knowledge.js")));
+  check("an ingest IS audited, with counts and the model and NEVER article text",
+    /ctx\.audit\("kb\.ingest"/.test(knowledgePage) && /ctx\.audit\("kb\.ingest\.refused"/.test(knowledgePage)
+    && !/detail: \{[^}]*bundle\b|articles: bundle\.articles/.test(knowledgePage));
+  check("the ingest form states that the corpus is cross-tenant, in words, above the button (D45)",
+    /Cross-tenant: this changes what EVERY tenant/.test(read("src/admin/pages/knowledge.js")));
+  check("the review queue's gap row links into the search and only when the question text exists",
+    /\/admin\/knowledge\/search\?q=\$\{encodeURIComponent\(g\.queryText\)/.test(read("src/admin/pages/review.js"))
+    && /if \(!g\.queryText \|\| !ctx\.permissions\.has\("knowledge\.read"\)\) return "";/.test(read("src/admin/pages/review.js")));
+  check("the console's embedder is the one the ask route got, passed from src/index.js",
+    /adminHandler\(\{ log, embedder \}\)/.test(index) && /embedder = null \} = \{\}\)/.test(routerJs));
+}
+
 console.log("\n=== 6. honest stubs: no zero stands in for an absent concept (exit criterion 6) ===");
 const agents = read("src/admin/pages/agents.js");
 check("the Agents page runs NO query and imports no data module", !/query\(|queries\.js|db\//.test(jsCode(agents)));

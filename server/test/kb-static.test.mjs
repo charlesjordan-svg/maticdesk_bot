@@ -29,7 +29,9 @@ import {
 } from "../src/kb/answer.js";
 import { checkAskRequest, platformFromProbe } from "../src/kb/ask.js";
 import { EMBEDDING_DIM, toVectorLiteral, QUERY_PREFIX, NoEmbeddingProvider } from "../src/kb/embed.js";
-import { readBundle } from "../src/kb/ingest.js";
+import {
+  readBundle, parseBundle, bundleWarnings, embeddingModelConflict, RETRIEVABLE_PLATFORMS,
+} from "../src/kb/ingest.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SERVER = join(HERE, "..");
@@ -265,6 +267,65 @@ check("the no-embedder provider REFUSES rather than returning zeros - a zero vec
   await (async () => { try { await new NoEmbeddingProvider().embed(["x"]); return false; } catch { return true; } })());
 check("`none` is a real configuration and reports itself as unavailable",
   (await new NoEmbeddingProvider().verify()).ok === false);
+
+// ==============================================================================================
+// ==============================================================================================
+console.log("\n=== 6a. ingestion's pure parts: the browser and the CLI hand text to the same rules ===");
+// The console pastes a bundle into a textarea and has no path, so the shape rules had to become a
+// function over TEXT. These run with no database, which is where a validation rule belongs.
+{
+  const good = { bundleId: "t", articles: [{ id: "a", type: "reference", title: "T", body: "x" }] };
+  check("parseBundle accepts a good bundle", parseBundle(JSON.stringify(good), "pasted").articles.length === 1);
+  const refuses = (text, re) => {
+    try { parseBundle(text, "pasted"); return false; } catch (err) { return re.test(err.message) && err.message.startsWith("pasted:"); }
+  };
+  check("it refuses non-JSON and names the position rather than saying 'invalid'", refuses("{ nope", /not valid JSON/));
+  check("it refuses a top-level array or scalar", refuses("[]", /top level must be a JSON object/) && refuses("3", /top level must be a JSON object/));
+  check("it refuses an empty articles array", refuses(JSON.stringify({ articles: [] }), /no articles array/));
+  check("it refuses a duplicate id, naming it", refuses(JSON.stringify({ articles: [good.articles[0], good.articles[0]] }), /duplicate article id "a"/));
+  check("it refuses a type migration 002's CHECK would reject, naming the article",
+    refuses(JSON.stringify({ articles: [{ id: "b", type: "howto", title: "T" }] }), /article "b" has type "howto"/));
+  check("it refuses an article with no title", refuses(JSON.stringify({ articles: [{ id: "c", type: "reference" }] }), /article "c" has no title/));
+  // THE PROPERTY THAT MATTERS: a bad article ANYWHERE means nothing is written. Verified against a
+  // live database on 2026-09-09 (the second article's type was wrong and the corpus did not move);
+  // this is the same rule with no database, so it runs on every commit.
+  check("A BAD ARTICLE IN POSITION TWO REFUSES THE WHOLE BUNDLE — a partial corpus looks loaded",
+    refuses(JSON.stringify({ articles: [good.articles[0], { id: "b", type: "howto", title: "T" }] }), /article "b"/));
+  check("the label is the caller's, so a pasted bundle does not report a path it does not have",
+    (() => { try { parseBundle("{", "pasted bundle"); return false; } catch (e) { return e.message.startsWith("pasted bundle:"); } })());
+
+  // What is legal and still wrong. migration 002 has no CHECK on platform, so an article stamped
+  // "Windows 11" is written, indexed, embedded and matched by nothing (D162's pre-filter compares
+  // the column to 'any' or to the probe's exact word). A warning, not a refusal: enforcing it is a
+  // migration and a decision.
+  check("RETRIEVABLE_PLATFORMS is exactly 'any' plus what platformFromProbe can return",
+    JSON.stringify(RETRIEVABLE_PLATFORMS) === '["any","windows","macos","linux"]'
+    && ["windows", "macos", "linux"].every((p) => RETRIEVABLE_PLATFORMS.includes(p)));
+  check("every platform in the shipped bundle IS retrievable — a regression here means an invisible article",
+    bundle.articles.every((a) => RETRIEVABLE_PLATFORMS.includes(String(a.platform ?? "any").toLowerCase())),
+    bundle.articles.filter((a) => !RETRIEVABLE_PLATFORMS.includes(String(a.platform ?? "any").toLowerCase())).map((a) => `${a.id}=${a.platform}`).join(","));
+  check("bundleWarnings says nothing about the shipped bundle", bundleWarnings(bundle).length === 0, JSON.stringify(bundleWarnings(bundle)));
+  const badPlat = bundleWarnings({ articles: [{ id: "z", type: "reference", title: "T", body: "x", platform: "Windows 11" }] });
+  check("…and warns that a platform the pre-filter cannot match is RETRIEVED BY NOTHING",
+    badPlat.length === 1 && /RETRIEVED BY NOTHING/.test(badPlat[0]) && /"z"/.test(badPlat[0]), JSON.stringify(badPlat));
+  check("…and warns about an article that would chunk to its title alone",
+    bundleWarnings({ articles: [{ id: "y", type: "reference", title: "T" }] }).some((w) => /title alone/.test(w)));
+}
+
+console.log("\n  -- two models are two vector spaces: the refusal, as a pure function --");
+{
+  const one = { models: [{ model: "arctic", n: 18 }] };
+  check("an empty corpus admits any model", embeddingModelConflict({ models: [] }, "arctic") === null);
+  check("the same model is no conflict", embeddingModelConflict(one, "arctic") === null);
+  const other = embeddingModelConflict(one, "nomic");
+  check("A DIFFERENT MODEL IS REFUSED, and the reason names both models and the fix",
+    other !== null && /arctic/.test(other.reason) && /nomic/.test(other.reason) && /reembed/.test(other.reason));
+  check("…and says the articles and chunks are written — the ingest lands, the embed does not",
+    /The articles and chunks are written/.test(other.reason));
+  const already = embeddingModelConflict({ models: [{ model: "a", n: 1 }, { model: "b", n: 2 }] }, "a");
+  check("a corpus that ALREADY holds two models is refused even for a model it holds — that state is the defect itself",
+    already !== null && /2 embedding models/.test(already.reason));
+}
 
 // ==============================================================================================
 console.log("\n=== 7. source rules B7a must not have broken ===");

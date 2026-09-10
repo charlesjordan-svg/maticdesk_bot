@@ -63,7 +63,18 @@ import { settingsRoutes } from "./pages/settings.js";
 import { serveAsset } from "./assets.js";
 
 export const ADMIN_PREFIX = "/admin";
-const MAX_FORM_BYTES = 64 * 1024;
+
+/**
+ * The form-body ceiling. Raised from 64 kB to 1 MB on 2026-09-09 for ONE reason: the Knowledge
+ * ingest form is a textarea holding a bundle's JSON, and the generic bundle is 12.7 kB of JSON
+ * that becomes ~35 kB once a browser urlencodes it. 64 kB would have fitted that one bundle and
+ * refused the second real one, which is the worst place for a limit to be.
+ *
+ * It is still a limit, and it is still the only backstop against an unbounded read in this
+ * process — `readForm()` destroys the request the moment it is passed. The ingest page states the
+ * number, so a refusal is a known boundary rather than a mystery.
+ */
+export const MAX_FORM_BYTES = 1024 * 1024;
 
 /**
  * Failed-login throttle, per email, in this process. Five failures lock the email for a minute.
@@ -93,7 +104,7 @@ function readForm(req) {
     const chunks = [];
     req.on("data", (c) => {
       size += c.length;
-      if (size > MAX_FORM_BYTES) { resolve({ error: "form too large" }); req.destroy(); return; }
+      if (size > MAX_FORM_BYTES) { resolve({ error: `form too large — over ${MAX_FORM_BYTES} bytes. A bundle that big belongs on disk: node bin/kb.mjs ingest <bundle.json> from server/.` }); req.destroy(); return; }
       chunks.push(c);
     });
     req.on("end", () => {
@@ -122,6 +133,8 @@ function readForm(req) {
  * @property {(status: number, body: import("./html.js").Safe, opts?: { title?: string, current?: string, notice?: string|null }) => Promise<void>} render
  * @property {(path: string) => void} redirect
  * @property {(action: string, extra?: { subject?: string|null, detail?: Record<string, unknown>|null }) => Promise<number>} audit
+ * @property {{ name: string, model: string, embedQuery: (t: string) => Promise<number[]> }|null} embedder
+ * @property {number} maxFormBytes
  * @property {(status: number, body: import("./html.js").Safe, opts?: { title?: string, current?: string, notice?: string|null }) => Promise<void>} renderPublic
  */
 
@@ -153,9 +166,15 @@ async function navFor(ctx) {
  * Build the handler. `log` is the hub's logger. Returns `(req, res) => Promise<boolean>`: true
  * when the URL was under /admin and has been answered, false otherwise so the hub carries on.
  *
- * @param {{ log?: (s: string) => void }} [deps]
+ * `embedder` is THE SAME PROVIDER INSTANCE `/v1/ask` uses (src/index.js passes one object to
+ * both). That is the whole point of the Knowledge search: a console that searched with a different
+ * embedder from the endpoint's would be a confident answer about a pipeline nobody runs. It may be
+ * null — a hub started with `MATIC_EMBED_PROVIDER=none`, or in a test — and both the search page
+ * and the ingest form say so in words rather than showing a shorter list.
+ *
+ * @param {{ log?: (s: string) => void, embedder?: any|null }} [deps]
  */
-export function adminHandler({ log = () => {} } = {}) {
+export function adminHandler({ log = () => {}, embedder = null } = {}) {
   return async function handleAdmin(req, res) {
     const url = new URL(req.url ?? "/", "http://admin.local");
     if (url.pathname !== ADMIN_PREFIX && !url.pathname.startsWith(ADMIN_PREFIX + "/")) return false;
@@ -204,7 +223,7 @@ export function adminHandler({ log = () => {} } = {}) {
     const ctx = {
       req, res, url, method, session, user, permissions, roles, tenant,
       csrf: session ? csrfToken(session) : null,
-      form: {}, params: null, log,
+      form: {}, params: null, log, embedder, maxFormBytes: MAX_FORM_BYTES,
       render: async (status, body, { title = "Matic Desk", current = url.pathname, notice = null } = {}) => {
         const nav = await navFor(ctx);
         writeHtml(status, page({
