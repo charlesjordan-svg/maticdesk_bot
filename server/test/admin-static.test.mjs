@@ -34,6 +34,18 @@ function walk(dir) {
   });
 }
 const adminFiles = walk(join(SERVER, "src", "admin")).filter((f) => f.endsWith(".js"));
+/** The CSS constant's text, out of html.js. */
+function htmlJsCss() {
+  const src = read("src/admin/html.js");
+  const start = src.indexOf("const CSS = `") + "const CSS = `".length;
+  return src.slice(start, src.indexOf("`;", start));
+}
+/** The asset allow-list, read as data rather than imported, so a broken module still reports. */
+function readAssets() {
+  const src = read("src/admin/assets.js");
+  const body = src.slice(src.indexOf("Object.freeze({") + "Object.freeze(".length, src.indexOf("});", src.indexOf("Object.freeze({")) + 1);
+  return Function(`return (${body})`)();
+}
 const pageFiles = adminFiles.filter((f) => f.includes(join("admin", "pages")));
 const rel = (f) => f.slice(SERVER.length + 1).replace(/\\/g, "/");
 
@@ -126,6 +138,23 @@ check("pg is still the only dependency", JSON.stringify(Object.keys(pkg.dependen
 const imports = adminFiles.flatMap((f) => [...jsCode(readFileSync(f, "utf8")).matchAll(/from "([^"]+)"/g)].map((m) => m[1]));
 check("every import under src/admin is node: or relative", imports.every((i) => i.startsWith("node:") || i.startsWith("./") || i.startsWith("../")), imports.filter((i) => !(i.startsWith("node:") || i.startsWith("."))).join(","));
 check("no bundler, no framework: no package.json build script", !("build" in pkg.scripts));
+
+console.log("\n=== 8a. fonts are self-hosted, never fetched (D225) ===");
+{
+  const css = htmlJsCss();
+  const faces = [...css.matchAll(/@font-face \{[\s\S]*?\}/g)].map((m) => m[0]);
+  check("three @font-face blocks", faces.length === 3, String(faces.length));
+  check("every src is a same-origin /admin/assets/ url, not http(s), not data:, not local()",
+    faces.every((f) => /src: url\("\/admin\/assets\/[a-z0-9-]+\.woff2"\) format\("woff2"\);/.test(f) && !/https?:|data:font|local\(/.test(f)));
+  check("the stylesheet fetches nothing from another host", !/url\(\s*["']?https?:/.test(css));
+  const assetsJs = jsCode(read("src/admin/assets.js"));
+  check("assets are served from an allow-list, never a directory listing or a path built from the URL",
+    /Object\.hasOwn\(ASSETS, name\)/.test(assetsJs) && !/readdirSync|join\(HERE, "assets", name\)/.test(assetsJs));
+  check("every file the allow-list names exists on disk", Object.values(JSON.parse(JSON.stringify(readAssets()))).every((a) => statSync(join(SERVER, "src", "admin", "assets", a.file)).size > 1000));
+  check("the CSP admits self-hosted fonts and data: images and nothing else new", /font-src 'self'/.test(routerJs) && /img-src data:/.test(routerJs) && !/script-src/.test(routerJs));
+  check("assets are answered before the session is loaded", routerJs.indexOf("serveAsset(req, res, url.pathname)") < routerJs.indexOf("await loadSession("));
+  check("assets/SOURCES.md records the licence and where each file came from", /SIL Open Font License/.test(read("src/admin/assets/SOURCES.md")) && /fonts\.gstatic\.com/.test(read("src/admin/assets/SOURCES.md")));
+}
 
 console.log("\n=== 9. escaping is the default ===");
 const htmlJs = read("src/admin/html.js");

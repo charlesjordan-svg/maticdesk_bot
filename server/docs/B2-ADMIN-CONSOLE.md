@@ -317,15 +317,18 @@ card and the honest stub.
 - The CSP gained `img-src data:` (the registration mark and select chevron are inline SVG data
   URIs) and `font-src 'self'` (for §9.1).
 
-**Verified:** `npm.cmd test` 296 and `npm.cmd run test:db` 188, unchanged counts, all passing —
+**Verified:** `npm.cmd test` 323 and `npm.cmd run test:db` 193 (eight new static rules and five live checks for the self-hosted fonts), all passing —
 including the rules the design had to respect (no script on any page, every form still carries its
 token, no `raw()`). Every restyled page rendered and inspected as owner and as auditor.
 
-### 9.1 Not done: the fonts
+### 9.1 The fonts, shipped
 
-The stylesheet declares Barlow and Barlow Condensed with `src: local()` fallbacks, so on a machine
-without them installed the console renders in the system face — the handback's intended degraded
-state. The faces are not yet shipped. **The plan is to self-host the woff2 files from the hub**
-(same origin, `font-src 'self'`, works offline, cacheable) rather than inline them as base64 as
-the handback suggested, because inline fonts add roughly 100 KB to every page and cannot be cached.
-Downloading the three files needs the founder's go-ahead; nothing was fetched in this pass.
+Barlow 400 and 500 and Barlow Condensed 600 (latin subset, woff2, SIL Open Font License 1.1) are
+**self-hosted from the hub** at `/admin/assets/` — `src/admin/assets.js` serves them from an
+allow-list (a URL is looked up, never turned into a path), with no session required because the
+sign-in page uses them, and with a year-long immutable cache. The three `@font-face` blocks in the
+stylesheet point at those URLs; the CSP's `font-src 'self'` admits them and nothing else. Chosen
+over the handback's inline-base64 suggestion because inline fonts would ride on every page (~65 KB,
+uncacheable); the properties that mattered — same origin, offline-safe, no third party — hold either
+way. Provenance in `src/admin/assets/SOURCES.md`. Fetched from Google Fonts on 2026-09-09 with the
+founder's go-ahead; the files are unmodified.

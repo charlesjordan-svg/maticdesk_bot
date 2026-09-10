@@ -87,6 +87,10 @@ const CSS = `
      - No external asset. The only images are inline data-URI SVGs.
      - Plain CSS, custom properties, no build step.
 
+   FONTS — SHIPPED 2026-09-09, SELF-HOSTED (D225, src/admin/assets.js). The handback below
+   proposed inlining them as base64; the hub serves the three woff2 files from /admin/assets/
+   instead — same origin (font-src 'self'), offline-safe, and cacheable. The original note:
+
    FONTS — read this before shipping.
    The design is Barlow Condensed (headings, numerals, table heads, nav) over
    Barlow (body). §3.2 forbids a fetch, so the two faces must be inlined:
@@ -108,21 +112,21 @@ const CSS = `
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: local("Barlow"); /* replace with: url("data:font/woff2;base64,INLINE-BASE64-HERE") format("woff2") */
+  src: url("/admin/assets/barlow-400.woff2") format("woff2");
 }
 @font-face {
   font-family: "Barlow C";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: local("Barlow Medium"); /* url("data:font/woff2;base64,INLINE-BASE64-HERE") format("woff2") */
+  src: url("/admin/assets/barlow-500.woff2") format("woff2");
 }
 @font-face {
   font-family: "Barlow Cond C";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: local("Barlow Condensed SemiBold"); /* url("data:font/woff2;base64,INLINE-BASE64-HERE") format("woff2") */
+  src: url("/admin/assets/barlow-condensed-600.woff2") format("woff2");
 }
 
 :root {

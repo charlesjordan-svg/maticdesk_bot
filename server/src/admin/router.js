@@ -60,6 +60,7 @@ import { knowledgeRoutes } from "./pages/knowledge.js";
 import { agentsRoutes } from "./pages/agents.js";
 import { metricsRoutes } from "./pages/metrics.js";
 import { settingsRoutes } from "./pages/settings.js";
+import { serveAsset } from "./assets.js";
 
 export const ADMIN_PREFIX = "/admin";
 const MAX_FORM_BYTES = 64 * 1024;
@@ -160,6 +161,10 @@ export function adminHandler({ log = () => {} } = {}) {
     if (url.pathname !== ADMIN_PREFIX && !url.pathname.startsWith(ADMIN_PREFIX + "/")) return false;
     const method = (req.method ?? "GET").toUpperCase();
     const secure = cookieSecure(req);
+
+    // Static assets (the three font files) need no session — the sign-in page uses them — and
+    // touch no database. Answered from an allow-list before anything else (src/admin/assets.js).
+    if (serveAsset(req, res, url.pathname)) return true;
 
     const writeHtml = (status, htmlText, authed, extraHeaders = {}) => {
       res.writeHead(status, {

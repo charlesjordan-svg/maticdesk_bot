@@ -118,6 +118,20 @@ try {
     check("API responses still say x-matic-hub-auth: none", health.headers.get("x-matic-hub-auth") === "none");
   }
 
+  console.log("\n=== fonts: self-hosted, no session needed, allow-listed (D225) ===");
+  {
+    const f = await fetch(`${base}/admin/assets/barlow-400.woff2`);
+    const bytes = Buffer.from(await f.arrayBuffer());
+    check("GET /admin/assets/barlow-400.woff2 without a session -> 200 font/woff2", f.status === 200 && f.headers.get("content-type") === "font/woff2", `${f.status} ${f.headers.get("content-type")}`);
+    check("it is a woff2 file and is cached immutably", bytes.subarray(0, 4).toString("ascii") === "wOF2" && /immutable/.test(f.headers.get("cache-control") ?? ""));
+    const bad = await fetch(`${base}/admin/assets/..%2F..%2Fpackage.json`);
+    check("a path that is not on the allow-list -> 404, filesystem never consulted", bad.status === 404);
+    const bad2 = await fetch(`${base}/admin/assets/router.js`);
+    check("a real file that is not an asset -> 404", bad2.status === 404);
+    const login = await (await fetch(`${base}/admin/login`)).text();
+    check("the sign-in page's stylesheet points at the self-hosted files", /url\("\/admin\/assets\/barlow-400\.woff2"\)/.test(login) && !/url\(["']?https?:/.test(login));
+  }
+
   console.log("\n=== 8. unauthenticated: redirected to a login page that says loopback-only ===");
   {
     const c = client();
