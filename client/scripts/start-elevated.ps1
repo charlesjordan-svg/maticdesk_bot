@@ -38,4 +38,19 @@ Write-Host "   'this needs the broker' instead of acting, which is correct but n
 # begins life in System32 regardless of -WorkingDirectory, so `electron .` resolved to the wrong
 # folder. It had only ever been run from an already-elevated window, where no UAC hop happens and
 # the working directory survives - which is why it looked fine on 2026-09-03.
-Start-Process -FilePath $electron -ArgumentList ('"' + $root + '"') -WorkingDirectory $root -Verb RunAs
+#
+# AND THE ELEVATED WINDOW STAYS OPEN, WITH ITS OUTPUT ALSO WRITTEN TO audit\launch.log. Observed
+# 2026-09-06 from the Desktop launcher: "Launched", no window, no error, no Electron process. When
+# electron.cmd is the RunAs target its console closes the instant Electron exits, so whatever it
+# printed is gone. This runs it inside an elevated PowerShell with -NoExit and Tee-Object, so a
+# failure is READABLE in the window that stays behind and in the log - the same rule as the hub's
+# EADDRINUSE banner: the most common failure must not be the least legible one.
+#
+# The app's own dev log ([broker], [hub], [ticket], [piper] lines) lands in that window too, which
+# is what DEMO-CLICKTHROUGH.md "Setup" step 3 asks you to read.
+$logPath = Join-Path $root 'audit\launch.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $logPath) | Out-Null
+$inner = "& '$electron' '$root' 2>&1 | Tee-Object -FilePath '$logPath'; Write-Host ''; Write-Host ('Electron exited with code ' + `$LASTEXITCODE + '. This window stays open so the reason above can be read. Log: $logPath') -ForegroundColor Yellow"
+$psArgs = "-NoExit -NoProfile -ExecutionPolicy Bypass -Command `"$inner`""
+Start-Process -FilePath 'powershell.exe' -ArgumentList $psArgs -WorkingDirectory $root -Verb RunAs
+Write-Host "  An elevated window has opened; the app's log is in it and in $logPath" -ForegroundColor DarkGray

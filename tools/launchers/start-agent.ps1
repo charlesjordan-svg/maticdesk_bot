@@ -106,7 +106,24 @@ if ($CheckOnly) { Write-Host ''; Write-Host 'CHECKS PASSED (-CheckOnly: app not 
 
 # ---- 5. launch ----------------------------------------------------------------------------------
 Step '5. Launching elevated (accept the UAC prompt)'
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Info 'this window is already elevated, so no UAC prompt will appear' }
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $client 'scripts\start-elevated.ps1')
+
+# DO NOT SAY "LAUNCHED" BECAUSE THE HANDOFF RETURNED. Observed 2026-09-06: this printed "Launched"
+# while no Electron process existed. Windows accepting the RunAs request says nothing about whether
+# the app came up, so wait for an Electron process and report what is actually true.
 Write-Host ''
-Write-Host 'Launched. If the window did not appear, the UAC prompt was declined or timed out - run this again.' -ForegroundColor Green
-exit 0
+Write-Host '  waiting up to 30 s for an Electron process...' -ForegroundColor DarkGray
+$deadline = (Get-Date).AddSeconds(30)
+$running = @()
+do { Start-Sleep -Seconds 1; $running = @(Get-Process -Name electron -ErrorAction SilentlyContinue) } while ($running.Count -eq 0 -and (Get-Date) -lt $deadline)
+if ($running.Count -gt 0) {
+  Ok "Electron is running ($($running.Count) process(es)). The app window should be on screen; its log is in the elevated window behind it."
+  exit 0
+}
+Fail 'NO ELECTRON PROCESS after 30 s - the app did not start, or exited at once' @(
+  'Read the elevated PowerShell window that opened - it stays open and shows the error.',
+  "The same output is in $client\audit\launch.log",
+  'If no elevated window appeared at all, the UAC prompt was declined or never shown - run this again and watch for it.')
+exit 1
