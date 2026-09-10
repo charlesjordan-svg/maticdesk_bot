@@ -339,18 +339,12 @@ The handback's did-not-do list (its §5) left two items that turned out to be en
 they were done here rather than sent back to design:
 
 - **Sticky table headers.** The open decision was the scroll container. Decided: **the page is the
-  scroll container** — nothing on the console scrolls inside a box — so a  sticks to the
+  scroll container** — nothing on the console scrolls inside a box — so a `thead th` sticks to the
   viewport's top with an opaque ground. One rule in the stylesheet. With it, **the ticket list pages
-  at 50** (, the pager reuses the filter-row markup and appears only when there is more than
-  one page);  gained an .
+  at 50** (`?page=N`; the pager reuses the filter-row markup and appears only when there is more than
+  one page); `listTickets()` gained an `offset`.
 - **The audit log.** Given the gap list's row treatment as the handback suggested: a mono actor
   column, hairline rows running to the frame, the entry count in the section rule.
 
-Verified by the existing suites (Unknown command: "test"
-
-
-Did you mean this?
-  npm test # Test a package
-To see a list of supported npm commands, run:
-  npm help 323,  193) and by paging the dev
+Verified by the existing suites (`npm.cmd test` 323, `npm.cmd run test:db` 193) and by paging the dev
 tenant's seven tickets three at a time from a script.
