@@ -1,6 +1,6 @@
 # Claude Code Handover — 2026-09-09 — KB ingestion and search are BUILT, and both founder questions are ANSWERED
 
-**Repo root:** `C:\Users\Charles\Downloads\maticdesk_bot`. **Branch:** `main`.
+**Repo root:** `C:\Users\Charles\Downloads\maticdesk_bot`. **Branch:** `main`, and **pushed** — `60d1d27`, the merge of `b2-knowledge-search` (`4b5cb5a`). That push also carried the nine earlier commits that had been sitting local since the B2 console pass, so **`origin/main` and `main` finally agree** for the first time since 2026-09-09 morning.
 **Register:** `docs/decisions/DECISION-REGISTER.md` **v2.23**, D1–D229, next free **D230**.
 **Answers:** `docs/handovers/2026-09-09-claude-code-handover-kb-ingestion-and-search.md` (all five tasks).
 **Written by** the session that built it. Read `CLAUDE.md` first, then `PROJECT_START_HERE.md`, then this.
@@ -19,7 +19,7 @@
 | Dev database | Docker `matic-desk-db`; `control` at migration 003; tenant `devco` unchanged, 7 tickets, 3 admins |
 | Corpus | **6 articles, 18 chunks, 18 embedded by `snowflake-arctic-embed2:568m`** — unchanged. Everything this pass ingested was removed by id |
 | Retrieval log | **33 questions, 14 declined, still 0 with question text.** `MATIC_KB_LOG_QUERIES` has still never been on, and **stays off: D227 is deferred behind D229** (§2) |
-| Uncommitted on `main` | the same two pre-existing edits to `client/scripts/start-elevated.ps1` and `tools/launchers/start-agent.ps1`, from before 2026-09-09. **Still not this pass's; leave them or ask Charles.** This pass's own work is uncommitted too — see §5 |
+| Uncommitted on `main` | **only** the two pre-existing edits to `client/scripts/start-elevated.ps1` and `tools/launchers/start-agent.ps1`, from before 2026-09-09. Not this pass's; **they look finished and useful** (the elevated window stays open and tees to `audit\launch.log`, which is what the demo click-through asks you to read) and they are worth a commit of their own. **Leave them or ask Charles.** |
 
 **No migration was written.** Nothing in this pass needed a schema change, and one thing that
 arguably wants one is deliberately left as a warning rather than a `CHECK` — §2.
@@ -174,12 +174,11 @@ designed. Four findings, all now covered by assertions:
 
 ## 5. Not done, and what I would do next
 
-**Nothing in this pass is committed.** `git status` shows the source and doc changes on `main`,
-alongside the two pre-existing `.ps1` edits that are not this pass's. Committing is the first thing
-to do, and `main` is the branch the previous pass merged to — **check with Charles whether this
-wants a branch** before pushing.
+**Committed, merged and pushed** (`4b5cb5a` on `b2-knowledge-search`, merged as `60d1d27`, pushed
+to `origin/main` on 2026-09-09). The branch is left in place, as `b2-admin-console` was. `main` is
+green after the merge: `npm.cmd test` 5/5, `npm.cmd run test:db` 3/3, corpus unchanged.
 
-In rough value order after that:
+In rough value order:
 
 1. **Put D229 in front of Charles** (§2) — the retention policy for logged question text. It is the
    gate on D227, which is the gate on the review queue's whole value, and it is the cheapest thing
