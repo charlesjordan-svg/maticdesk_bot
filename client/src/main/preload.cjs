@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld("matic", {
   getProfile: () => ipcRenderer.invoke("profile:get"),
   saveProfile: (patch) => ipcRenderer.invoke("profile:save", patch),
 
+  // The restart recommendation's answer - "later" or a decline. It changes NOTHING on the machine:
+  // there is no capability that restarts a computer, so this channel cannot cause one, and it
+  // schedules nothing. All it decides is whether the assistant raises the subject again.
+  answerRestart: (answer) => ipcRenderer.invoke("restart:answer", answer),
+
   onLog: (cb) => ipcRenderer.on("app:log", (_e, line) => cb(line)),
   onTtsReady: (cb) => ipcRenderer.on("tts:ready", (_e, status) => cb(status)),
 

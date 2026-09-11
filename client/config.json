@@ -14,5 +14,17 @@
     "model": "gpt-oss:20b"
   },
   "_localModelNote": "Any OpenAI-compatible endpoint - Ollama, LM Studio, vLLM, or the customer’s own. Setting enabled:true SWAPS the cloud provider for this one; it does not add a routing tier. MATIC_LOCAL_MODEL / MATIC_LOCAL_BASE_URL override, and setting MATIC_LOCAL_MODEL alone is enough to turn it on for one run.",
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "restartPolicy": {
+    "recommendAtScore": 3,
+    "uptimeLongDays": 30,
+    "uptimeElevatedDays": 14,
+    "commitHighFraction": 0.9,
+    "commitElevatedFraction": 0.75,
+    "memoryCompressionFraction": 0.15,
+    "raiseSuppressionHours": 24,
+    "declineSuppressionHours": 168,
+    "deferHours": 4
+  },
+  "_restartPolicyNote": "EVERY NUMBER ABOVE IS UNVALIDATED. They are policy proposals from research/2026-09-11-endpoint-telemetry-spec.md §6, which says of itself that there is no verified source establishing 30 days - or any figure - as an evidence-based restart interval, and calls itself educated guessing until validated against real ticket outcomes. They are here, and not constants in src/agent/restart-signal.js, because a constant is a claim the code makes and a default is a starting point a tenant can move. What would validate them: scoring recommendations against whether the restart actually resolved the ticket. Until that exists, treat a changed number as a changed guess. Omitting a key falls back to DEFAULT_RESTART_POLICY; the weights are overridable the same way. See client/docs/RESTART-SIGNAL.md."
 }

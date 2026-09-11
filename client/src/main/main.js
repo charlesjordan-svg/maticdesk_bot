@@ -192,7 +192,10 @@ app.whenReady().then(async () => {
 
   // `egress` is read by the D235 ticket-status branch (what THIS machine filed); null on a build
   // that cannot file, and the reply says so.
-  agent = new Agent({ broker, cloud, intake, egress, onLog: log });
+  // `restartPolicy` is config data because every threshold in it is an unvalidated proposal rather
+  // than a measured benchmark - see `config.json`'s `_restartPolicyNote`. Absent, the defaults in
+  // `src/agent/restart-signal.js` apply.
+  agent = new Agent({ broker, cloud, intake, egress, restartPolicy: config.restartPolicy ?? null, onLog: log });
   hubLink ??= new HubLink({ onLog: log }); // standalone: no URL, never probes
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });
@@ -284,6 +287,16 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message, reply: "Something went wrong while I was working that out, and I'd rather stop than guess. Try telling me again, differently." };
     }
   });
+  /**
+   * What the user did with the restart recommendation (telemetry spec §6's anti-nag rule).
+   *
+   * A DECISION CHANNEL AND NOTHING ELSE. It restarts nothing, schedules nothing and proposes
+   * nothing - the only state it touches is whether the assistant raises the subject again. It is
+   * named for what it does so that reading the preload's channel list says so, and an unrecognised
+   * answer is read as a decline rather than as permission to ask again.
+   */
+  ipcMain.handle("restart:answer", (_e, answer) => agent.answerRestartMoment(answer === "later" ? "later" : "declined"));
+
   ipcMain.handle("broker:validate", (_e, proposal) => broker.validate(proposal));
 
   /**

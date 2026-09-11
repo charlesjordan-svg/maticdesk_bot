@@ -17,6 +17,25 @@
      its own copy of these lines would keep passing on the day the real ones changed. */
   const personaPromise = fetch("../../router/persona.json").then((r) => r.json());
 
+  /* THE RESTART SENTENCE IS THE REAL ONE TOO, for the same reason as the filing lines above: it is
+     product copy with four load-bearing rules in it (it must say "restart" and never "shut down",
+     it must lead with the evidence, it must offer to come back, and it must not promise a restart
+     this build cannot perform). A copy here would keep reading correctly on the day the real one
+     stopped. `restart-signal.js` is pure - no `node:` imports, no DOM - so the browser can load it. */
+  const restartPromise = import("../../agent/restart-signal.js");
+
+  /* A machine that would score 8: up 41 days, commit at 95%, Windows compressing memory, and one
+     staged file rename. CANNED, like everything else here - the point is to see the moment
+     rendered, not to measure anything. */
+  const RESTART_SIGNALS = {
+    boot: { uptimeMs: 41 * 86400_000 },
+    flags: { readable: true, cbs: false, windowsUpdate: false, pendingFileRenames: 1, pendingFileRenameEntries: [] },
+    memory: { commitUsedFraction: 0.95, physicalTotalBytes: 34e9 },
+    memoryCompression: { fractionOfPhysical: 0.2 },
+  };
+  /** One-shot, like `filing` and `fix`: arm the NEXT turn to raise the recommendation. */
+  let nextTurnRaisesRestart = false;
+
   /* The next filing attempt fails this way, once, then goes back to succeeding. One-shot rather
      than a mode, because the failure path is something you drive THROUGH (offer -> yes -> card ->
      send) and a sticky toggle makes the next run confusing. */
@@ -34,6 +53,9 @@
     spooler: "STOPPED",
     audio: "RUNNING",
     dhcp: "RUNNING",
+    /* The one row this feature adds. Canned to agree with `RESTART_SIGNALS` above, so the band and
+       the recommendation describe one machine rather than two. */
+    lastRestarted: "41 days ago",
   };
 
   const FILED = [
@@ -149,7 +171,30 @@
     ttsStatus: async () => ({ ready: false, error: "no voice on the check page" }),
     listCapabilities: async () => [],
     diagnose: async () => FACTS,
-    propose: async (text) => { await new Promise((r) => setTimeout(r, 220)); return propose(text); },
+    propose: async (text) => {
+      await new Promise((r) => setTimeout(r, 220));
+      const res = propose(text);
+      // The restart moment rides on a turn, the same way the real agent attaches it: on `facts`,
+      // after the intake's own branches, so any scenario above can carry it.
+      if (nextTurnRaisesRestart) {
+        nextTurnRaisesRestart = false;
+        const { scoreRestart, restartSentence } = await restartPromise;
+        const scored = scoreRestart(RESTART_SIGNALS);
+        res.facts = {
+          ...(res.facts ?? FACTS),
+          restartAdvice: { sentence: restartSentence(scored), contributions: scored.contributions, score: scored.score },
+        };
+      }
+      return res;
+    },
+    /* A DECISION CHANNEL AND NOTHING ELSE, as in the app: it restarts nothing and schedules
+       nothing. The shape is `createRestartGate().state()`'s. */
+    answerRestart: async (answer) => ({
+      raisedAtMs: Date.now(),
+      declinedAtMs: answer === "later" ? null : Date.now(),
+      quietUntilMs: Date.now() + (answer === "later" ? 4 : 168) * 3600_000,
+      declinedForSession: answer !== "later",
+    }),
     validate: async () => ({ ok: true }),
     prepareConsent: async (proposal, locale) => ({
       ok: true,
@@ -251,6 +296,10 @@
     /** Arm the NEXT approved fix to come back "failed", "denied" (needs the broker) or "expired". */
     fix(mode) {
       nextFixFails = mode === "none" ? null : mode;
+    },
+    /** Arm the NEXT turn to raise the restart recommendation. The real gate would then go quiet. */
+    restart(mode) {
+      nextTurnRaisesRestart = mode !== "none";
     },
   };
 })();

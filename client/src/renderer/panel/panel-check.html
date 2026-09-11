@@ -55,6 +55,10 @@
   <button data-fix="failed">next fix: fails</button>
   <button data-fix="denied">next fix: needs permission</button>
   <button data-fix="expired">next fix: consent expired</button>
+  <!-- One-shot too. On a real machine this needs one that has been up for weeks with its memory
+       nearly full, which is not a machine anyone has to hand - and the row above it, "Last
+       restarted", is the only part of the feature that shows without it. -->
+  <button data-restart="on">next turn: restart recommendation</button>
   <button data-reload="1">reload</button>
   <span>The bridge is FAKE. Nothing below talks to a broker, a hub or a model.</span>
 </div>
@@ -72,6 +76,7 @@
     if (b.dataset.hub) { frame.contentWindow.__maticCheck?.hub(b.dataset.hub); return; }
     if (b.dataset.filing) { frame.contentWindow.__maticCheck?.filing(b.dataset.filing); b.blur(); return; }
     if (b.dataset.fix) { frame.contentWindow.__maticCheck?.fix(b.dataset.fix); b.blur(); return; }
+    if (b.dataset.restart) { frame.contentWindow.__maticCheck?.restart(b.dataset.restart); b.blur(); return; }
     const doc = frame.contentDocument;
     doc.getElementById("input").value = b.dataset.say;
     doc.getElementById("send").click();

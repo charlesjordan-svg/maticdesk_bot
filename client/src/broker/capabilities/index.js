@@ -8,6 +8,7 @@
  */
 import { restartService, queryService } from "../win32/scm.js";
 import { flushDnsCache, renewDhcp, resetAdapter, listAdapters, getInterfaceStatus } from "../win32/net.js";
+import { restartSignals } from "../win32/sysinfo.js";
 import catalog from "../catalog.json" with { type: "json" };
 
 /**
@@ -161,11 +162,29 @@ export function probeMachine() {
     }
   });
 
+  // The restart signal's raw readings (§2 of the telemetry spec). COLLECTED HERE AND SCORED
+  // ELSEWHERE: `src/agent/restart-signal.js` holds the thresholds and the words, because the
+  // thresholds are a tenant's to move and a probe is not the place to decide policy. Every member
+  // is independently nullable and a null means "could not read", never "fine" - the whole feature
+  // turns on that distinction.
+  //
+  // It is read on every probe rather than on a timer, and nothing is cached: the spec's own
+  // session lost its connection mid-probe, so a collector that depends on having run before
+  // reports nothing after a reconnect. Measured at 24-28 ms for all six readings on 2026-09-11,
+  // against the spec's 5-15 minute cadence and its "well under a second" bar.
+  let restart = null;
+  try {
+    restart = restartSignals();
+  } catch {
+    /* A collector that throws must not take the network and service facts down with it. */
+  }
+
   const primary = adapters.filter((a) => a.dhcpEnabled && a.hasGateway);
   return {
     services,
     adapters,
     primary,
+    restart,
     // Adapters worth acting on: DHCP-managed and either carrying a link or already routing.
     // This is what keeps the router off the permanently-idle virtual adapters.
     actionable: adapters.filter((a) => a.dhcpEnabled && (a.linkUp || a.hasGateway)),

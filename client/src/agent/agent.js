@@ -18,6 +18,7 @@ import { socialReply, ticketStatusReply } from "../router/social.js";
 import persona from "../router/persona.json" with { type: "json" };
 import { diagnoseOffline } from "../router/offline-guide.js";
 import { escalationReply } from "./prompt.js";
+import { createRestartGate, lastRestartedPhrase, restartAdvice, DEFAULT_RESTART_POLICY } from "./restart-signal.js";
 
 export class Agent {
   /**
@@ -29,13 +30,22 @@ export class Agent {
    * escalate. With no intake the escalation branch behaves as it did before D216: it says what it
    * cannot fix and offers nothing it cannot deliver.
    */
-  constructor({ broker, cloud, intake = null, egress = null, onLog = () => {} }) {
+  constructor({ broker, cloud, intake = null, egress = null, restartPolicy = null, onLog = () => {} }) {
     this.broker = broker;
     this.cloud = cloud;
     this.intake = intake;
     // The egress log, READ here for "where's my ticket?" (D235). Null on a build that cannot file.
     this.egress = egress;
     this.onLog = onLog;
+    /**
+     * The restart recommendation's thresholds, and the memory of having raised it.
+     *
+     * The policy comes from `config.json` because every number in it is a proposal rather than a
+     * sourced benchmark (see `restart-signal.js`). The GATE is per-Agent, which is what makes
+     * "not again this session" mean the session: one Agent lives for one run of the app.
+     */
+    this.restartPolicy = { ...DEFAULT_RESTART_POLICY, ...(restartPolicy ?? {}) };
+    this.restartGate = createRestartGate(this.restartPolicy);
   }
 
   /** Read-only machine state, for the facts panel and the router. Needs no elevation. */
@@ -68,7 +78,39 @@ export class Agent {
     };
     const identity = this.identify();
     // Identity first: on a support call the first question is always which machine, and who.
-    return { probe, summary, identity, panel: { ...identity, ...summary } };
+    //
+    // `lastRestarted` is the one row this feature adds, and it is a PHRASE rather than a number or
+    // a timestamp. What is deliberately NOT here is commit charge: `panel` is the object the
+    // renderer receives, so a commit figure that never enters it cannot be rendered by forgetting
+    // a condition later. That is D226's technique - strip it before it leaves - rather than a rule
+    // someone has to remember.
+    const panel = { ...identity, ...summary, lastRestarted: lastRestartedPhrase(probe.restart?.boot?.uptimeMs ?? null) };
+    // Scored WITHOUT the gate: opening the machine band is not a conversation moment and must not
+    // consume one. `propose()` is the only caller that passes the gate.
+    const restart = restartAdvice(probe.restart, { policy: this.restartPolicy });
+    return { probe, summary, identity, panel, restart };
+  }
+
+  /**
+   * What the user did with the restart recommendation.
+   *
+   * Two answers, because the sentence offers two: bring it up again at a better time, or leave it
+   * with them. `"later"` is the only one that shortens the quiet period; anything else is read as a
+   * decline, which is the safe default - an unrecognised answer must not become a licence to ask
+   * again.
+   *
+   * THIS PERFORMS NO RESTART AND SCHEDULES NONE. There is no capability that restarts a machine
+   * (`restart_service` is a Windows service, not the computer), so the only thing being decided
+   * here is whether the assistant mentions it again.
+   *
+   * @param {"later" | "declined"} answer
+   */
+  answerRestartMoment(answer) {
+    const nowMs = Date.now();
+    if (answer === "later") this.restartGate.deferred(nowMs);
+    else this.restartGate.declined(nowMs);
+    this.onLog(`[restart] ${answer === "later" ? "deferred" : "declined"} - nothing was restarted and nothing was scheduled`);
+    return this.restartGate.state();
   }
 
   /**
@@ -105,6 +147,37 @@ export class Agent {
         return { ok: true, ticketDraft: step.draft, facts: panel, reply: step.reply };
       }
       // "passthrough" — deliberately falls through to the ordinary path below.
+    }
+
+    // ---- The restart moment, if there is one to raise (telemetry spec §6) ----------------------
+    //
+    // PLACED HERE, AFTER THE INTAKE'S EARLY RETURNS, AND THAT IS THE POINT. A turn that is
+    // answering "what is your last name?" is a turn in the middle of something, and adding "by the
+    // way, restart your computer" to it is the nag the spec warns about wearing a different hat.
+    // The intake paths above return before this line and carry no moment.
+    //
+    // It rides on a turn the USER started. Nothing here raises anything on a timer: an unprompted
+    // restart prompt during someone's workday is the fastest way to get the agent dismissed, and
+    // D198 already says a surface the user did not provoke is a defect even when every gate behaved
+    // correctly.
+    //
+    // The gate is marked RAISED here rather than when the renderer has drawn it. That is the
+    // conservative direction of the two: a turn that then fails has spent the moment and stays
+    // quiet, where the other order would re-offer on the next turn and the one after it.
+    const moment = restartAdvice(probe.restart, {
+      policy: this.restartPolicy,
+      gate: this.restartGate,
+      nowMs: Date.now(),
+    });
+    if (moment.sentence) {
+      this.restartGate.raised(Date.now());
+      // The ids, the weights and the score go to the developer log; the SENTENCE is what the user
+      // gets. A score on a user surface would be the measurement the panel does not show.
+      this.onLog(`[restart] score ${moment.score}/${this.restartPolicy.recommendAtScore}`
+        + `${moment.firesAlone ? " (a flag that fires alone)" : ""}`
+        + ` from ${moment.contributions.map((c) => `${c.id}=${c.weight}`).join(", ") || "nothing"}`
+        + `${moment.unknown.length ? `; could not read ${moment.unknown.join(", ")}` : ""}`);
+      panel.restartAdvice = { sentence: moment.sentence, contributions: moment.contributions, score: moment.score };
     }
 
     // ---- Tier 0: local, deterministic, no network required ----

@@ -28,6 +28,14 @@ and what it could not are in
 | **§3a — anything HEARD** | Every D249/D250 check about the VOICE. The redaction was proved to fire at the boundary (the app's own log says so, §3a.6) and the strings were read, but **nobody has listened to the audio.** |
 | **§1.1 — the first frame** | Whether the window flashes light-before-dark on launch. The mechanism is right in code (`show: false` + `ready-to-show` + a painted `backgroundColor`) and a screenshot cannot catch a frame that is not meant to exist. |
 | **§4 — the todo card** | It comes from `diagnoseOffline(probe)`, so it needs THIS MACHINE genuinely offline. A session will not disconnect your network to see a card. It has still only ever been seen against canned data. |
+| **§8a.14 — the restart sentence, HEARD** | Same class as §3a. The sentence was read on screen and the day count was checked as a numeral; whether Piper says "forty days" or stumbles on it is not something a session can hear. |
+
+**§8a IS NEW AND WAS RUN ON 2026-09-11 (D256, register §5.39)** — in Electron over the DevTools
+Protocol against the real broker and the real probe, with the policy temporarily lowered so this
+machine would fire. **Twenty-three checks, and it found one defect: the evidence clause named the
+configured BAND rather than the reading, so a machine up 1.35 days was told it had not been
+restarted "in more than a fortnight".** Fixed, and §8a.6 is the step that finds it again. Eight
+straight click-throughs have now found something.
 
 **The panel on disk is Claude Design's re-export (D252).** The steps below are written against the
 current build, so a step that does not match what you see is a finding, not a stale document.
@@ -230,6 +238,34 @@ fails* and *next filing: times out* — which is where it was driven from.)
 | 8.3 | Ask something that needs the hub | **The reply must not contradict the band.** Both say it cannot reach the service desk. This is the 700d920 defect and it is the one to hunt |
 | 8.4 | Start the hub again | "The service desk is reachable again", the band goes, the face returns to idle |
 | 8.5 | Run with no hub configured at all | "Working on this machine only", grey, no warning colour. It must read as a configuration, not a fault |
+
+## 8a. The restart signal (D256, register §5.39) — **RUN 2026-09-11 over the DevTools Protocol**
+
+The row shows on any machine. **The recommendation does not**, because a healthy machine scores 0 or
+1 and silence is the correct behaviour — so seeing the moment at all means arranging for it. Two
+ways, and 8a.4 onward needs one of them:
+
+- **Real app:** set `recommendAtScore: 1` and `uptimeElevatedDays: 1` in `client/config.json`, run,
+  and **put the file back afterwards.** This is how 8a.6 was found.
+- **Check page:** press `next turn: restart recommendation`, then any scenario button.
+
+| # | Do | Pass when |
+|---|---|---|
+| 8a.1 | Open the machine band and find "Last restarted" | A phrase — "2 days ago", "5 hours ago", "Less than an hour ago". **Never a timestamp, a date or a number of milliseconds** |
+| 8a.2 | Read the row for advice | **There is none.** It does not say the machine should be restarted, is overdue, or has been up a long time. A row that argues argues every time the band is opened |
+| 8a.3 | Look for a memory figure anywhere in the band | **There is none, on purpose.** Commit charge is the most useful input in the score and is never shown as a number; it is not even in the object the renderer receives |
+| 8a.4 | Arm it, then take any ordinary turn | The recommendation arrives **after** the turn's own reply, in its own message, with two buttons |
+| 8a.5 | Read the sentence for the word "restart" | It says **"restart"**. It must never say "shut down", "turn it back on" or "power off" — under Fast Startup a shutdown is a kernel hibernate and **the fix does not apply**, so the other wording makes a user do the work for nothing. This is the most consequential sentence in the spec |
+| 8a.6 | Check the evidence against the machine you are on | **The duration must be the real one.** This is where the defect was: the clauses were named after the DEFAULT bands, so with the band lowered the panel said *"hasn't been restarted in more than a fortnight"* about a machine up **1.35 days**. Every other copy rule passed and the evidence was false |
+| 8a.7 | Read the order of the sentence | Evidence first, instruction second. *"Chrome has grown 4 GB since Tuesday and your memory is nearly full"* earns compliance in a way *"it's been a while"* does not |
+| 8a.8 | Look for a button offering to do the restart | **There is none, and its absence is correct.** No capability restarts a machine — `restart_service` is a Windows service, not the computer — so a button offering it would offer something the system does not have |
+| 8a.9 | Look at the composer while the choice is waiting | The hint *"Waiting on your yes or no above — or just type instead"* is **NOT** shown. Nothing reads a typed answer to this: D216's intake is not pending, so a typed "no thanks" would be routed as a fresh problem |
+| 8a.10 | Press "Leave it with me" | "You said you'd leave it" replaces the buttons, on the message it answered |
+| 8a.11 | Take two more turns, on different subjects | **It does not come back.** Once declined, not again this session and not for a week |
+| 8a.12 | Restart the app, arm it, and press "Remind me later" instead | "You asked to be reminded later". It stays quiet for `deferHours` and may then return — a deferral the user asked for must not be silently honoured as the 24-hour suppression |
+| 8a.13 | Arm it, then ask something that ends in the **ticket offer** | **No recommendation.** Two offers on one screen is how a user learns to click past both |
+| 8a.14 | **[CHARLES]** Listen to it | It reads as one sentence, and the day count is spoken as a number rather than spelled out. Nothing HEARD can be checked from a session |
+| 8a.15 | Open the inspector and the developer log | The score and the signal ids are there — `[restart] raised at score 2 from …` — and **nowhere a user reads**. The panel shows conclusions, not measurements |
 
 ## 9. What to write down
 

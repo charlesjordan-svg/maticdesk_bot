@@ -267,6 +267,15 @@ function renderMachine(facts) {
   const rows = [
     ["This computer", f.computer],
     ["Signed in as", f.user],
+    // THE FACT ONLY (telemetry spec §2e). Plain, neutral, no advice: this row does not say the
+    // machine should be restarted and does not hint that it is overdue. The recommendation is a
+    // conversation moment, and a row that argues argues every single time the band is opened,
+    // which is the definition of the nagging the spec warns about.
+    //
+    // The phrase is built agent-side by `lastRestartedPhrase()`, from an uptime that comes from
+    // `LastBootUpTime` and from no tick counter. An unreadable probe reads "Not known" and never
+    // "Less than an hour ago" — a machine that cannot be read is not a machine that just started.
+    ["Last restarted", f.lastRestarted ?? "Not known"],
     ["Printing", serviceWords(f.spooler)],
     ["Sound", serviceWords(f.audio)],
     ["Network adapter", !f.adapter || f.adapter === "none" ? "None found" : f.adapter],
@@ -549,6 +558,77 @@ function attachOffer(box) {
   };
   yes.addEventListener("click", () => answer("yes please", "You said yes"));
   no.addEventListener("click", () => answer("no thanks", "You said no thanks"));
+}
+
+// ═══ the restart recommendation (telemetry spec §6) ═══════════════════════════════════════════
+
+/**
+ * The moment the agent decided to raise, carried from `propose()` to the end of the turn.
+ *
+ * It is raised AFTER the turn has finished rather than in the middle of it, so it never competes
+ * with a consent card or a review card for the same screen.
+ */
+let pendingRestartMoment = null;
+
+/**
+ * "Bring it up again later" / "Leave it with me", inside the message that made the offer.
+ *
+ * TWO THINGS THIS DELIBERATELY DOES NOT DO, both of which the ticket offer above does:
+ *
+ * 1. **It does not set `root.dataset.offer`.** That attribute lights the composer's hint —
+ *    *"Waiting on your yes or no above — or just type instead."* — and the second half of that
+ *    sentence would be false here. D216's intake is what makes a TYPED answer meaningful, and it
+ *    is not pending for this: a typed "no thanks" would be routed as a fresh problem statement,
+ *    which is the exact defect (3d1992e) the intake exists to prevent. So the buttons are the only
+ *    way to answer, and nothing on screen claims otherwise.
+ *
+ * 2. **It does not call `submit()`.** The answer is not a sentence for the router; it is a decision
+ *    about whether the assistant mentions this again, and it goes down its own named channel.
+ *
+ * There is no "restart it for me" button, and its absence is the honest shape rather than an
+ * omission: no capability in the catalog restarts a machine, so a button offering to would be
+ * offering something the system does not have.
+ */
+function attachRestartChoice(box) {
+  const bar = el("div", "actionbar");
+  const pending = el("div", "actions");
+  const later = el("button", "btn btn-primary", "Remind me later");
+  const leave = el("button", "btn btn-secondary", "Leave it with me");
+  later.style.cssText = leave.style.cssText = "font-size:var(--matic-ui-text-sm); padding:9px 16px";
+  pending.append(later, leave);
+  bar.append(pending);
+  box.append(bar);
+  scrollDown();
+
+  const answer = async (kind, answered) => {
+    // What you answered stays on the message you answered, the same as the ticket offer, so
+    // scrolling back reads as a record rather than as an offer nobody responded to.
+    pending.replaceWith(el("div", "turn-note", answered));
+    const state = await window.matic.answerRestart(kind);
+    devlog(`[restart] ${kind === "later" ? "deferred" : "declined"}; quiet until `
+      + `${state?.quietUntilMs ? new Date(state.quietUntilMs).toISOString() : "unknown"}`
+      + `${state?.declinedForSession ? ", and not again this session" : ""}`);
+    scrollDown();
+  };
+  later.addEventListener("click", () => answer("later", "You asked to be reminded later"));
+  leave.addEventListener("click", () => answer("declined", "You said you'd leave it"));
+}
+
+/**
+ * Say it, once, at the end of a turn the user started.
+ *
+ * The sentence itself is generated agent-side by `restartSentence()`, which is where the four copy
+ * rules are asserted — it says "restart" and never "shut down and turn it back on" (under Fast
+ * Startup a shutdown is a kernel hibernate and the fix does not apply), it leads with the evidence
+ * rather than the instruction, and it offers to come back later. The score and the signal ids go to
+ * the developer log; neither is a user surface, because *"commit charge 92%"* means nothing to an
+ * office worker and the panel shows conclusions rather than measurements.
+ */
+async function raiseRestartMoment(advice) {
+  devlog(`[restart] raised at score ${advice.score} from `
+    + `${(advice.contributions ?? []).map((c) => `${c.id}=${c.weight}`).join(", ") || "nothing"}`);
+  const box = await say(advice.sentence, "idle");
+  attachRestartChoice(box);
 }
 
 // ═══ the ticket review card (D213) ════════════════════════════════════════════════════════════
@@ -968,6 +1048,10 @@ async function handleTurn(text) {
 
   setState("thinking");
   const res = await window.matic.propose(text);
+  // Captured here and raised in `submit()`'s `finally`, because `handleTurn` returns from a dozen
+  // places and a moment that only fires on some of them is a moment that fires unpredictably.
+  // The agent has already decided WHETHER to raise it; this only decides where on screen it goes.
+  pendingRestartMoment = res?.facts?.restartAdvice ?? null;
   renderMachine(res.facts);
 
   if (res.escalation) {
@@ -1404,9 +1488,11 @@ async function submit(text) {
   turnInFlight = true;
   inputEl.value = "";
   sendBtn.disabled = inputEl.disabled = true;
+  let threw = false;
   try {
     await handleTurn(sentence);
   } catch (err) {
+    threw = true;
     // D249: `err.message` is a JavaScript exception — "TypeError: Cannot read properties of
     // undefined (reading 'ok')" — and it was in the note, at the user. Found by tripping it with a
     // malformed stub while checking the machine-name rule; D247's sweep missed it because this is
@@ -1422,6 +1508,22 @@ async function submit(text) {
     devlog(`[panel] ${err.stack ?? err.message}`);
     setState("error");
   } finally {
+    // The restart moment, after the turn it rode in on has finished (telemetry spec §6).
+    //
+    // TWO CASES ARE DROPPED RATHER THAN QUEUED, and both err towards saying nothing. A turn that
+    // ended with the ticket offer waiting has a question on screen already, and two offers at once
+    // is how a user learns to click past both; a turn that threw has just told them it stopped
+    // part-way, which is not the moment to change the subject. The agent counted the moment as
+    // raised in either case, so it stays quiet rather than returning on the next turn.
+    const moment = pendingRestartMoment;
+    pendingRestartMoment = null;
+    if (moment?.sentence && !threw && root.dataset.offer !== "pending") {
+      try {
+        await raiseRestartMoment(moment);
+      } catch (err) {
+        devlog(`[restart] could not raise the recommendation: ${err.message}`);
+      }
+    }
     setBusy(false);
     turnInFlight = false;
     sendBtn.disabled = inputEl.disabled = false;
