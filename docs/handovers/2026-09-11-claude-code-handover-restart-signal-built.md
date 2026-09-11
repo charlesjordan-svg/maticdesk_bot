@@ -398,3 +398,107 @@ than of the design: a two-volume laptop gets twelve, a five-volume workstation f
 delivery's two-column grid absorbs them and nothing is broken — but five near-identical rows reading
 "Plenty of room" is precisely the case the question was recorded for. **That handover is the next
 thing to write, and it now has real rows to argue about.**
+
+---
+
+## 13. Claude Design answered, and both stages are integrated (D258, register §5.41)
+
+Charles sent the brief of §5.40e and Claude Design answered **the same day**. Charles: *"integrate
+both stages together."* Done.
+
+### The delivery cleared the buildability bar on the first try — the second time running
+
+| | current before | delivery |
+|---|---|---|
+| `class=` attributes | 515 | **524** |
+| inline `style=` | 36 | **36** |
+| CSS in the panel's `<style>` block | 36,880 chars | **47,097** |
+| `<link>` / `<script>` / remote URLs | 0 / 0 / 0 | **0 / 0 / 0** |
+| `--matic-ui-*` values changed | — | **0** (39 before, 39 after) |
+| names renamed or dropped | — | **none** |
+
+`npm.cmd run panel:build` accepted it unchanged, and **all twenty test files still passed with it in
+place before a line of app code moved** — which is the measurement that matters, because it is what
+makes the delivery additive rather than a rewrite. Its header describes four retuned token values;
+those are the ones D252 already integrated, so the diff against what we hold is nil. Checked, not
+assumed.
+
+### What it asked of us, and where the answer had to live
+
+Two new names (`.mset`, `.mset-volumes`) and **two attributes we set**: `data-group` on the set,
+`data-state` on the row. So `src/agent/machine-band.js` is new, pure, and is the one place a mark is
+decided — from the code that already owns each threshold:
+
+| row | the verdict comes from |
+|---|---|
+| Disk space | `describeVolume()` — the dual threshold |
+| Memory | `memoryBand()` — the same function the row's words and the recommendation both read |
+| Printing / Sound | `serviceRow()` |
+| Last restarted | the restart score's own `recommend` |
+
+**The renderer sets what it is handed and branches on no row value anywhere**, and a test pins that.
+The delivery's own sentence is the reason: *"Keyed off YOUR verdict, never off the number in the
+string. … `data-state="attn"`: your verdict says THIS ONE. 17.5% and 163 GB free is not this, and
+never becomes this, because the design cannot see either figure."* A renderer that coloured a row by
+reading "Getting full" out of its value would be reading a figure out of a string one layer along,
+and would restore the exact false alarm the dual threshold exists to prevent.
+
+**Three states, and only three.** `attn`, `watch`, and `unread` — the last one taking the quiet
+token, because a probe that could not read something is a limit and not a warning. A test enumerates
+every state the app can produce across every machine shape and every state the delivery draws, and
+asserts the two sets are **equal**: neither can grow without the other.
+
+**And no `data-state="ok"`.** Their note: *"A mark that says 'fine' is fifteen marks on a healthy
+machine, which is the defect this is fixing, not a fix."* That is D256's argument about the row
+carrying no advice, arrived at independently from the other side. A healthy machine is a band with
+not one mark on it, and the test drives five healthy shapes to prove it.
+
+### One finding, measured — and it is why both stages shipped together
+
+The delivery says severity is safe to ship alone: *"Ship (1) alone if the wrapper is not worth it
+yet; the band does not regress without it."* **It does.** `.mgrid`'s gap goes from `1px 28px` to
+`20px 28px`, which is right between **sets** and wrong between **rows** — so on the flat markup the
+app built before this pass, 20px lands between every row:
+
+| | before | delivery, flat markup |
+|---|---|---|
+| row-gap | 1px | **20px** |
+| mean row pitch | 39px | **58px** |
+| band height, 15 rows | 378px | **521px — 38% taller** |
+
+143px of an 800px window for no gain. Shipping both stages together makes it moot, because with
+`.mset` wrappers the 20px separates sets, which is what it is for. **It is recorded rather than
+patched:** the alternative is one line in *their* file (`.mgrid:has(.mset)`), and doing it in
+`matic-panel.app.css` would be the inversion D241 exists to prevent. Anyone shipping stage 1 alone
+in future needs that line first.
+
+A smaller one, noted and not changed: section (1) of their machine-band comment says *"Two drawn
+values"*, but the CSS draws three and the band file's artwork uses all three — `watch` is explained
+there rather than in the stylesheet.
+
+### Two things that moved on our side
+
+`#machineGrid` is a `<div>` now rather than a `<dl>`, because the `.mset` children are the `<dl>`s.
+And `serviceWords()` left `renderer.js` for `machine-band.js`: the band and the proposal's evidence
+line both say a service state out loud, and two copies would drift into two surfaces describing one
+service differently.
+
+### Verified
+
+**1691 assertions across 21 files**, up from 1595/20; `machine-band.test.mjs` is new (96) and is
+where the severity contract is pinned. Driven in Electron on real data — five named groups, and **not
+one mark on this healthy machine** — and on the check page for the marks, where all three states
+appear and `Disk space (C:)` at 17.5% free stays correctly silent while `D:` at 40 GB is `watch` and
+`E:` at 8 GB is `attn`.
+
+`client/docs/PANEL-RENDERER-CHECK.md` §8c is the click-through, and **8c.8 is the step that matters
+most**: if the 163 GB drive is ever amber, the false alarm is back.
+
+### The Design question is closed, and what is not
+
+§5.39k asked what happens to this panel at roughly a dozen rows and whether it wants grouping or
+severity. **Both, and they are built.** What grouping does NOT do is reduce the count — fifteen rows
+are still fifteen, in five sets — but the eye now goes to the set before the row, and the band drops
+to one track when the window is narrow, which the flat grid never did.
+
+**D248 is still proposed and still awaits Charles**, untouched by any of this.

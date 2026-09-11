@@ -284,6 +284,30 @@ Both show on any machine, unlike §8a's recommendation. On a five-volume machine
 | 8b.8 | Fill a drive past both floors (under 15% **and** under 25 GB) | Only then does it read "Almost full" |
 | 8b.9 | Ask for a restart recommendation with a full disk | **The disk must not be a reason.** A full disk is exactly as full after a restart, and it is not in the score — if a restart sentence ever mentions a drive, something has merged two signals that must stay apart |
 
+## 8c. The grouped band and its marks (D258, register §5.41) — **RUN 2026-09-11**
+
+Claude Design's addition of 2026-09-11. **The groups show on any machine; the marks only show on a
+machine in trouble**, so the check page is the way to see them — its canned machine has a stopped
+spooler, memory at 95%, and two drives in different states on purpose.
+
+| # | Do | Pass when |
+|---|---|---|
+| 8c.1 | Open the machine band | **Five named groups** — Who and where / How this machine is doing / What is running / Network / Storage — each with a small heading above its rows |
+| 8c.2 | Read the headings | They are **our words**, set as `data-group` and drawn with `content:attr(...)`. If a heading ever reads like a stylesheet wrote it, something has moved in the wrong direction |
+| 8c.3 | Look at Storage | One heading, the volumes compact beneath it. **No total, ever** |
+| 8c.4 | On a healthy machine, count the marks | **Zero.** Not one row carries a gutter rule or a coloured value. *"A mark that says 'fine' is fifteen marks on a healthy machine"* |
+| 8c.5 | Drag the window narrow | The band drops from two tracks to **one**, and the volumes with it. The flat grid never did this |
+| 8c.6 | On the check page, look at the band | **Four rows marked amber** — Last restarted, Memory, Printing, and one drive — with a 2px rule in the gutter and the value in the attention colour |
+| 8c.7 | Find `Disk space (D:)` — "Getting full — 40 GB free" | A **quieter grey** mark, not amber. It is worth noticing, not urgent |
+| 8c.8 | Find `Disk space (C:)` — "Plenty of room — 163 GB free" | **UNMARKED.** That drive is at 17.5% free. **If it is ever amber, the dual threshold has been bypassed and the false alarm is back** — this is the single most important step in §8c |
+| 8c.9 | Compare a marked row's left edge to an unmarked one | **They line up.** The gutter is always reserved, so the band does not shift when a machine goes bad |
+| 8c.10 | Squint, or look in greyscale | The marks are still findable — position first, colour second |
+| 8c.11 | Read a marked row's words | **They are the same words as when it is unmarked.** A mark says "this one"; it never says "do something". If the wording changes with the state, a row has started giving advice |
+| 8c.12 | Look for red anywhere in the band | **There is none, and there should be none.** Nothing here is a failure of the system — a full drive is the machine's news, correctly reported |
+| 8c.13 | Stop the spooler for real, reopen the band | `Printing — Stopped`, marked amber. A service the probe **cannot read** says "Couldn't read it from here" and takes the **quiet** mark, not the amber one |
+| 8c.14 | Unplug the network, reopen the band | `Network` is marked. **`Network adapter` is NOT**, though it reads "None found" — marking both would say one fact twice (D245) |
+| 8c.15 | Open the developer log after opening the band | A `[band]` line naming the groups, the row count and which rows are marked. On a healthy machine it says *"nothing — a healthy machine carries no mark"* |
+
 ## 9. What to write down
 
 For anything that fails: what you did, what you saw, and what you expected. A screenshot of the

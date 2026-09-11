@@ -16,6 +16,7 @@ import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
 import { HubClient } from "../agent/hub-client.js";
 import { HubLink } from "../agent/hub-link.js";
 import { Agent } from "../agent/agent.js";
+import { marksIn } from "../agent/machine-band.js";
 import { ProfileStore } from "../profile/profile.js";
 import { TicketIntake } from "../ticket/intake.js";
 import { EgressAudit } from "../ticket/egress-audit.js";
@@ -276,7 +277,15 @@ app.whenReady().then(async () => {
   }));
 
   ipcMain.handle("broker:listCapabilities", () => broker.listCapabilities());
-  ipcMain.handle("agent:diagnose", () => agent.diagnose().panel);
+  ipcMain.handle("agent:diagnose", () => {
+    const { panel } = agent.diagnose();
+    // The marks, to the developer log only. Which rows the band points at is a verdict worth being
+    // able to audit, and it is not a user surface (D256's rule about the score, one signal along).
+    const marks = marksIn(panel.groups);
+    log(`[band] ${panel.groups.length} groups, ${panel.groups.reduce((n, g) => n + g.rows.length, 0)} rows`
+      + `; marked: ${marks.join(", ") || "nothing - a healthy machine carries no mark"}`);
+    return panel;
+  });
   ipcMain.handle("agent:propose", async (_e, text) => {
     try {
       return await agent.propose(String(text ?? ""));

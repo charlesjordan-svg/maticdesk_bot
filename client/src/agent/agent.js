@@ -20,6 +20,7 @@ import { diagnoseOffline } from "../router/offline-guide.js";
 import { escalationReply } from "./prompt.js";
 import { createRestartGate, lastRestartedPhrase, memoryWords, restartAdvice, DEFAULT_RESTART_POLICY } from "./restart-signal.js";
 import { describeVolumes, DEFAULT_DISK_POLICY } from "./disk-space.js";
+import { machineBandGroups, marksIn } from "./machine-band.js";
 
 export class Agent {
   /**
@@ -104,6 +105,18 @@ export class Agent {
     // Scored WITHOUT the gate: opening the machine band is not a conversation moment and must not
     // consume one. `propose()` is the only caller that passes the gate.
     const restart = restartAdvice(probe.restart, { policy: this.restartPolicy });
+    // THE BAND'S STRUCTURE AND ITS MARKS, DECIDED HERE (D258). Claude Design's band keys severity
+    // off `data-state` and asked for OUR verdict rather than the number in the string, so the
+    // verdict is produced by the code that owns each threshold and the renderer only sets what it
+    // is handed. `restartRecommended` is the score's own verdict — the mark on "Last restarted"
+    // follows the recommendation rather than being a second opinion about uptime.
+    panel.groups = machineBandGroups({
+      identity,
+      summary,
+      restart: probe.restart,
+      volumes: panel.volumes,
+      restartRecommended: restart.recommend,
+    });
     return { probe, summary, identity, panel, restart };
   }
 

@@ -88,6 +88,21 @@ export function describeVolume(volume, policy = DEFAULT_DISK_POLICY) {
     lowOnSpace: low,
     words: low ? "Almost full" : gettingFull ? "Getting full" : "Plenty of room",
     free: spaceWords(volume.freeBytes),
+    /**
+     * THE MARK THE PANEL DRAWS, DECIDED HERE — where the thresholds are (D258).
+     *
+     * Claude Design's band keys its severity rule off `data-state` and says, in the delivery:
+     * *"Keyed off YOUR verdict, never off the number in the string… 17.5% and 163 GB free is not
+     * this, and never becomes this, because the design cannot see either figure."* So the verdict
+     * has to be produced by the code that owns the dual threshold, and a renderer that inferred it
+     * from the words would put the false alarm straight back — it would be reading a percentage out
+     * of a string, one layer along.
+     *
+     * **There is no "ok" state, by the delivery's own instruction:** *"A mark that says 'fine' is
+     * fifteen marks on a healthy machine, which is the defect this is fixing, not a fix."*
+     * `undefined` is the whole of a healthy volume.
+     */
+    state: low ? "attn" : gettingFull ? "watch" : undefined,
   };
 }
 

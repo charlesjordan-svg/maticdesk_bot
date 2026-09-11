@@ -24,6 +24,7 @@ import { buildPanelCss, panelCssIsCurrent } from "../scripts/build-panel-assets.
 // The enums are the authority on which members exist; the panel only decides how to READ them.
 // Importing them rather than restating them is what makes §5a a real check (D244).
 import { ESCALATION_CATEGORIES, ESCALATION_OWNERS } from "../src/agent/prompt.js";
+import { machineBandGroups } from "../src/agent/machine-band.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RENDERER = resolve(HERE, "../src/renderer");
@@ -323,7 +324,7 @@ check("…using only delivered tokens, declaring none", !/^\s*--matic-ui-(?!live
 check("`say()` is the only thing in the renderer that reaches the voice",
   [...rendererCode.matchAll(/matic\.speak\(/g)].length === 1);
 check("all three identifiers are learned where the probe's facts arrive, so a re-read refreshes them",
-  /function renderMachine\([\s\S]{0,300}rememberEnvironment\(f\)/.test(rendererCode)
+  /function renderMachine\([\s\S]{0,300}rememberEnvironment\(facts\)/.test(rendererCode)
   && /machine: facts\?\.computer, user: facts\?\.user, addresses: \[facts\?\.ip, facts\?\.gateway\]/.test(rendererCode));
 // The addresses are THIS machine's, not a pattern for anything address-shaped: a hub answer may
 // legitimately say "try 8.8.8.8", and redacting that destroys the answer rather than protecting
@@ -348,10 +349,22 @@ check("…from the broker's detail, not from a re-probe that may not have caught
 // rather than hiding it", and that assertion has a hardware finding behind it.
 check("the broker's message is NOT rewritten to hide the address",
   !/exec\.message\.replace/.test(rendererCode));
-check("all three are still SHOWN, on the surfaces that carry them",
-  /\["This computer", f\.computer\]/.test(rendererCode)
-  && /\["Signed in as", f\.user\]/.test(rendererCode)
-  && /\["This machine's address", f\.ip\]/.test(rendererCode));
+// BEHAVIOURAL SINCE D258. The band's rows moved out of `renderer.js` into a pure module when
+// Claude Design's grouped band landed, so this drives that module rather than pattern-matching
+// renderer source — the same three facts, checked against what a user is actually shown.
+check("all three are still SHOWN, on the surfaces that carry them", (() => {
+  const rows = machineBandGroups({
+    identity: { computer: "OLD-FIN-LON-0442", user: "CORP\\a.petrova" },
+    summary: { online: "yes", adapter: "Fake Gigabit", ip: "10.0.0.42", gateway: "10.0.0.1",
+      spooler: "RUNNING", audio: "RUNNING", dhcp: "RUNNING" },
+    restart: { boot: { uptimeMs: 2 * 86400000 }, memory: { commitUsedFraction: 0.4 } },
+    volumes: [],
+  }).flatMap((g) => g.rows);
+  const value = (label) => rows.find((r) => r.label === label)?.value;
+  return value("This computer") === "OLD-FIN-LON-0442"
+    && value("Signed in as") === "CORP\\a.petrova"
+    && value("This machine's address") === "10.0.0.42";
+})(), "shown is the half D249 keeps — all three must still reach the band verbatim");
 // The re-export folds the machine and the account into one row of the review card, which is how it
 // drew them: one line of identity, with the hint under it carrying D215's self-asserted caveat.
 check("…and the review card still carries both, in the row the delivery drew for them",

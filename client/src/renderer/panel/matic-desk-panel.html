@@ -14,7 +14,7 @@
      ═════════════════════════════════════════════════════════════════════════ -->
 <style>
 /* ═══════════════════════════════════════════════════════════════════════
-   Matic Desk panel — re-export, 2026-09-10.
+   Matic Desk panel — re-export, 2026-09-10, with the machine-band addition of 2026-09-11.
    Supersedes the September delivery. Answers the re-export request in full.
 
    ── NAMES ────────────────────────────────────────────────────────────
@@ -620,6 +620,194 @@ pre {
 [data-scene="review"] .ins-review { display:block; }
 [data-scene="first"] .ins-default, [data-scene="capability"] .ins-default,
 [data-scene="offer"] .ins-default, [data-scene="citation"] .ins-default { display:block; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MACHINE BAND — ADDITION OF 2026-09-11, answering the three asks in
+   the handover of the same date. It is additive: the only delivered
+   rules it redefines are .mgrid, .mrow and .mrow dt, all three named
+   here, and all three still correct for today's flat markup.
+
+   TWO NEW NAMES (.mset, .mset-volumes) AND TWO ATTRIBUTES WE ASK YOU
+   TO SET (data-state on .mrow, data-group on .mset). Nothing below
+   reads a value out of a string; nothing below says what to do; no
+   colour is introduced that the sheet did not already carry.
+
+   STAGEABLE IN THAT ORDER. Section (1) needs one attribute and no
+   markup change — it works on the flat list the renderer builds today.
+   Section (2) needs one wrapper element per group. Ship (1) alone if
+   the wrapper is not worth it yet; the band does not regress without it.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── (1) SEVERITY ───────────────────────────────────────────────────────
+   Keyed off YOUR verdict, never off the number in the string. Two drawn
+   values, and the default is no value at all:
+
+     (no attribute)  a fact. Unchanged, quiet, and the whole of a healthy
+                     machine — so a healthy machine is a band with not one
+                     mark on it.
+     data-state="attn"    your verdict says THIS ONE. 17.5% and 163 GB
+                          free is not this, and never becomes this,
+                          because the design cannot see either figure.
+     data-state="unread"  the probe could not read it. Not a warning:
+                          it takes the quiet token, not the attention one.
+
+   DO NOT SET data-state="ok". A mark that says "fine" is fifteen marks
+   on a healthy machine, which is the defect this is fixing, not a fix.
+
+   The mark is a 2px rule in a gutter the row now always reserves, so a
+   marked row and an unmarked one keep the same left edge and the band
+   does not shift when a machine goes bad. Position first, colour second:
+   the rule is findable without the hue.
+
+   THE ATTENTION TOKEN, AND NOTHING NEWER. --matic-ui-attn is the token
+   the sheet already uses for a fact it cannot vouch for (.turn-note
+   .unknown, .tr-caveat); at 5.09:1 on surface it carries 13px text. RED
+   IS STILL RESERVED FOR NOTHING AT ALL, and the recommendation is that
+   it stays that way: nothing in this band is a failure of the system —
+   a full drive is the machine's news, correctly reported. */
+.mrow {
+  display:flex; gap:14px; align-items:baseline;
+  padding:7px 0 7px 13px;                 /* was 7px 0 — the 13px is the gutter */
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line);
+  border-left:2px solid transparent;      /* the mark's channel, empty by default */
+}
+.mrow dt { width:118px; }                 /* was 126px; the gutter is paid for here */
+.mrow[data-state="attn"] { border-left-color:var(--matic-ui-attn); }
+.mrow[data-state="attn"] dd { color:var(--matic-ui-attn); font-weight:500; }
+.mrow[data-state="unread"] { border-left-color:var(--matic-ui-line-strong); }
+.mrow[data-state="unread"] dd { color:var(--matic-ui-ink-quiet); }
+
+/* THE MIDDLE TIER, drawn at your ask of 2026-09-11 and deliberately NOT a
+   second colour. "Getting full — 47 GB free" is a fact worth noticing on a
+   machine that is otherwise fine, and half-strength amber on it is the
+   false alarm your both-conditions rule exists to prevent. So the tier is
+   drawn in the marks and not in the hue: the quiet rule, and the value at
+   full ink rather than muted.
+
+     attn    amber rule, amber value   — this one
+     watch   grey rule, full ink       — noted, and visibly not "act"
+     unread  grey rule, quiet ink      — we could not read it
+
+   Three marks, one colour, and the set heading still lights for attn
+   alone — so a machine with four watch rows and no attn row does not
+   present itself as a machine in trouble. */
+.mrow[data-state="watch"] { border-left-color:var(--matic-ui-line-strong); }
+.mrow[data-state="watch"] dd { color:var(--matic-ui-ink); }
+
+/* ── (2) GROUPING ───────────────────────────────────────────────────────
+   Fifteen undifferentiated pairs is a list. Four or five named sets of
+   two to four is a panel, and the eye goes to the set before the row.
+
+   THE HEADING IS A STRING YOU SET, drawn with content:attr(data-group),
+   so the words stay yours and no wording arrives in a stylesheet. A set
+   with no data-group draws no heading and is just a stack.
+
+   The grid now lays out SETS rather than rows, at a track floor wide
+   enough for the longest value in the band ("Connected, address given
+   out automatically"). Two tracks at the panel's width, one if the
+   window is dragged narrow — and the band keeps working with no .mset
+   at all, where each row is its own cell exactly as it is today. */
+.mgrid {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(310px,1fr));
+  gap:20px 28px; align-items:start; margin:0;
+}
+.mset { min-width:0; }
+.mset[data-group]::before {
+  content:attr(data-group); display:block;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-ink-quiet);
+  padding:0 0 5px 13px; margin-bottom:2px;
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line-strong);
+}
+/* A set holding a marked row says so on its heading, so the scan is two
+   steps — which set, then which row — rather than fifteen. Still the
+   verdict and nothing else: :has() reads the attribute you set. Where
+   :has() is unavailable the heading stays quiet and the row's own mark
+   is unaffected. */
+.mset:has(.mrow[data-state="attn"])::before {
+  color:var(--matic-ui-attn); border-bottom-color:var(--matic-ui-attn);
+}
+
+/* ── (3) THE VOLUMES ───────────────────────────────────────────────────
+   One row per volume, always, and NOTHING IS AGGREGATED — there is no
+   total in this design and no way to add one, because the set has no
+   line of its own to put one on.
+
+   What changes is that five healthy drives stop costing five rows of
+   the band's height and one column of its width. The set spans the full
+   width at the foot of the band and lays its volumes out side by side — two
+   or three to a line, on the same track floor as the band itself — and drops a
+   healthy value to muted ink; a healthy volume's value drops to muted ink, so the block
+   reads as one object — "the drives, all fine" — while a bad volume
+   keeps full ink, the attention rule and its own line. It is individually
+   visible because it is still individually drawn.
+
+   Twenty rows is the case this was measured on: ten volumes become five
+   compact lines under one heading instead of ten rows wrapped across two
+   columns with an orphan in a half-empty last row. */
+.mset-volumes {
+  grid-column:1/-1; display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); column-gap:28px;
+}
+.mset-volumes[data-group]::before { grid-column:1/-1; }
+.mset-volumes .mrow { padding-top:5px; padding-bottom:5px; }
+.mset-volumes .mrow dt { width:104px; }
+.mset-volumes .mrow:not([data-state]) dd { color:var(--matic-ui-ink-muted); }
+
+/* ── (4) THE PANEL AS A WHOLE — visual pass, 2026-09-11 ─────────────────
+   Asked for after seeing the band in the real window. Six rules, all of
+   them about hierarchy and alignment rather than decoration. NO COPY
+   CHANGES, NO MARKUP CHANGES, NO NEW TOKEN, and nothing here touches the
+   review card, the consent card, the tickets band or the wordmark's words.
+
+   (a) ONE LEFT EDGE FOR THE WHOLE COLUMN. The utility bar sat at 20px,
+       the band at 20px and the transcript at 26px, so the three surfaces
+       in one column each started somewhere different. All three are 26px
+       now: the band's labels line up with the conversation under them,
+       which is the alignment the screenshot is missing.
+
+   (b) THE BAND IS A DRAWER, NOT A GREY STRIPE. #e9e9ea on #f2f2f3 is a
+       2% step and in the window it read as the page being slightly dirty
+       rather than as a surface pulled over it. It takes surface-2 — the
+       sheet's own lift for a thing laid over the page — and a line-strong
+       bottom edge, so opening the band looks like opening something.
+
+   (c) THE ASSISTANT'S SPEECH IS AN OBJECT. The user's words sit in a
+       filled bubble and the assistant's sat on the bare page, which reads
+       as the user speaking and the machine printing. The reply takes the
+       same lift as the band, so the two voices are two objects on one
+       ground and the transcript reads as a conversation.
+
+   (d) THE REGISTRATION MARKS STAY ON, AND QUIETEN. At one reply they are
+       a signature; at six they were the loudest thing on the page and the
+       page read as a blueprint of boxes. They keep their position and drop
+       to the hairline colour on replies only — the cards' marks, which
+       are the ones that mean "read this", are untouched.
+
+   (e) THE BAND'S HEAD IS A CAPTION. "Here's what I can see" moves up to
+       17px, and "Checked just now" becomes the micro-label the sheet
+       already uses on the tickets band, so the timestamp stops competing
+       with the title for the same weight.
+
+   (f) THE RAIL IS A MAST. The wordmark gets a rule under it, and the
+       avatar and its status line sit optically centred in the space
+       between that rule and the service block, instead of clinging to the
+       top of a 300px hole. */
+.utility { padding:0 16px 0 26px; }
+.band { padding:18px 26px 20px; background:var(--matic-ui-surface-2); border-bottom-color:var(--matic-ui-line-strong); }
+.band-head { margin-bottom:14px; }
+.band-title { font-size:var(--matic-ui-text-lg); letter-spacing:.01em; }
+.band-note {
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px;
+  letter-spacing:.1em; text-transform:uppercase;
+}
+.reply { background:var(--matic-ui-surface-2); }
+.reply > .corner { color:var(--matic-ui-line); }
+.brand {
+  padding-bottom:15px; letter-spacing:.24em;
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line);
+}
+.rail-stack { margin:auto 0; }
 </style>
 
 <!-- Sheet chrome only. NOT part of the delivery and not for copying —
@@ -1421,14 +1609,28 @@ pre {
             <div class="band-title">Here's what I can see</div>
             <div class="band-note" style="margin-left:auto">Checked a moment ago</div>
           </div>
-          <dl class="mgrid">
+          <div class="mgrid">
+          <dl class="mset" data-group="Who and where">
             <div class="mrow"><dt>This computer</dt><dd>PLACEHOLDER-PC</dd></div>
             <div class="mrow"><dt>Signed in as</dt><dd>placeholder.user</dd></div>
+          </dl>
+          <dl class="mset" data-group="How this machine is doing">
+            <div class="mrow"><dt>Last restarted</dt><dd>1 day ago</dd></div>
+            <div class="mrow"><dt>Memory</dt><dd>Plenty free</dd></div>
+          </dl>
+          <dl class="mset" data-group="What is running">
             <div class="mrow"><dt>Printing</dt><dd>Running normally</dd></div>
             <div class="mrow"><dt>Sound</dt><dd>Running normally</dd></div>
+          </dl>
+          <dl class="mset" data-group="Network">
             <div class="mrow"><dt>Network adapter</dt><dd>Placeholder Gigabit Ethernet Controller</dd></div>
             <div class="mrow"><dt>Network</dt><dd>Connected, address given out automatically</dd></div>
           </dl>
+          <dl class="mset mset-volumes" data-group="Storage">
+            <div class="mrow"><dt>Disk space (C:)</dt><dd>Plenty of room — 163 GB free</dd></div>
+            <div class="mrow"><dt>Disk space (D:)</dt><dd>Plenty of room — 414 GB free</dd></div>
+          </dl>
+          </div>
         </div>
 
         <div class="transcript">

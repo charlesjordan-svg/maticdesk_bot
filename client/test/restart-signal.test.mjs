@@ -22,6 +22,7 @@ import {
 } from "../src/agent/restart-signal.js";
 import { restartSignals, bootInstant } from "../src/broker/win32/sysinfo.js";
 import { probeMachine } from "../src/broker/capabilities/index.js";
+import { machineBandGroups } from "../src/agent/machine-band.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, "..", "src");
@@ -339,10 +340,24 @@ for (const ms of [null, 0, 3600000, 86400000, 40 * 86400000, 400 * 86400000]) {
   const phrase = lastRestartedPhrase(ms);
   check(`"${phrase}" carries no advice`, !ADVICE.test(phrase));
 }
-check("the renderer's row label is the plain fact and the value is the phrase",
-  /\["Last restarted", f\.lastRestarted \?\? "Not known"\]/.test(rendererCode));
-check("…and the row is in the machine band, which is the one row this feature adds",
-  (rendererCode.match(/\["Last restarted"/g) ?? []).length === 1);
+// BEHAVIOURAL SINCE D258: the band's rows are built by a pure module now, so this drives it
+// rather than pattern-matching renderer source. The renderer only sets what it is handed.
+{
+  const rows = (uptimeMs) => machineBandGroups({
+    identity: { computer: "PC", user: "u" },
+    summary: { online: "yes", adapter: "a", ip: "-", gateway: "-", spooler: "RUNNING", audio: "RUNNING", dhcp: "RUNNING" },
+    restart: { boot: uptimeMs === null ? null : { uptimeMs }, memory: { commitUsedFraction: 0.4 } },
+    volumes: [],
+  }).flatMap((g) => g.rows).filter((r) => r.label === "Last restarted");
+  check("the band carries exactly one \"Last restarted\" row", rows(86400000).length === 1);
+  check("…and its value is the phrase, not a timestamp", rows(2 * 86400000)[0].value === "2 days ago");
+  check("…and an unreadable boot time reads \"Not known\"", rows(null)[0].value === "Not known");
+  // THE RULE THE WHOLE SEVERITY DESIGN RESTS ON. A renderer that coloured a row by looking at its
+  // words would be reading a figure out of a string, and would put the 17.5% false alarm back.
+  check("…and the renderer only sets the state it is handed, never reading the value back",
+    /row\.dataset\.state = r\.state/.test(rendererCode)
+    && !/r\.value\s*===|r\.value\.(?:match|includes|indexOf)/.test(rendererCode));
+}
 
 // ==============================================================================================
 console.log("\n=== 8. the conversation moment ===");

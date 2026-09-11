@@ -34,6 +34,10 @@ import persona from "../router/persona.json" with { type: "json" };
 // headless test can reach it - renderer.js touches `document` at module scope and no test can.
 import { spokenForm } from "./spoken-form.js";
 import { proseSegments, plainProse } from "./model-prose.js";
+// `serviceWords` lives agent-side with the band that also says it (D258): two copies of how a
+// service state is said would drift, and the drift is two surfaces describing one service
+// differently. `persona.json` above already crosses this boundary for the same reason.
+import { serviceWords } from "../agent/machine-band.js";
 
 const root = document.documentElement;
 const avatar = document.getElementById("avatar");
@@ -242,70 +246,48 @@ const ticketsNote = document.getElementById("ticketsNote");
 const ticketCount = document.getElementById("ticketCount");
 
 /**
- * A Windows service state as a person would say it. `?` means the probe could not read it, which
- * is NOT the same as stopped and must not be rendered as though it were.
- */
-function serviceWords(stateName) {
-  if (stateName === "RUNNING") return "Running normally";
-  if (stateName === "STOPPED") return "Stopped";
-  if (stateName === "?" || !stateName) return "Couldn't read it from here";
-  return String(stateName).toLowerCase().replace(/_/g, " ");
-}
-
-/**
- * The machine band. Same probe the router reasons over (`agent.diagnose().panel`), in the user's
- * words. The address rows are kept even though the delivery's mock does not show them: they are
- * the first two things a support call asks for after the machine name, and dropping information
- * the founder has been reading is a change, not a tidy-up.
+ * The machine band (D258: Claude Design's grouped band of 2026-09-11).
+ *
+ * ===============================================================================================
+ * THIS FUNCTION DECIDES NOTHING. IT SETS WHAT IT IS HANDED.
+ * ===============================================================================================
+ *
+ * The groups, the words and the marks all arrive already decided, from `machineBandGroups()` — and
+ * that is the whole arrangement rather than a tidiness preference. The delivery's severity rule
+ * says so in its own words: *"Keyed off YOUR verdict, never off the number in the string. …
+ * data-state='attn': your verdict says THIS ONE. 17.5% and 163 GB free is not this, and never
+ * becomes this, because the design cannot see either figure."*
+ *
+ * A renderer that looked at a value and coloured anything reading "Getting full" would be reading a
+ * figure out of a string one layer along, and would put back exactly the false alarm the dual
+ * threshold exists to prevent. So there is no test of `r.value` anywhere below — only `r.state`,
+ * which the code that owns each threshold produced.
+ *
+ * **No `data-state="ok"`**, by the delivery's instruction: *"A mark that says 'fine' is fifteen
+ * marks on a healthy machine, which is the defect this is fixing, not a fix."* A healthy machine is
+ * a band with not one mark on it, and `machineBandGroups()` simply omits the attribute.
  */
 function renderMachine(facts) {
   if (!facts) return;
-  const f = facts;
   // Learned here because this is the one place the probe's facts arrive, and re-learned every time
   // the band re-reads them. See `spokenForm()`: shown, never said (D249).
-  rememberEnvironment(f);
-  const rows = [
-    ["This computer", f.computer],
-    ["Signed in as", f.user],
-    // THE FACT ONLY (telemetry spec §2e). Plain, neutral, no advice: this row does not say the
-    // machine should be restarted and does not hint that it is overdue. The recommendation is a
-    // conversation moment, and a row that argues argues every single time the band is opened,
-    // which is the definition of the nagging the spec warns about.
-    //
-    // The phrase is built agent-side by `lastRestartedPhrase()`, from an uptime that comes from
-    // `LastBootUpTime` and from no tick counter. An unreadable probe reads "Not known" and never
-    // "Less than an hour ago" — a machine that cannot be read is not a machine that just started.
-    ["Last restarted", f.lastRestarted ?? "Not known"],
-    // A CONCLUSION, never a figure. The reading behind it is commit charge, which is the most
-    // useful input in the restart score and means nothing to an office worker as a number — so
-    // the panel says what it MEANS. `memoryWords()` reads the same bands the recommendation's
-    // sentence does, so this row and that sentence cannot describe one machine two ways.
-    ["Memory", f.memory ?? "Not known"],
-    ["Printing", serviceWords(f.spooler)],
-    ["Sound", serviceWords(f.audio)],
-    ["Network adapter", !f.adapter || f.adapter === "none" ? "None found" : f.adapter],
-    ["Network", f.online === "yes"
-      ? (f.dhcp === "RUNNING" ? "Connected, address given out automatically" : "Connected, address not given out automatically")
-      : "Not connected"],
-  ];
-  if (f.ip && f.ip !== "-") rows.push(["This machine's address", f.ip]);
-  if (f.gateway && f.gateway !== "-") rows.push(["Router", f.gateway]);
-  // ONE ROW PER VOLUME, NEVER AGGREGATED (telemetry spec §3). A machine with 2.9 TB free across
-  // five drives and 8 GB left on C: is in trouble, and a total says the opposite.
-  //
-  // The conclusion leads and the figure follows. This is the case where the measurement is still
-  // worth carrying: "163 GB free" is something an office worker can act on, unlike a commit
-  // percentage, and it is the first thing a support call asks after which drive. The words decide
-  // the meaning; the number is there to be quoted.
-  for (const v of f.volumes ?? []) {
-    rows.push([`Disk space (${v.root})`, `${v.words} — ${v.free} free`]);
-  }
+  rememberEnvironment(facts);
 
   machineGrid.replaceChildren();
-  for (const [label, value] of rows) {
-    const row = el("div", "mrow");
-    row.append(el("dt", "", label), el("dd", "", String(value ?? "-")));
-    machineGrid.append(row);
+  for (const set of facts.groups ?? []) {
+    // `.mset-volumes` is the delivery's tighter treatment for the one group whose LENGTH is a
+    // property of the machine rather than of the design.
+    const dl = el("dl", set.volumes ? "mset mset-volumes" : "mset");
+    // The heading is drawn by `content:attr(data-group)`, so the words stay ours and no wording
+    // arrives in a stylesheet. A set with no group draws no heading and is just a stack.
+    if (set.group) dl.dataset.group = set.group;
+    for (const r of set.rows ?? []) {
+      const row = el("div", "mrow");
+      if (r.state) row.dataset.state = r.state;
+      row.append(el("dt", "", r.label), el("dd", "", String(r.value ?? "-")));
+      dl.append(row);
+    }
+    machineGrid.append(dl);
   }
   machineChecked.textContent = "Checked just now";
 }

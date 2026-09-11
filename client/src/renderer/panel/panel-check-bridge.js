@@ -74,12 +74,25 @@
   /* The WORDS are the product's, not copies — same rule as the filing sentences and the restart
      sentence above. A copy here would keep reading correctly on the day the real one changed. */
   const derived = (async () => {
-    const [{ memoryWords }, { describeVolumes }] = await Promise.all([
+    const [{ memoryWords }, { describeVolumes }, { machineBandGroups }] = await Promise.all([
       import("../../agent/restart-signal.js"),
       import("../../agent/disk-space.js"),
+      import("../../agent/machine-band.js"),
     ]);
     FACTS.memory = memoryWords(0.95); // agrees with RESTART_SIGNALS' commit fraction
     FACTS.volumes = describeVolumes(CANNED_VOLUMES);
+    /* THE GROUPS AND THE MARKS ARE THE REAL ONES (D258), built by the product's own module rather
+       than hand-written here — the same rule as the filing sentences and the restart sentence. And
+       the canned machine is deliberately IN TROUBLE: `spooler: "STOPPED"`, commit at 95%, one drive
+       under both floors and one under the absolute floor only. A healthy machine carries no mark at
+       all, so a check page showing one would never exercise severity. All three states appear. */
+    FACTS.groups = machineBandGroups({
+      identity: { computer: FACTS.computer, user: FACTS.user },
+      summary: FACTS,
+      restart: RESTART_SIGNALS,
+      volumes: FACTS.volumes,
+      restartRecommended: true,
+    });
   })();
 
   const FILED = [
