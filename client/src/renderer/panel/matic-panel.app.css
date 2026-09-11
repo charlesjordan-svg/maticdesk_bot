@@ -142,3 +142,12 @@ matic-avatar { display: block; }
 /* The tickets band's count is hidden rather than showing a zero: "Tickets you've opened 0" reads
    as a broken counter. The trigger stays, because the band explains what it can and cannot see. */
 .count:empty { display: none; }
+
+/* ── (d) knowingly different from the delivery, because Charles asked ─────────────────────────
+
+   The one exception to this file's opening rule, and it is written down rather than slipped in:
+   the delivery left-aligns the wordmark against the rail's padding while everything under it -
+   avatar, status line, service note - is centred. Charles looked at the running panel on
+   2026-09-10 and asked for it centred with them. It is a change to the design, so it lives here,
+   under its own heading, and belongs in the next delivery rather than in this file for ever. */
+.rail .brand { text-align: center; }
