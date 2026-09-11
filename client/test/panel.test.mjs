@@ -262,12 +262,21 @@ check("all three are still SHOWN, on the surfaces that carry them",
   && /fixed\("Machine", draft\.machineName/.test(rendererCode)
   && /\["This machine's address", f\.ip\]/.test(rendererCode));
 // D249 item 3, and it is SHOWN rather than spoken, which is why D247's sweep did not catch it.
-check("the panel's own crash note does not put a JavaScript exception at the user",
-  /note\("Something went wrong inside the panel and this turn stopped\./.test(rendererCode)
-  && !/Something went wrong inside the panel[^"]*\$\{err/.test(rendererCode));
-check("…and the exception still reaches the developer log, in full", /devlog\(`\[panel\] \$\{err\.stack \?\? err\.message\}`\)/.test(rendererCode));
-check("…and it stays flagged `unknown`, because a turn that stopped half-way is exactly that",
-  /this turn stopped[\s\S]{0,200}\{ unknown: true \}/.test(rendererCode));
+//
+// PINNED AS PROPERTIES, NOT AS PHRASING. The first version of these assertions matched the sentence
+// verbatim and broke the moment it was shortened — the third time in this session that a check was
+// written against the words instead of the contract, which is what CLAUDE.md's rule about
+// `escalationReply` already says not to do.
+const crashNote = rendererCode.match(/catch \(err\) \{[\s\S]{0,400}?note\("([^"]*)",\s*\{ unknown: true \}\)/)?.[1] ?? "";
+check("the panel's own crash note exists and is flagged `unknown`", crashNote.length > 0, crashNote);
+check("…it carries no JavaScript exception", !/\$\{err/.test(rendererCode.match(/note\("[^"]*", \{ unknown: true \}\)/)?.[0] ?? "") && !/err\.message\}`?, \{ unknown/.test(rendererCode));
+check("…it says the turn stopped", /stopped|went wrong|didn't finish/i.test(crashNote), crashNote);
+check("…and it says the outcome is UNKNOWN, which is the half that must survive",
+  /don't know|do not know|unknown|can't tell/i.test(crashNote), crashNote);
+check("…in the panel's own words: no \"turn\", which is ours for a conversational exchange",
+  !/\bturn\b/i.test(crashNote), crashNote);
+check("…and short enough to read at a glance", crashNote.split(/\s+/).length <= 16, `${crashNote.split(/\s+/).length} words`);
+check("the exception still reaches the developer log, in full", /devlog\(`\[panel\] \$\{err\.stack \?\? err\.message\}`\)/.test(rendererCode));
 
 // D247: the renderer must not interpolate a BROKER diagnostic into speech either. Those strings
 // name capability ids, adapter GUIDs, Win32 control masks and the Service Control Manager.

@@ -70,6 +70,33 @@ layout, never behaviour.
 | 3.5 | Expand the developer log | `[router]`, `[hub]`, `[tts]`, `[avatar]` lines — ours, and only here |
 | 3.6 | Close it, look at the conversation | Nothing has moved. Nothing was reserved for it |
 
+## 3a. Name, account and address: on screen, not in the voice (D249)
+
+**This one needs the voice working**, so it is the check that `panel-check.html` cannot do at all —
+it has no Piper, so `speak()` is never called there. Run the app on a machine whose hostname is
+distinctive and **listen**.
+
+| # | Look at / listen for | Pass when |
+|---|---|---|
+| 3a.1 | The machine band: "This computer", "Signed in as", "This machine's address" | Your real hostname, account and IP. **Shown is correct for all three** |
+| 3a.2 | The review card's "Machine" and "OS account" rows | The same. They go on the ticket, and IT needs them |
+| 3a.3 | Anything the avatar SAYS about the machine | **"this PC"**. Never the hostname, never spelled out |
+| 3a.4 | …about the account | **"your account"** |
+| 3a.5 | Renew the DHCP lease and listen to the result | **"…now has an address."** Not the digits. *Having one* is the evidence it worked, and that survives |
+| 3a.6 | The developer log | `[tts] this machine's name, account or address is shown, not spoken (D249)` — it only appears when a redaction actually happened, so its absence means no spoken string contained any of them |
+| 3a.7 | The transcript, for that same turn | **All three are still there on screen.** Shown and said are two different strings, and only one of them changed |
+| 3a.8 | Ask something whose answer names a PUBLIC address (a DNS server, a print server) | **It is spoken normally.** Only this machine's own two addresses are replaced; redacting "try 8.8.8.8" would destroy the answer |
+
+## 3b. A turn that crashes (D249, item 3)
+
+Hard to provoke deliberately, so this is a "if you ever see it" check rather than a step.
+
+| # | Look at | Pass when |
+|---|---|---|
+| 3b.1 | The note after a turn that stopped | *"That stopped part-way. I don't know how far it got."* **No `TypeError`, no stack, no exception text** — and the uncertainty must be in it, however it is worded |
+| 3b.2 | Its styling | The attention colour (`unknown`), because a turn that stopped half-way is exactly the case where you must not assume nothing happened |
+| 3b.3 | The developer log | The full stack, unchanged |
+
 ## 4. A real fix, with consent (the D130 comparison, again)
 
 Ask it something a capability covers — "my printer won't print" with the spooler stopped
@@ -83,6 +110,24 @@ Ask it something a capability covers — "my printer won't print" with the spool
 | 4.4 | "What is this, and why?" | Collapsed by default; opens to the model's own reasoning first, labelled as such |
 | 4.5 | Approve | The line beside the heading becomes "You approved this", the outcome is recorded on the card, and the reply follows |
 | 4.6 | Deny | "You did not approve this", and nothing runs |
+
+## 4a. A fix that does NOT work (D247) — three branches nobody had run
+
+The fake bridge returned success and only success until 2026-09-10, so none of these had been seen.
+In the real app: **4a.1 and 4a.2** need a service that will not start (stop the spooler and deny the
+account, or run unelevated); **4a.3** just needs you to leave the consent card on screen for more
+than two minutes. (On `panel-check.html`: *next fix: fails*, *next fix: needs permission*, *next fix:
+consent expired*.)
+
+| # | Look at | Pass when |
+|---|---|---|
+| 4a.1 | A fix that ran and failed | Spoken: a plain sentence. **No Win32 call, no `OpenServiceW`, no error number, no service key.** It used to say `That did not work: OpenServiceW(spooler) failed (Win32 error 5)` out loud |
+| 4a.2 | A fix the unprivileged half may not do | Spoken: short — *"I couldn't do that one from here."* The `.turn-note` under it is what explains. **If the two say the same thing in different words, that is the defect** (it was, once, in this pass) |
+| 4a.3 | An approved card that sat too long | Spoken: it timed out and nothing was changed. **Not "no consent nonce was presented"** — that is the protocol's phrasing and belongs in the record |
+| 4a.4 | The inspector, on all three | `detail` carries the Win32 call site (`detail.win32`) or the gate's own words (`detail.consent` / `detail.refusal`). **If `detail` is empty, the diagnostic was lost** |
+| 4a.5 | A fix that WORKED, on the printer | *"Restarted the **Print Spooler** service — it went STOPPED → RUNNING."* **Not "the spooler service"** — that is the registry key, and a user cannot look it up under that name (D247). The before → after pair must survive; it is the proof |
+| 4a.6 | The consent card's third line | `restart_service(serviceName=spooler)`, in mono, smaller, under the plain sentence. **It must still be there** — it is what will run, and D130 requires it on screen. Whether it should also be glossed is D248, proposed |
+| 4a.7 | The rollback line on an R2 card | It names the action by its title — *"Disable and re-enable a network adapter"* — not by `reset_adapter` |
 
 ## 5. A decline, and an offer you can answer (acceptance 7, handover §6)
 
@@ -109,51 +154,6 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | 6.5 | The card, after sending | Still on screen, its caveat unchanged, its heading now "Sent by you" |
 | 6.6 | The tickets band's count | It has gone up by one |
 | 6.7 | The new row in the band | Same fact as the card, in the past tense, and also not "the hub" |
-
-## 3a. Name, account and address: on screen, not in the voice (D249)
-
-**This one needs the voice working**, so it is the check that `panel-check.html` cannot do at all —
-it has no Piper, so `speak()` is never called there. Run the app on a machine whose hostname is
-distinctive and **listen**.
-
-| # | Look at / listen for | Pass when |
-|---|---|---|
-| 3a.1 | The machine band: "This computer", "Signed in as", "This machine's address" | Your real hostname, account and IP. **Shown is correct for all three** |
-| 3a.2 | The review card's "Machine" and "OS account" rows | The same. They go on the ticket, and IT needs them |
-| 3a.3 | Anything the avatar SAYS about the machine | **"this PC"**. Never the hostname, never spelled out |
-| 3a.4 | …about the account | **"your account"** |
-| 3a.5 | Renew the DHCP lease and listen to the result | **"…now has an address."** Not the digits. *Having one* is the evidence it worked, and that survives |
-| 3a.6 | The developer log | `[tts] this machine's name, account or address is shown, not spoken (D249)` — it only appears when a redaction actually happened, so its absence means no spoken string contained any of them |
-| 3a.7 | The transcript, for that same turn | **All three are still there on screen.** Shown and said are two different strings, and only one of them changed |
-| 3a.8 | Ask something whose answer names a PUBLIC address (a DNS server, a print server) | **It is spoken normally.** Only this machine's own two addresses are replaced; redacting "try 8.8.8.8" would destroy the answer |
-
-## 3b. A turn that crashes (D249, item 3)
-
-Hard to provoke deliberately, so this is a "if you ever see it" check rather than a step.
-
-| # | Look at | Pass when |
-|---|---|---|
-| 3b.1 | The note after a turn that stopped | Plain English, and it says it **cannot tell you how far it got**. **No `TypeError`, no stack, no exception text** |
-| 3b.2 | Its styling | The attention colour (`unknown`), because a turn that stopped half-way is exactly the case where you must not assume nothing happened |
-| 3b.3 | The developer log | The full stack, unchanged |
-
-## 4a. A fix that does NOT work (D247) — three branches nobody had run
-
-The fake bridge returned success and only success until 2026-09-10, so none of these had been seen.
-In the real app: **4a.1 and 4a.2** need a service that will not start (stop the spooler and deny the
-account, or run unelevated); **4a.3** just needs you to leave the consent card on screen for more
-than two minutes. (On `panel-check.html`: *next fix: fails*, *next fix: needs permission*, *next fix:
-consent expired*.)
-
-| # | Look at | Pass when |
-|---|---|---|
-| 4a.1 | A fix that ran and failed | Spoken: a plain sentence. **No Win32 call, no `OpenServiceW`, no error number, no service key.** It used to say `That did not work: OpenServiceW(spooler) failed (Win32 error 5)` out loud |
-| 4a.2 | A fix the unprivileged half may not do | Spoken: short — *"I couldn't do that one from here."* The `.turn-note` under it is what explains. **If the two say the same thing in different words, that is the defect** (it was, once, in this pass) |
-| 4a.3 | An approved card that sat too long | Spoken: it timed out and nothing was changed. **Not "no consent nonce was presented"** — that is the protocol's phrasing and belongs in the record |
-| 4a.4 | The inspector, on all three | `detail` carries the Win32 call site (`detail.win32`) or the gate's own words (`detail.consent` / `detail.refusal`). **If `detail` is empty, the diagnostic was lost** |
-| 4a.5 | A fix that WORKED, on the printer | *"Restarted the **Print Spooler** service — it went STOPPED → RUNNING."* **Not "the spooler service"** — that is the registry key, and a user cannot look it up under that name (D247). The before → after pair must survive; it is the proof |
-| 4a.6 | The consent card's third line | `restart_service(serviceName=spooler)`, in mono, smaller, under the plain sentence. **It must still be there** — it is what will run, and D130 requires it on screen. Whether it should also be glossed is D248, proposed |
-| 4a.7 | The rollback line on an R2 card | It names the action by its title — *"Disable and re-enable a network adapter"* — not by `reset_adapter` |
 
 ## 6a. A ticket that does NOT get through (D246) — the branch nobody had run
 

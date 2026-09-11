@@ -1197,7 +1197,12 @@ async function submit(text) {
     // SHOWN rather than spoken. The stack was already going to the developer log, so nothing here
     // is new information and nothing is lost. **`unknown: true` stays**: a turn that stopped
     // half-way is exactly the case where the user must not assume nothing happened.
-    note("Something went wrong inside the panel and this turn stopped. I can't tell you how far it got, so check before you try the same thing again.", { unknown: true });
+    // Two facts and nothing else: it stopped, and how far it got is unknown. The first draft added
+    // "so check before you try the same thing again", which is advice with nothing specific behind
+    // it — there is nothing named for the user to go and check — and "this turn" is our word for a
+    // conversational exchange, not theirs. **The uncertainty is the half that must survive**, and
+    // `unknown: true` is the styling that carries it.
+    note("That stopped part-way. I don't know how far it got.", { unknown: true });
     devlog(`[panel] ${err.stack ?? err.message}`);
     setState("error");
   } finally {

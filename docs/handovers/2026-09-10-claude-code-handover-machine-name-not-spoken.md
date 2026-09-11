@@ -5,7 +5,7 @@ especially in a corp environment. Ok to display computername but it should say t
 being shown what else was in the same class: *"do the username too"*, and *"fix 2 and 3 as well"*.
 
 **Repo:** `main`. **Register:** §5.32, **D249**.
-**Client tests: 1094 assertions across 17 files, all green** (was 1048 / 16; the new file is
+**Client tests: 1098 assertions across 17 files, all green** (was 1048 / 16; the new file is
 `test/spoken-form.test.mjs`, 36 of them).
 
 ---
@@ -85,11 +85,21 @@ spoken, which is why D247's sweep missed it**; found by tripping it with a delib
 stub while checking the name rule. The stack was already going to the developer log, so nothing is
 lost. It now reads:
 
-> Something went wrong inside the panel and this turn stopped. I can't tell you how far it got, so
-> check before you try the same thing again.
+> That stopped part-way. I don't know how far it got.
 
-**`unknown: true` stays on it** — a turn that stopped half-way is exactly the case where a user must
-not assume nothing happened.
+**Shortened on Charles's instruction the same day** — *"fix the crash note wording, it's too
+wordy"*. What went was a sentence of advice with nothing specific behind it ("so check before you
+try the same thing again" — there is no named thing to check) and the word "turn", which is ours for
+a conversational exchange and not the user's. **`unknown: true` stays on it**, and so does the
+uncertainty: a turn that stopped half-way is exactly the case where a user must not assume nothing
+happened, and *"I don't know how far it got"* is the half that had to survive.
+
+**The assertions guarding it broke on that rewording**, because they matched the sentence verbatim —
+the third time in this session a check was written against the words instead of the contract. They
+pin properties now (exists, flagged `unknown`, no exception, says it stopped, says the outcome is
+unknown, avoids "turn", at most sixteen words), and a probe confirms all four mutations are caught:
+the wordy version, the original exception-at-the-user defect, dropping the uncertainty, and dropping
+the flag.
 
 ## 6. Verified
 
