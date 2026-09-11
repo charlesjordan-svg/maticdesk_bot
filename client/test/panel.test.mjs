@@ -251,11 +251,29 @@ check("`say()` is the only thing in the renderer that reaches the voice",
 check("all three identifiers are learned where the probe's facts arrive, so a re-read refreshes them",
   /function renderMachine\([\s\S]{0,300}rememberEnvironment\(f\)/.test(rendererCode)
   && /machine: facts\?\.computer, user: facts\?\.user, addresses: \[facts\?\.ip, facts\?\.gateway\]/.test(rendererCode));
-// The addresses are THIS machine's two, not a pattern for anything address-shaped: a hub answer may
+// The addresses are THIS machine's, not a pattern for anything address-shaped: a hub answer may
 // legitimately say "try 8.8.8.8", and redacting that destroys the answer rather than protecting
 // anyone. `spoken-form.test.mjs` asserts the behaviour; this asserts the renderer supplies literals.
-check("…and the addresses handed over are literals from the probe, not a pattern",
-  !/\\d\{1,3\}\\\./.test(rendererCode) && !/addresses: \[.*RegExp/.test(rendererCode));
+check("…and the addresses handed to spokenForm are literals, never a pattern",
+  !/addresses: \[.*RegExp/.test(rendererCode));
+// THE ONE THE PROBE CANNOT SUPPLY. `renew_dhcp` exists to CHANGE the address, so the value in
+// "this machine now has 10.0.0.42" is one `spokenEnv` has never seen — the single capability whose
+// message is guaranteed to carry an address is the one the rule could not reach. `exec.detail` is
+// broker-authored machine detail about this machine, so anything address-shaped in it is ours.
+check("an address the broker just reported is learned from the execution result",
+  /function learnAddressesFrom\(detail\)/.test(rendererCode)
+  && /\^\\d\{1,3\}\(\\\.\\d\{1,3\}\)\{3\}\$/.test(rendererCode));
+check("…and it is learned BEFORE anything says the result", (() => {
+  const learn = rendererCode.indexOf("learnAddressesFrom(exec.detail)");
+  const speak = rendererCode.indexOf("say(exec.message", learn);
+  return learn > 0 && speak > learn;
+})());
+check("…from the broker's detail, not from a re-probe that may not have caught up",
+  /learnAddressesFrom\(exec\.detail\)/.test(rendererCode));
+// The digits stay ON SCREEN. `probe.test.mjs` asserts the APIPA phrase "still shows the address,
+// rather than hiding it", and that assertion has a hardware finding behind it.
+check("the broker's message is NOT rewritten to hide the address",
+  !/exec\.message\.replace/.test(rendererCode));
 check("all three are still SHOWN, on the surfaces that carry them",
   /\["This computer", f\.computer\]/.test(rendererCode)
   && /\["Signed in as", f\.user\]/.test(rendererCode)

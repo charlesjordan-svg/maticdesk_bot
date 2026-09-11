@@ -82,7 +82,9 @@ distinctive and **listen**.
 | 3a.2 | The review card's "Machine" and "OS account" rows | The same. They go on the ticket, and IT needs them |
 | 3a.3 | Anything the avatar SAYS about the machine | **"this PC"**. Never the hostname, never spelled out |
 | 3a.4 | …about the account | **"your account"** |
-| 3a.5 | Renew the DHCP lease and listen to the result | **"…now has an address."** Not the digits. *Having one* is the evidence it worked, and that survives |
+| 3a.5 | Renew the DHCP lease and listen to the result | **"…now has an address."** Not the digits. *Having one* is the evidence it worked, and that survives. **This is the address the boot probe never saw** — the capability's whole job is to change it — so it is the case the rule could not reach until the broker's own result was folded in |
+| 3a.5a | …and look at the transcript for that same turn | **The digits are still there on screen.** If they are gone, that is a defect: `probe.test.mjs` requires a self-assigned `169.254.x.x` to be SHOWN, because one reading as success is a failure found on real hardware |
+| 3a.5b | If it lands on a self-assigned address | Spoken: *"…only a self-assigned address, which means DHCP has not answered yet."* **Not "(an address)"** — an address that is the whole of a parenthetical is dropped, not replaced |
 | 3a.6 | The developer log | `[tts] this machine's name, account or address is shown, not spoken (D249)` — it only appears when a redaction actually happened, so its absence means no spoken string contained any of them |
 | 3a.7 | The transcript, for that same turn | **All three are still there on screen.** Shown and said are two different strings, and only one of them changed |
 | 3a.8 | Ask something whose answer names a PUBLIC address (a DNS server, a print server) | **It is spoken normally.** Only this machine's own two addresses are replaced; redacting "try 8.8.8.8" would destroy the answer |

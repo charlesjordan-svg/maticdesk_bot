@@ -382,6 +382,31 @@ function rememberEnvironment(facts) {
 }
 
 /**
+ * AN ADDRESS THE BROKER HAS JUST REPORTED IS ONE OF THIS MACHINE'S ADDRESSES (D249, 2026-09-10).
+ *
+ * **`spokenEnv` is learned from the last probe, and `renew_dhcp`'s whole job is to CHANGE the
+ * address** — so the value in *"this machine now has 10.0.0.42"* is one the redaction has never
+ * seen, and it was spoken. The one capability whose message is guaranteed to contain an address is
+ * the one the rule could not reach; `reset_adapter` is the same, and so is the APIPA case, which
+ * reports a `169.254.x.x` address a listener would hear read out digit by digit.
+ *
+ * **The digits stay ON SCREEN, and that is a decision with a hardware finding behind it:**
+ * `verify-privileged.ps1` once produced *"it is back up on 169.254.17.252"* — which reads as
+ * success and means the opposite — and `probe.test.mjs` asserts the phrase "still shows the
+ * address, rather than hiding it". Removing it from the message would delete that evidence to fix
+ * an audio problem. This fixes the audio and leaves the evidence where it was.
+ *
+ * `detail` is BROKER-AUTHORED machine detail about this machine — never hub prose — so anything
+ * address-shaped in it is ours by construction. That is what makes reading it generically safe
+ * here and a blanket pattern unsafe in `spokenForm`.
+ */
+function learnAddressesFrom(detail) {
+  if (!detail || typeof detail !== "object") return;
+  const found = Object.values(detail).filter((v) => typeof v === "string" && /^\d{1,3}(\.\d{1,3}){3}$/.test(v));
+  if (found.length) spokenEnv = { ...spokenEnv, addresses: [...(spokenEnv.addresses ?? []), ...found] };
+}
+
+/**
  * Speaks with real Piper audio + viseme sync. Degrades to mouth-only, never to
  * silence-with-no-signal. Returns the element it wrote, so a caller can hang an offer off the
  * message that made it.
@@ -1085,6 +1110,9 @@ async function handleTurn(text) {
   // Consent step 2: the nonce and nothing else. The broker runs what IT rendered.
   setState("accept");
   const exec = await window.matic.execute(request.nonce);
+  // BEFORE anything says `exec.message`. A fix that changed this machine's address reports the NEW
+  // one, which the last probe cannot have seen — and `renew_dhcp` exists to change it (D249).
+  learnAddressesFrom(exec.detail);
   consented("You approved it, and the broker ran what it had rendered.", {
     nonce: request.nonce,
     singleUse: true,

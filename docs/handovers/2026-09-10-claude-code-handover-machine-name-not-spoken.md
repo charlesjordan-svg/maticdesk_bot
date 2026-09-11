@@ -5,7 +5,7 @@ especially in a corp environment. Ok to display computername but it should say t
 being shown what else was in the same class: *"do the username too"*, and *"fix 2 and 3 as well"*.
 
 **Repo:** `main`. **Register:** §5.32, **D249**.
-**Client tests: 1098 assertions across 17 files, all green** (was 1048 / 16; the new file is
+**Client tests: 1107 assertions across 17 files, all green** (was 1048 / 16; the new file is
 `test/spoken-form.test.mjs`, 36 of them).
 
 ---
@@ -100,6 +100,42 @@ pin properties now (exists, flagged `unknown`, no exception, says it stopped, sa
 unknown, avoids "turn", at most sixteen words), and a probe confirms all four mutations are caught:
 the wordy version, the original exception-at-the-user defect, dropping the uncertainty, and dropping
 the flag.
+
+## 5a. The one address the rule could not reach (asked for separately)
+
+*"Fix the ip in renew_dhcp's message too."* He was right, and the reason is structural rather than
+an oversight: **`renew_dhcp` exists to CHANGE this machine's address**, so the value in its success
+line is one the last probe cannot have seen — and `spokenEnv` is learned from the last probe. The
+single capability whose message is guaranteed to carry an address was the single one the redaction
+could not catch. `reset_adapter` is the same, and so is the self-assigned (`169.254.x.x`) phrase.
+
+**The fix is not in the message, and that is deliberate.** `probe.test.mjs` asserts the APIPA phrase
+*"still shows the address, rather than hiding it"* — and that assertion has a hardware finding behind
+it: `verify-privileged.ps1` once produced *"it is back up on 169.254.17.252"*, which reads as
+success and means the opposite. **Taking the digits out of the message would delete that evidence to
+solve an audio problem.**
+
+So the renderer folds the broker's `detail` into the environment **before anything speaks the
+result**, and a freshly-assigned address is then redacted exactly like a probed one. `detail` is
+broker-authored machine detail about this machine — never hub prose — which is what makes reading it
+generically safe here while a blanket address pattern stays unsafe in `spokenForm`. It also beats
+re-probing: the probe lags the change by design (`resetAdapter()` settles for 1.5 s, and DHCP took
+longer than that on real hardware), and the broker already knows the answer.
+
+| | |
+|---|---|
+| on screen | `Renewed the DHCP lease — this machine now has 192.168.50.223.` |
+| to the voice | `Renewed the DHCP lease — this machine now has an address.` |
+| on screen | `…back up, but so far only a self-assigned address (169.254.17.252), which means DHCP has not answered yet.` |
+| to the voice | `…back up, but so far only a self-assigned address, which means DHCP has not answered yet.` |
+
+**One wording rule came out of it:** an address that is the whole of a parenthetical is DROPPED
+rather than replaced, because *"a self-assigned address (an address)"* is worse said aloud than
+either the digits or nothing.
+
+**Still not changed, and still yours:** "DHCP lease" and "DNS resolver cache" as spoken vocabulary.
+They are Microsoft's names for real things and the catalog's own titles say the same, so they are a
+product-copy question rather than a defect — flagged in D247's audit and unanswered.
 
 ## 6. Verified
 

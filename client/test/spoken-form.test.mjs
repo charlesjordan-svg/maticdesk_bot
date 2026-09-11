@@ -87,6 +87,32 @@ console.log("=== 3. this machine's own addresses - and ONLY those ===");
     spokenForm("10.0.0.1 and 10.0.0.10", { addresses: ["10.0.0.1", "10.0.0.10"] }));
   check("a placeholder address is not redacted into a claim",
     spokenForm("no address yet", { addresses: ["-", "0.0.0.0", null] }) === "no address yet");
+
+  // THE CASE THAT MOTIVATED THE WHOLE ADDRESS RULE, and the one it could not reach on its own.
+  // `renew_dhcp` exists to CHANGE this machine's address, so its success line reports a value the
+  // last probe cannot have seen. The renderer folds the broker's `detail` into the environment
+  // before anything speaks it (`learnAddressesFrom`, checked in `panel.test.mjs`); what is checked
+  // HERE is that a freshly-learned address is redacted exactly like a probed one.
+  const afterRenewal = { ...ENV, addresses: [...ENV.addresses, "192.168.50.223"] };
+  check("a NEW address, learned from the broker rather than the probe, is redacted too",
+    spokenForm("Renewed the DHCP lease — this machine now has 192.168.50.223.", afterRenewal)
+      === "Renewed the DHCP lease — this machine now has an address.",
+    spokenForm("Renewed the DHCP lease — this machine now has 192.168.50.223.", afterRenewal));
+  check("…and the OLD one still is, because both are this machine's",
+    spokenForm("was 10.0.0.42, now 192.168.50.223", afterRenewal) === "was an address, now an address");
+  // The APIPA case: `probe.test.mjs` asserts the phrase SHOWS the address, because a 169.254 address
+  // reading as success is a defect found on real hardware. It is shown and not said.
+  const apipa = { ...ENV, addresses: [...ENV.addresses, "169.254.17.252"] };
+  // "(an address)" after "a self-assigned address" is worse said aloud than either the digits or
+  // nothing, so an address that is the WHOLE of a parenthetical is dropped rather than replaced.
+  check("a self-assigned address is not read out digit by digit either",
+    spokenForm("but so far only a self-assigned address (169.254.17.252), which means DHCP has not answered", apipa)
+      === "but so far only a self-assigned address, which means DHCP has not answered",
+    spokenForm("but so far only a self-assigned address (169.254.17.252), which means DHCP has not answered", apipa));
+  check("…and the sentence it leaves behind is still a sentence",
+    !/\(\s*\)|\s{2,}|\s,/.test(spokenForm("a self-assigned address (169.254.17.252), which means", apipa)));
+  check("an address that is NOT the whole parenthetical is still replaced, not dropped",
+    spokenForm("(was 10.0.0.42 before)", ENV) === "(was an address before)", spokenForm("(was 10.0.0.42 before)", ENV));
 }
 
 console.log("=== 4. the cases that would do damage ===");

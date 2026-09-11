@@ -110,7 +110,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 1098 assertions across 17 files (2026-09-10).
+#                            headless, no key, no admin, no hub: 1107 assertions across 17 files (2026-09-10).
 npm.cmd run avatar:build   # regenerate src/renderer/avatar/matic-avatar.assets.js from the delivered SVG + CSS.
 #                            NEVER hand-edit the generated file; avatar.test.mjs fails while it is stale.
 npm.cmd run avatar:check   # is it stale? (exit 1 if so)
@@ -486,9 +486,13 @@ These are in the register, but the register is not what a session reads first. E
   `@domain` suffix are part of the match, or `CORP\a.petrova` becomes `CORP\your account` with the
   domain read out instead; an address may not exclude `.` on its right, because sentences end; and
   the three-character floor stays, because a machine called `PC` would rewrite the word "pc" in
-  every sentence. **The addresses are this machine's two LITERAL values, never a pattern** — a hub
+  every sentence. **The addresses are this machine's own LITERAL values, never a pattern** — a hub
   answer may legitimately say "try 8.8.8.8", and redacting that destroys the answer rather than
-  protecting anyone. **Nothing spoke the name or the account before this existed, and that was an
+  protecting anyone. **And they are re-learned from the broker's `detail` before anything speaks an
+  execution result**: `renew_dhcp` exists to CHANGE the address, so its message carries one the last
+  probe cannot have seen — the one capability the rule could not reach on its own. The digits stay
+  ON SCREEN, because `probe.test.mjs` requires a self-assigned `169.254.x.x` to be shown and that
+  requirement has a hardware finding behind it. **Nothing spoke the name or the account before this existed, and that was an
   accident of three unrelated decisions** — one of which is only a habit (the catalog's consent text
   happens not to mention the machine, while the DESIGN's own placeholder card says *"…on
   PLACEHOLDER-PC"*). **The address WAS spoken**, by `renew_dhcp`'s success line.

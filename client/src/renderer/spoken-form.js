@@ -68,8 +68,7 @@ const SAID_AS = { machine: "this PC", user: "your account", address: "an address
  * A trailing `.` is deliberately NOT a boundary character, because sentences end.
  */
 function patternForName(name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![A-Za-z0-9-])(?:[A-Za-z0-9.-]+[\\\\/])?${escaped}(?:@[A-Za-z0-9.-]+)?(?![A-Za-z0-9-])`, "gi");
+  return new RegExp(`(?<![A-Za-z0-9-])(?:[A-Za-z0-9.-]+[\\\\/])?${escapeRe(name)}(?:@[A-Za-z0-9.-]+)?(?![A-Za-z0-9-])`, "gi");
 }
 
 /**
@@ -87,9 +86,24 @@ function patternForName(name) {
  * a digit, and not followed by a dot-then-digit", which lets a full stop through and nothing else.
  */
 function patternForAddress(addr) {
-  const escaped = addr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![0-9.])${escaped}(?!\\.?[0-9])`, "g");
+  return new RegExp(`(?<![0-9.])${escapeRe(addr)}(?!\\.?[0-9])`, "g");
 }
+
+/**
+ * An address that is the WHOLE of a parenthetical is dropped, not replaced.
+ *
+ * `describeAddress`'s self-assigned phrase reads *"only a self-assigned address (169.254.17.252),
+ * which means DHCP has not answered"*. Replacing the value in place gives *"a self-assigned address
+ * (an address)"*, which is worse said aloud than either the digits or nothing. The parenthetical is
+ * there to show a value; with no value to show it has no job, and the sentence around it already
+ * reads as a complete one — that is what makes dropping it safe rather than lossy. **On screen the
+ * digits are untouched**, which is where `probe.test.mjs` requires them.
+ */
+function parentheticalPattern(addr) {
+  return new RegExp(`\\s*\\(${escapeRe(addr)}\\)`, "g");
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** `identify()` returns this when there is no passwd entry. A placeholder, not a name. */
 const NOT_A_NAME = new Set(["unknown", "none", "-", "?"]);
@@ -126,6 +140,9 @@ export function spokenForm(text, env = {}) {
     .map((a) => String(a ?? "").trim())
     .filter((a) => /^[0-9a-fA-F.:]{7,45}$/.test(a) && a !== "0.0.0.0")
     .sort((a, b) => b.length - a.length);
+  // The parenthetical pass runs FIRST, or the address inside it is already gone by the time the
+  // parenthesis rule looks for it.
+  for (const addr of addresses) out = out.replace(parentheticalPattern(addr), "");
   for (const addr of addresses) out = out.replace(patternForAddress(addr), SAID_AS.address);
 
   return out;

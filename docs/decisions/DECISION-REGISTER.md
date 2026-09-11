@@ -1916,7 +1916,32 @@ quotes every one of those boundaries in its own prose. Both reported the shape o
 ("MISSED — the tests are weaker than they look") while proving nothing. §10.5's class, twice, inside
 the tool built to check for it.
 
-**1098 client assertions across 17 files, up from 1048 / 16.** **Nobody has HEARD any of it** — the
+**5.32e — the one address the rule could not reach was the one that matters most.**
+`renew_dhcp` exists to CHANGE this machine's address, so the value in *"this machine now has
+10.0.0.42"* is one the last probe cannot have seen — and `spokenEnv` is learned from the last probe.
+**The single capability whose message is guaranteed to carry an address was the single one the
+redaction could not catch.** `reset_adapter` is the same, and so is `describeAddress`'s
+self-assigned phrase, which reports a `169.254.x.x` address a listener would hear read out digit by
+digit. Charles found it: *"fix the ip in renew_dhcp's message too."*
+
+**The fix is NOT in the message**, and that is the interesting part. `probe.test.mjs` asserts the
+APIPA phrase *"still shows the address, rather than hiding it"*, and **that assertion has a hardware
+finding behind it**: `verify-privileged.ps1` once produced *"it is back up on 169.254.17.252"*,
+which reads as success and means the opposite. Removing the digits from the message would delete
+that evidence to solve an audio problem. Instead the renderer folds the broker's `detail` into the
+environment **before anything speaks the result** (`learnAddressesFrom`, called on `exec.detail`),
+so a freshly-assigned address is redacted exactly like a probed one. **`detail` is broker-authored
+machine detail about THIS machine — never hub prose — which is what makes reading it generically
+safe here while a blanket address pattern stays unsafe in `spokenForm`.** It is also better than
+re-probing: the probe lags the change by design (`resetAdapter()` settles for 1.5 s and DHCP took
+longer than that on real hardware), and the broker already knows the answer.
+
+**One wording rule came out of it.** An address that is the WHOLE of a parenthetical is DROPPED
+rather than replaced: *"a self-assigned address (an address)"* is worse said aloud than either the
+digits or nothing, and the sentence around it already reads as a complete one. On screen the digits
+are untouched.
+
+**1107 client assertions across 17 files, up from 1048 / 16.** **Nobody has HEARD any of it** — the
 check page has no voice, so `matic.speak()` is never called there; this was verified by the unit
 test, by the wiring assertions, and by applying the real module to the real on-screen string in a
 browser. `client/docs/PANEL-RENDERER-CHECK.md` §3a is the listen-to-it check.
