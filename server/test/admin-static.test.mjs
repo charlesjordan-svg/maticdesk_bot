@@ -207,8 +207,9 @@ console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and 
   check("the review queue's gap row links into the search and only when the question text exists",
     /\/admin\/knowledge\/search\?q=\$\{encodeURIComponent\(g\.queryText\)/.test(read("src/admin/pages/review.js"))
     && /if \(!g\.queryText \|\| !ctx\.permissions\.has\("knowledge\.read"\)\) return "";/.test(read("src/admin/pages/review.js")));
-  check("the console's embedder is the one the ask route got, passed from src/index.js",
-    /adminHandler\(\{ log, embedder \}\)/.test(index) && /embedder = null \} = \{\}\)/.test(routerJs));
+  check("the console's embedder and retrieval health reader are the ones the ask route got, passed from src/index.js",
+    /adminHandler\(\{ log, embedder, retrievalHealth \}\)/.test(index)
+    && /embedder = null, retrievalHealth = null \} = \{\}\)/.test(routerJs));
 }
 
 console.log("\n=== 6. honest stubs: no zero stands in for an absent concept (exit criterion 6) ===");

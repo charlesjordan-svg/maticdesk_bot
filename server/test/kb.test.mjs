@@ -29,7 +29,7 @@ import { closePool, withControl } from "../src/db/pool.js";
 import { migrateControl } from "../src/db/migrate.js";
 import { corpusStatus, embedPending, ingestBundle, upsertArticle } from "../src/kb/ingest.js";
 import { embeddingProviderFromEnv } from "../src/kb/embed.js";
-import { fuseRRF, lexicalLeg, semanticLeg, retrieve, logRetrieval } from "../src/kb/retrieve.js";
+import { fuseRRF, lexicalLeg, semanticLeg, retrieve, logRetrieval, retrievalModeOf } from "../src/kb/retrieve.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(HERE, "..", "..", "docs", "kb", "generic-kb-v2.json");
@@ -253,6 +253,7 @@ async function main() {
   const logId = await logRetrieval({
     query: "how do I take a screenshot", platform: "windows", tenantLabel: "zz-test",
     result: full, cited: ["keyboard-shortcuts-windows"], answered: true, model: "test-model",
+    mode: retrievalModeOf({ result: full }),
   });
   check("a log row is written and returns its id", Number.isInteger(logId) && logId > 0);
   const row = await withControl(async (client) => {

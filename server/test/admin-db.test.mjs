@@ -241,7 +241,7 @@ try {
                 ($1, 'recent question', '[]'::jsonb, false, now() - interval '30 days')`, [LABEL]));
       process.env.MATIC_KB_LOG_QUERIES = "1"; delete process.env.MATIC_KB_QUESTION_RETENTION_DAYS;
       check("the default window is 90 days", questionRetentionDays() === 90);
-      const id = await logRetrieval({ query: "a fresh question", platform: "windows", tenantLabel: LABEL, result: { chunks: [], topScore: 0, floorApplied: false }, answered: false });
+      const id = await logRetrieval({ query: "a fresh question", platform: "windows", tenantLabel: LABEL, result: { chunks: [], topScore: 0, floorApplied: false }, answered: false, mode: "hybrid" });
       const { rows } = await getPool().query("SELECT id, query_text, at FROM control.kb_retrieval_log WHERE tenant_label = $1 ORDER BY at", [LABEL]);
       check("three rows remain — the sweep clears text, it never deletes a row", rows.length === 3);
       check("the 100-day-old row's text is gone", rows[0].query_text === null);
@@ -254,7 +254,7 @@ try {
       process.env.MATIC_KB_QUESTION_RETENTION_DAYS = "400";
       check("nobody may lengthen it past 90", questionRetentionDays() === 90);
       process.env.MATIC_KB_QUESTION_RETENTION_DAYS = "0";
-      const id0 = await logRetrieval({ query: "should not be kept", platform: null, tenantLabel: LABEL, result: { chunks: [], topScore: 0, floorApplied: false }, answered: false });
+      const id0 = await logRetrieval({ query: "should not be kept", platform: null, tenantLabel: LABEL, result: { chunks: [], topScore: 0, floorApplied: false }, answered: false, mode: "hybrid" });
       check("retention 0 logs the row with NO text even with the switch on", (await getPool().query("SELECT query_text FROM control.kb_retrieval_log WHERE id = $1", [id0])).rows[0].query_text === null);
     } finally {
       if (saved.log === undefined) delete process.env.MATIC_KB_LOG_QUERIES; else process.env.MATIC_KB_LOG_QUERIES = saved.log;
