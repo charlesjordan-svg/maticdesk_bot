@@ -72,12 +72,15 @@ check("matic-panel.css matches the delivery's <style> block", panelCssIsCurrent(
   "run: npm.cmd run panel:build");
 check("the generated file says it is generated", panelCss.startsWith("/* GENERATED FILE - DO NOT EDIT."));
 check("regenerating twice is stable", buildPanelCss() === buildPanelCss());
-// The hand-written half is allowed to exist and is NOT allowed to redefine a delivered token:
-// the values are the design's to retune, and an override here would make the delivery a lie
-// without changing a byte of it.
-check("the app stylesheet declares no --matic-ui-* token of its own",
-  !/--matic-ui-[a-z0-9-]+\s*:/.test(appCss),
-  "app-only rules may USE the tokens; they may not redefine them");
+// The hand-written half is NOT allowed to redefine a DELIVERED token: the values are the design's
+// to retune, and an override here would make the delivery a lie without changing a byte of it. It
+// IS allowed to add new names under the same prefix — the design handover §2 asks for exactly
+// that when the app needs more — so the check is the intersection, not the prefix.
+const uiTokensInPanel = new Set([...panelCss.matchAll(/(--matic-ui-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+const uiTokensInApp = new Set([...appCss.matchAll(/(--matic-ui-[a-z0-9-]+)\s*:\s*[^;]/g)].map((m) => m[1]));
+const redefined = [...uiTokensInApp].filter((t) => uiTokensInPanel.has(t));
+check("the app stylesheet redefines no token the delivery declares", redefined.length === 0,
+  redefined.join(", ") || "app-only rules may USE a delivered token and may ADD new ones; they may not redefine one");
 
 // ==============================================================================================
 console.log("\n=== 3. the token set: 35 names, and no collision with the avatar (acceptance 3) ===");
@@ -87,6 +90,26 @@ check(`the delivery declares 35 --matic-ui-* tokens (found ${uiTokens.size})`, u
 for (const name of ["--matic-ui-ground", "--matic-ui-ink", "--matic-ui-accent", "--matic-ui-attn", "--matic-ui-font-head"]) {
   check(`${name} is present and unrenamed`, uiTokens.has(name));
 }
+// The app's live palette is the AVATAR's, copied by value (see matic-panel.app.css §d). Copied
+// values drift silently, so the copy is pinned to its source here: a new avatar delivery that
+// repaints the chassis fails this and the panel cannot go on wearing last month's blue.
+const avatarValue = (name) => avatarCss.match(new RegExp(`${name}\\s*:\\s*([^;]+);`))?.[1]?.trim();
+for (const [uiToken, avatarToken] of [
+  ["--matic-ui-live", "--matic-avatar-pod"],
+  ["--matic-ui-live-deep", "--matic-avatar-collar"],
+  ["--matic-ui-live-wash", "--matic-avatar-field"],
+]) {
+  const want = avatarValue(avatarToken);
+  const got = appCss.match(new RegExp(`${uiToken}\\s*:\\s*([^;]+);`))?.[1]?.trim();
+  check(`${uiToken} is still the avatar's ${avatarToken} (${want})`, Boolean(want) && got === want,
+    `panel has ${got}, the avatar has ${want} - re-copy it or say why they differ`);
+}
+// Dark takes two steps up the same family rather than the same values; named so the pairing is
+// findable, and checked only for presence, because the reason it differs is a legibility one.
+for (const name of ["--matic-avatar-pod-inner", "--matic-avatar-eye-default"]) {
+  check(`the dark live palette names its source ${name}`, appCss.includes(name));
+}
+
 const collisions = [...uiTokens].filter((t) => avatarTokens.has(t));
 check("no --matic-ui-* name collides with a --matic-avatar-* name", collisions.length === 0, collisions.join(", "));
 check("the panel declares no --matic-avatar-* token", !/--matic-avatar-[a-z0-9-]+\s*:/.test(panelCss));

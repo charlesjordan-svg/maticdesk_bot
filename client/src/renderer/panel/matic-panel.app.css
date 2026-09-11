@@ -145,9 +145,89 @@ matic-avatar { display: block; }
 
 /* ── (d) knowingly different from the delivery, because Charles asked ─────────────────────────
 
-   The one exception to this file's opening rule, and it is written down rather than slipped in:
-   the delivery left-aligns the wordmark against the rail's padding while everything under it -
-   avatar, status line, service note - is centred. Charles looked at the running panel on
-   2026-09-10 and asked for it centred with them. It is a change to the design, so it lives here,
-   under its own heading, and belongs in the next delivery rather than in this file for ever. */
+   The exceptions to this file's opening rule, written down rather than slipped in. Each one is a
+   change to the DESIGN, asked for against the running panel, and each belongs in the next
+   delivery rather than in this file for ever.
+
+   1. 2026-09-10 — the wordmark is centred. The delivery left-aligns it against the rail's padding
+      while everything under it (avatar, status line, service note) is centred.
+   2. 2026-09-10 — the interactive chrome takes the AVATAR's blue. "Looks bland, all one colour."
+      What that is describing is real: the delivery's accent is #5980a6, which is the avatar's
+      *paper line* — the quietest blue on the chassis — so every button, band and label was drawn
+      in the one colour the avatar uses for a drawn line on a sheet of paper. The avatar's own
+      body colours (the pods, the collar, the halo) were on screen beside them and used nowhere. */
 .rail .brand { text-align: center; }
+
+/* THE AVATAR'S PALETTE, BORROWED BY NAME AND BY VALUE.
+ *
+ * New tokens under the delivery's own prefix, which is what the design handover §2 asks for when
+ * the app needs more ("add them under the same prefix rather than renaming what exists") - NOT a
+ * redefinition of a delivered token, which stays forbidden and is still enforced by a test.
+ *
+ * Every value below is copied from `../avatar/matic-avatar.css` and names the token it came from.
+ * `test/panel.test.mjs` reads that file and fails if a value stops matching, so a new avatar
+ * delivery that repaints the chassis cannot leave the panel wearing last month's blue.
+ *
+ * The split is: STRUCTURE stays the delivery's (ground, surface, ink, hairlines, the muted accent
+ * on borders and focus), and ANYTHING THAT RESPONDS - a button, a band that opens, the label on a
+ * thing you can act on - takes the live blue. Two blues from one family, one quiet and one awake,
+ * rather than one blue doing both jobs badly. */
+:root {
+  --matic-ui-live: #3f7fc4;                          /* --matic-avatar-pod */
+  --matic-ui-live-deep: #1f5fa8;                     /* --matic-avatar-collar */
+  --matic-ui-live-wash: #cbe3f7;                     /* --matic-avatar-field (the halo) */
+  --matic-ui-live-edge: rgba(63, 127, 196, 0.34);
+}
+[data-theme="dark"] {
+  /* The pod blue is too dark to read on #1b2126, so dark takes the next two steps up the same
+     family - the pod's inner highlight and the default eye - exactly as the chassis does when its
+     own field goes transparent. */
+  --matic-ui-live: #5c9ad9;                          /* --matic-avatar-pod-inner */
+  --matic-ui-live-deep: #bfe4f7;                     /* --matic-avatar-eye-default */
+  --matic-ui-live-wash: rgba(63, 127, 196, 0.20);
+  --matic-ui-live-edge: rgba(92, 154, 217, 0.45);
+}
+
+/* The two bands. A band is a drawer that opened out of the button above it, and the coloured edge
+   at its top is the only thing on screen that says so. */
+.band { box-shadow: inset 0 2px 0 var(--matic-ui-live); }
+.band-title { color: var(--matic-ui-live-deep); }
+.tstat b { color: var(--matic-ui-live-deep); }
+/* The reference itself stays the delivery's muted ink ON PURPOSE: a mono string in the live blue
+   reads as a link, and there is nothing behind it to click. */
+
+/* The utility bar: two small marks in the avatar's blue, so the row reads as things you can open
+   rather than as a strip of grey text. The open state keeps the delivery's wash, tinted live. */
+.glyph-machine, .glyph-ticket { color: var(--matic-ui-live); }
+.count { background: var(--matic-ui-live); border-color: var(--matic-ui-live); color: var(--matic-ui-ground); }
+.band-trigger:hover, .inspector-trigger:hover { background: var(--matic-ui-live-wash); color: var(--matic-ui-live-deep); }
+[data-band="machine"] [data-band-key="machine"].band-trigger,
+[data-band="tickets"] [data-band-key="tickets"].band-trigger,
+[data-inspector="on"] .inspector-trigger {
+  background: var(--matic-ui-live-wash);
+  color: var(--matic-ui-live-deep);
+  border-color: var(--matic-ui-live);
+}
+
+/* Buttons. The primary is the one thing on a card that should look like it wants pressing. */
+.btn-primary { background: var(--matic-ui-live); border-color: var(--matic-ui-live); color: var(--matic-ui-ground); }
+.btn-primary:hover, .btn-primary:active { background: var(--matic-ui-live-deep); border-color: var(--matic-ui-live-deep); }
+[data-theme="dark"] .btn-primary:hover, [data-theme="dark"] .btn-primary:active { color: var(--matic-ui-ground); }
+.btn-secondary:hover, .btn-secondary:active { background: var(--matic-ui-live-wash); color: var(--matic-ui-live-deep); border-color: var(--matic-ui-live); }
+.btn-ghost { color: var(--matic-ui-live-deep); }
+.btn-ghost:hover { background: var(--matic-ui-live-wash); }
+:focus-visible { outline-color: var(--matic-ui-live); }
+
+/* The conversation. The user's own words wear the halo colour; the evidence line and the citation
+   wear the edge. The assistant's replies stay on the delivery's hairline frame - the point of the
+   design is that the assistant is quiet and the machinery is legible, and colouring its speech
+   would undo that. */
+.said > div { background: var(--matic-ui-live-wash); border-color: var(--matic-ui-live); color: var(--matic-ui-live-deep); }
+.why { border-left-color: var(--matic-ui-live); }
+.citation .from { color: var(--matic-ui-live-deep); }
+.aside-note { border-left-color: var(--matic-ui-live); }
+
+/* The inspector: its step labels and its disclosure links are the things you click. */
+.step > b, details > summary { color: var(--matic-ui-live-deep); }
+details > summary:hover { color: var(--matic-ui-live); }
+.devlog > summary:hover { background: var(--matic-ui-live-wash); color: var(--matic-ui-live-deep); }

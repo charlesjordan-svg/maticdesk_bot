@@ -110,7 +110,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 864 assertions across 16 files (2026-09-10).
+#                            headless, no key, no admin, no hub: 869 assertions across 16 files (2026-09-10).
 npm.cmd run avatar:build   # regenerate src/renderer/avatar/matic-avatar.assets.js from the delivered SVG + CSS.
 #                            NEVER hand-edit the generated file; avatar.test.mjs fails while it is stale.
 npm.cmd run avatar:check   # is it stale? (exit 1 if so)

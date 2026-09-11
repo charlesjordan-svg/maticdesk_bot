@@ -6,8 +6,8 @@ which was written from the harness and a file listing and said so. **Repo:**
 — D236–D239 had already been taken by the hub-side work of the same day (`b5d9cf7`, `24f8f3e`) and
 are still unsectioned, so the next free ID is **D244**.
 
-**Client tests: 864 assertions across 16 files, all green** (was 797 / 15). The new file is
-`client/test/panel.test.mjs`, 67.
+**Client tests: 869 assertions across 16 files, all green** (was 797 / 15). The new file is
+`client/test/panel.test.mjs`, 72.
 
 ---
 
@@ -102,7 +102,7 @@ If you change one thing about this integration later, do not let that second lis
 | 6 | A consent card displays the broker's text byte-for-byte | **Built.** `r.title`, `r.what`, `r.detail`, `r.rollbackNote` and the four explain fields are each assigned with `textContent`; the renderer has no `innerHTML` anywhere and a test enforces that. **The comparison against `consentRendered` is §4 of the click-through and is Charles's to run** |
 | 7 | A decline renders without error colouring or apologetic layout, avatar `declining` | **Built and seen** on the check page — the offer's face was `declining` with the offer open, and `escalating` only once a reference existed |
 | 8 | The three hub states render, and the unreachable wording matches `agent.js` | **Built and seen** (a live transition, rail + band + transcript line + face). **The wording match is a click-through item**, because only a real hub failure produces `agent.js`'s sentence |
-| 9 | `client/` tests pass; the avatar / persona / lip-sync / connectivity work is not regressed | **Green.** 864 / 16, every pre-existing file unchanged and passing |
+| 9 | `client/` tests pass; the avatar / persona / lip-sync / connectivity work is not regressed | **Green.** 869 / 16, every pre-existing file unchanged and passing |
 | 10 | Charles clicks it through in the app | **NOT DONE, and not optional.** `client/docs/PANEL-RENDERER-CHECK.md` |
 
 ---
@@ -143,6 +143,36 @@ Each is small, each is reversible, and each is here rather than buried in a diff
 
 ---
 
+## 5a. Two things Charles asked for after this was written
+
+Both are changes to the DESIGN rather than app glue, so both live in `matic-panel.app.css` §d
+under a heading that says so, and both belong in the next delivery rather than in that file for
+ever.
+
+1. **The wordmark is centred** in the rail, with the avatar and the status lines under it.
+2. **The interactive chrome wears the avatar's blue.** *"Looks bland all one color."* — and the
+   reason is exact: the delivery's accent `#5980a6` **is** `--matic-avatar-paper-line`, the
+   quietest blue on the chassis, so buttons, bands and labels were all drawn in the colour the
+   avatar uses for a ruled line, while the pods, the collar and the halo were on screen beside
+   them and used nowhere. Four new tokens under the delivery's prefix — `--matic-ui-live`,
+   `-deep`, `-wash`, `-edge` — copied from `matic-avatar.css` **and pinned to it by a test**, so a
+   repainted chassis fails the run. Dark takes two steps up the same family (`pod-inner`,
+   `eye-default`) because the pod blue cannot be read on `#1b2126`.
+
+   Structure stays the delivery's — ground, surface, ink, hairlines, the muted accent on borders
+   and focus. Anything that RESPONDS takes the live blue: the band triggers and their glyphs, the
+   open band's top edge and title, the ticket count, primary and secondary buttons, the ghost
+   links, the inspector's step labels and disclosures, the user's own message, the `Why` line's
+   edge and the citation's attribution. **The ticket reference deliberately did not take it** — a
+   mono string in the live blue reads as a link, and there is nothing behind it to click.
+
+   **No delivered token is redefined.** The test that forbade any `--matic-ui-*` declaration in the
+   app stylesheet now forbids the intersection with the delivery's own set, which is what the
+   design handover §2 asks for ("add them under the same prefix rather than renaming what
+   exists"). 72 panel assertions, up from 67.
+
+---
+
 ## 6. What the panel does NOT do yet
 
 - **The bands do not refresh on their own.** The machine band re-reads the probe when it is opened;
@@ -177,7 +207,7 @@ Each is small, each is reversible, and each is here rather than buried in a diff
   "Nothing has changed yet" after the user approved it; the rail said "Looking at this now" while
   the app was in fact waiting on the user; and an offer's buttons could land below the fold because
   the scroll happened before they were attached.
-- **Nothing here is measured.** No render timings, no memory figures. The 864 assertions are a
+- **Nothing here is measured.** No render timings, no memory figures. The 869 assertions are a
   count of checks, not a coverage claim, and none of them can see a screen.
 - **A narrow window was checked, once, on the check page.** At an 885px client width nothing
   scrolls sideways (`body.scrollWidth === clientWidth`), and the inspector overlay keeps its 440px
