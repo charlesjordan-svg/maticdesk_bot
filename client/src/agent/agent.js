@@ -18,7 +18,8 @@ import { socialReply, ticketStatusReply } from "../router/social.js";
 import persona from "../router/persona.json" with { type: "json" };
 import { diagnoseOffline } from "../router/offline-guide.js";
 import { escalationReply } from "./prompt.js";
-import { createRestartGate, lastRestartedPhrase, restartAdvice, DEFAULT_RESTART_POLICY } from "./restart-signal.js";
+import { createRestartGate, lastRestartedPhrase, memoryWords, restartAdvice, DEFAULT_RESTART_POLICY } from "./restart-signal.js";
+import { describeVolumes, DEFAULT_DISK_POLICY } from "./disk-space.js";
 
 export class Agent {
   /**
@@ -30,7 +31,7 @@ export class Agent {
    * escalate. With no intake the escalation branch behaves as it did before D216: it says what it
    * cannot fix and offers nothing it cannot deliver.
    */
-  constructor({ broker, cloud, intake = null, egress = null, restartPolicy = null, onLog = () => {} }) {
+  constructor({ broker, cloud, intake = null, egress = null, restartPolicy = null, diskPolicy = null, onLog = () => {} }) {
     this.broker = broker;
     this.cloud = cloud;
     this.intake = intake;
@@ -46,6 +47,12 @@ export class Agent {
      */
     this.restartPolicy = { ...DEFAULT_RESTART_POLICY, ...(restartPolicy ?? {}) };
     this.restartGate = createRestartGate(this.restartPolicy);
+    /**
+     * The disk thresholds. SEPARATE FROM `restartPolicy` because disk is not a restart signal:
+     * a full disk is exactly as full after a restart, and the spec's §6 score table does not list
+     * it. One object holding both would invite the merge.
+     */
+    this.diskPolicy = { ...DEFAULT_DISK_POLICY, ...(diskPolicy ?? {}) };
   }
 
   /** Read-only machine state, for the facts panel and the router. Needs no elevation. */
@@ -79,12 +86,21 @@ export class Agent {
     const identity = this.identify();
     // Identity first: on a support call the first question is always which machine, and who.
     //
-    // `lastRestarted` is the one row this feature adds, and it is a PHRASE rather than a number or
-    // a timestamp. What is deliberately NOT here is commit charge: `panel` is the object the
-    // renderer receives, so a commit figure that never enters it cannot be rendered by forgetting
-    // a condition later. That is D226's technique - strip it before it leaves - rather than a rule
-    // someone has to remember.
-    const panel = { ...identity, ...summary, lastRestarted: lastRestartedPhrase(probe.restart?.boot?.uptimeMs ?? null) };
+    // `lastRestarted` and `memory` are PHRASES rather than numbers or timestamps, and `volumes` is
+    // already reduced to words plus a free-space figure. What is deliberately NOT here is the
+    // commit fraction: `panel` is the object the renderer receives, so a commit figure that never
+    // enters it cannot be rendered by forgetting a condition later. That is D226's technique -
+    // strip it before it leaves - rather than a rule someone has to remember. `memoryWords()` is
+    // the same band function the recommendation's sentence reads, so the row and the sentence
+    // cannot describe one machine two ways.
+    const panel = {
+      ...identity,
+      ...summary,
+      lastRestarted: lastRestartedPhrase(probe.restart?.boot?.uptimeMs ?? null),
+      memory: memoryWords(probe.restart?.memory?.commitUsedFraction ?? null),
+      // Per volume, never aggregated. Disk is NOT in the restart signal and is not scored by it.
+      volumes: describeVolumes(probe.volumes, this.diskPolicy),
+    };
     // Scored WITHOUT the gate: opening the machine band is not a conversation moment and must not
     // consume one. `propose()` is the only caller that passes the gate.
     const restart = restartAdvice(probe.restart, { policy: this.restartPolicy });

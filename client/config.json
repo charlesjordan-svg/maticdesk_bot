@@ -2,7 +2,9 @@
   "voiceModelPath": "voices/en_US-amy-low.onnx",
   "_voiceModelNote": "Relative to the app root. The model is 63 MB and never committed: run 'npm run fetch-voice' to download it and its .onnx.json sidecar into voices/. MATIC_VOICE_MODEL overrides this path for one machine without editing this file.",
   "pythonCommand": "py",
-  "pythonArgs": ["-3"],
+  "pythonArgs": [
+    "-3"
+  ],
   "_pythonNote": "`python` is not on PATH on this machine; `py -3` is (handover §4).",
   "model": "claude-haiku-4-5",
   "provider": "hub",
@@ -26,5 +28,11 @@
     "declineSuppressionHours": 168,
     "deferHours": 4
   },
-  "_restartPolicyNote": "EVERY NUMBER ABOVE IS UNVALIDATED. They are policy proposals from research/2026-09-11-endpoint-telemetry-spec.md §6, which says of itself that there is no verified source establishing 30 days - or any figure - as an evidence-based restart interval, and calls itself educated guessing until validated against real ticket outcomes. They are here, and not constants in src/agent/restart-signal.js, because a constant is a claim the code makes and a default is a starting point a tenant can move. What would validate them: scoring recommendations against whether the restart actually resolved the ticket. Until that exists, treat a changed number as a changed guess. Omitting a key falls back to DEFAULT_RESTART_POLICY; the weights are overridable the same way. See client/docs/RESTART-SIGNAL.md."
+  "_restartPolicyNote": "EVERY NUMBER ABOVE IS UNVALIDATED. They are policy proposals from research/2026-09-11-endpoint-telemetry-spec.md §6, which says of itself that there is no verified source establishing 30 days - or any figure - as an evidence-based restart interval, and calls itself educated guessing until validated against real ticket outcomes. They are here, and not constants in src/agent/restart-signal.js, because a constant is a claim the code makes and a default is a starting point a tenant can move. What would validate them: scoring recommendations against whether the restart actually resolved the ticket. Until that exists, treat a changed number as a changed guess. Omitting a key falls back to DEFAULT_RESTART_POLICY; the weights are overridable the same way. See client/docs/RESTART-SIGNAL.md.",
+  "diskPolicy": {
+    "lowFraction": 0.15,
+    "lowBytes": 26843545600,
+    "gettingFullBytes": 53687091200
+  },
+  "_diskPolicyNote": "UNVALIDATED, like restartPolicy. The dual threshold is the spec's §3 proposal: flag only when free space is below BOTH lowFraction AND lowBytes. It exists because a naive percentage rule fires on healthy machines - measured twice, on the spec's machine and on this one, where C: and E: sit at 17.5% free with 160+ GB of headroom and a \"below 20%\" rule raises two false alarms. gettingFullBytes is OURS and not the spec's: it only chooses a WORD for the row and flags nothing. lowBytes is 25 GB, gettingFullBytes 50 GB, both in bytes. DISK IS NOT A RESTART SIGNAL and must not be added to the restart score - a full disk is exactly as full after a restart. See client/docs/RESTART-SIGNAL.md."
 }

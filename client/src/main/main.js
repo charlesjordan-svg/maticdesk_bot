@@ -195,7 +195,7 @@ app.whenReady().then(async () => {
   // `restartPolicy` is config data because every threshold in it is an unvalidated proposal rather
   // than a measured benchmark - see `config.json`'s `_restartPolicyNote`. Absent, the defaults in
   // `src/agent/restart-signal.js` apply.
-  agent = new Agent({ broker, cloud, intake, egress, restartPolicy: config.restartPolicy ?? null, onLog: log });
+  agent = new Agent({ broker, cloud, intake, egress, restartPolicy: config.restartPolicy ?? null, diskPolicy: config.diskPolicy ?? null, onLog: log });
   hubLink ??= new HubLink({ onLog: log }); // standalone: no URL, never probes
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });

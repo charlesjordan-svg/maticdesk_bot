@@ -134,16 +134,60 @@ function durationWords(ms) {
  * DESCRIBED, from fixed descriptive ones. Uptime says how long it has actually been; memory is
  * described from where the real fraction sits, which is also why the figure itself never appears.
  */
+/**
+ * How full memory actually is, in three bands over the REAL fraction — deliberately NOT the
+ * configured scoring ones. A tenant who scores at 50% has not thereby made 50% "almost completely
+ * full".
+ *
+ * **ONE function, because two surfaces read it**: the machine band's row and the recommendation's
+ * sentence. If each had its own bands they could describe one machine two ways at the boundary,
+ * which is the pairing D242 exists to protect one surface along.
+ *
+ * @param {number} fraction commit in use, 0–1
+ * @returns {"almostFull" | "fillingUp" | "roomLeft" | null} null when it could not be read
+ */
+export function memoryBand(fraction) {
+  if (typeof fraction !== "number" || !Number.isFinite(fraction)) return null;
+  if (fraction >= 0.9) return "almostFull";
+  if (fraction >= 0.75) return "fillingUp";
+  return "roomLeft";
+}
+
+/**
+ * The machine band's memory row: a CONCLUSION, never a figure.
+ *
+ * *"Commit charge 68.8%"* means nothing to an office worker, which is why acceptance 5 forbids the
+ * number on any user surface and why `panel` does not carry it. What it does not forbid is saying
+ * what the number MEANS, and until 2026-09-11 the panel said nothing at all — the reading was
+ * scored and invisible. This is the same reading, in the words the sentence would use.
+ *
+ * @param {number | null | undefined} fraction
+ */
+export function memoryWords(fraction) {
+  const band = memoryBand(/** @type {number} */ (fraction));
+  if (band === "almostFull") return "Almost full";
+  if (band === "fillingUp") return "Filling up";
+  if (band === "roomLeft") return "Plenty free";
+  return "Not known";
+}
+
 const EVIDENCE = {
   pendingUpdate: () => "Windows is waiting for a restart to finish installing an update",
   uptime: (uptimeMs) => `this computer hasn't been restarted in ${durationWords(uptimeMs)}`,
-  // Descriptive bands over the REAL fraction, deliberately not the configured scoring ones: a
-  // tenant who scores at 50% has not thereby made 50% "almost completely full".
-  commit: (fraction) => (fraction >= 0.9
-    ? "its memory is almost completely full"
-    : fraction >= 0.75
-      ? "its memory is filling up"
-      : "its memory is under pressure"),
+  /**
+   * NULL BELOW THE DESCRIPTIVE BANDS, AND THAT IS DELIBERATE. The scoring bands are configurable
+   * and the descriptive ones are not, so a tenant who sets `commitElevatedFraction` to 0.5 makes a
+   * 60%-committed machine SCORE — and there is no true sentence to say about it, because the row
+   * is honestly reading "Plenty free" at the same moment. Rather than invent a clause that
+   * contradicts the row, the contribution counts toward the score and names no evidence.
+   * `restartSentence()` drops clauseless contributions.
+   */
+  commit: (fraction) => {
+    const band = memoryBand(fraction);
+    if (band === "almostFull") return "its memory is almost completely full";
+    if (band === "fillingUp") return "its memory is filling up";
+    return null;
+  },
   memoryCompression: () => "Windows has started compressing memory to keep up",
   pendingFileRenames: () => "there are files an update has left waiting to be swapped out",
 };
@@ -315,7 +359,10 @@ export function restartSentence(scored) {
   // The never-alone signals are not in the sentence at all. They are too weak to have earned the
   // user's attention on their own and quoting one as a reason invites exactly the wrong inference -
   // it is corroboration, and it reads as a cause.
-  const clauses = (leading.length ? leading : ordered).map((c) => c.evidence);
+  //
+  // `Boolean` also drops a contribution with no clause: a signal can score without there being a
+  // true sentence to say about it (see `EVIDENCE.commit`).
+  const clauses = (leading.length ? leading : ordered).map((c) => c.evidence).filter(Boolean);
 
   // "A, B, and C" rather than "A, and B, and C": three reasons is the common case on a machine
   // that has earned the threshold, and a chain of "and"s reads as a list of complaints.

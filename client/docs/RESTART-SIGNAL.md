@@ -86,11 +86,19 @@ because the recommendation is a conversation moment and **a row that argues argu
 band is opened**, which is the definition of nagging. An unreadable probe reads **"Not known"**,
 never "Less than an hour ago".
 
-**Commit charge is collected and never rendered as a number.** It is the most useful input in the
-score — it is what distinguishes a machine that needs restarting from one that has merely been up a
-while — and *"Commit charge 68.8%"* means nothing to an office worker. It is not merely a rule
-someone has to remember: **the object the renderer receives does not contain it**, so the rule cannot
-be broken later by forgetting a condition. That is D226's technique.
+**A memory row of WORDS (D257, 2026-09-11).** `Memory — Plenty free` / `Filling up` / `Almost
+full`. Until D257 the reading was scored and completely invisible; Charles asked where it was, and
+the answer is that the FIGURE was forbidden, not the meaning.
+
+**The commit figure is still never rendered.** It is the most useful input in the score — it is what
+distinguishes a machine that needs restarting from one that has merely been up a while — and
+*"Commit charge 68.8%"* means nothing to an office worker. It is not merely a rule someone has to
+remember: **the object the renderer receives does not contain it**, so the rule cannot be broken
+later by forgetting a condition. That is D226's technique. The row goes through `memoryWords()`,
+which is **the same band function the recommendation's sentence reads**, so the row and the sentence
+cannot describe one machine two ways.
+
+**Disk, one row per fixed volume (D257).** `Disk space (C:) — Plenty of room — 163 GB free`. See §10.
 
 **Event 1074 (who initiated the last restart) is collected and cannot be spoken.** Its payload
 carried `C:\WINDOWS\servicing\TrustedInstaller.exe (WAKANDA)` and `WAKANDA` — the machine's name,
@@ -316,3 +324,70 @@ the design:**
 
 Nothing here turns Fast Startup on. That changes how a machine shuts down, and it is its owner's
 call.
+
+---
+
+## 10. Disk (D257, register §5.40)
+
+```
+Disk space (C:)   Plenty of room — 163 GB free
+Disk space (D:)   Getting full — 40 GB free
+Disk space (E:)   Almost full — 8.0 GB free
+```
+
+### It is NOT a restart signal, and the code is arranged so it cannot become one
+
+**A full disk is exactly as full after a restart.** The telemetry spec's §6 score table does not
+list disk, and rolling it in would produce the most useless recommendation this product could make.
+Four structural checks rather than a comment saying "don't":
+
+- `probeMachine()` returns `volumes` in a **separate field** from `restart` (a test pins the pair);
+- `src/agent/disk-space.js` imports nothing from `restart-signal.js`, and vice versa;
+- the disk module contains no `score`, `weight` or `recommend`;
+- `scoreRestart()` is asserted to return an identical score with and without full disks.
+
+### The dual threshold, and the measurement that forced it
+
+**Flag only when free space is below BOTH 15% and 25 GB.** The spec measured five volumes and a
+naive *"below 20% free"* rule fired on two of them, **both with more than 160 GB of headroom and in
+no trouble whatever.** Re-measured on the machine this was built on, the same day, the same result:
+
+| Volume | Free | Total | % free | naive <20% | dual threshold |
+|---|---|---|---|---|---|
+| C: | 163 GB | 930 GB | 17.5% | **FIRES** | quiet |
+| D: | 414 GB | 1849 GB | 22.4% | quiet | quiet |
+| E: | 163 GB | 932 GB | 17.5% | **FIRES** | quiet |
+| F: | 1659 GB | 3726 GB | 44.5% | quiet | quiet |
+| G: | 501 GB | 1863 GB | 26.9% | quiet | quiet |
+
+**Two false alarms on a healthy machine, from the rule everybody writes first.** A percentage alone
+is meaningless on a large disk and an absolute figure alone is meaningless on a small one. The
+inverse case is tested too: 24 GB free on a 3.7 TB disk **is** flagged, at 0.6%.
+
+This is `PendingFileRenameOperations` one signal along — the obvious rule fires confidently on
+machines that are fine.
+
+### Per volume, never aggregated
+
+A machine with 2.9 TB free across five drives and 8 GB left on C: is in trouble, and a total says
+the opposite. `disk-space.js` contains no `reduce` and no `+=`, and a test says so.
+
+### The conclusion leads, and the figure follows
+
+This is where disk differs from memory, and the difference is the whole of acceptance 5:
+*"163 GB free"* is a sentence an office worker can act on and is the first thing a support call asks
+after which drive; *"commit charge 68.8%"* is neither. So the words decide the meaning and the
+number is there to be quoted.
+
+An unreadable volume is **skipped**, never reported as zero free — a zero is "this disk is
+completely full", the loudest thing this feature can say. Only FIXED drives are read: a USB stick at
+99% full is not a support ticket. And the figure reported is the volume's free space rather than the
+calling account's quota — equal on a machine with no quotas, which is exactly why picking the wrong
+one would be invisible until someone had them.
+
+### The row count is now a function of the machine
+
+Nine rows became **fifteen** on a five-volume machine: nine, plus memory, plus one per volume.
+§5.39k held the Design handover because nine was not obviously a different layout from eight, and
+recorded that the question goes when there are enough rows to answer it against something real.
+**There are now.**

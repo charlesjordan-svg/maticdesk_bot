@@ -53,10 +53,34 @@
     spooler: "STOPPED",
     audio: "RUNNING",
     dhcp: "RUNNING",
-    /* The one row this feature adds. Canned to agree with `RESTART_SIGNALS` above, so the band and
-       the recommendation describe one machine rather than two. */
+    /* Canned to agree with `RESTART_SIGNALS` above, so the band and the recommendation describe one
+       machine rather than two. `memory` and `volumes` are filled in below from the REAL
+       `memoryWords()` and `describeVolumes()` — see `derived`. */
     lastRestarted: "41 days ago",
+    memory: "…",
+    volumes: [],
   };
+
+  /* THREE VOLUMES IN THREE DIFFERENT STATES, which is the point of having them here: a real machine
+     shows "Plenty of room" on every drive and the other two words are never seen. E: is the one the
+     dual threshold actually flags — 4% free AND under 25 GB. D: is the trap the rule exists for in
+     reverse: comfortable on percentage, thin in absolute terms. */
+  const CANNED_VOLUMES = [
+    { root: "C:\\", freeBytes: 163 * 1024 ** 3, totalBytes: 930 * 1024 ** 3, freeFraction: 163 / 930 },
+    { root: "D:\\", freeBytes: 40 * 1024 ** 3, totalBytes: 1849 * 1024 ** 3, freeFraction: 40 / 1849 },
+    { root: "E:\\", freeBytes: 8 * 1024 ** 3, totalBytes: 200 * 1024 ** 3, freeFraction: 8 / 200 },
+  ];
+
+  /* The WORDS are the product's, not copies — same rule as the filing sentences and the restart
+     sentence above. A copy here would keep reading correctly on the day the real one changed. */
+  const derived = (async () => {
+    const [{ memoryWords }, { describeVolumes }] = await Promise.all([
+      import("../../agent/restart-signal.js"),
+      import("../../agent/disk-space.js"),
+    ]);
+    FACTS.memory = memoryWords(0.95); // agrees with RESTART_SIGNALS' commit fraction
+    FACTS.volumes = describeVolumes(CANNED_VOLUMES);
+  })();
 
   const FILED = [
     {
@@ -170,8 +194,9 @@
     speak: async () => ({ ok: false, error: "the check page has no voice - the mouth still moves" }),
     ttsStatus: async () => ({ ready: false, error: "no voice on the check page" }),
     listCapabilities: async () => [],
-    diagnose: async () => FACTS,
+    diagnose: async () => { await derived; return FACTS; },
     propose: async (text) => {
+      await derived;
       await new Promise((r) => setTimeout(r, 220));
       const res = propose(text);
       // The restart moment rides on a turn, the same way the real agent attaches it: on `facts`,

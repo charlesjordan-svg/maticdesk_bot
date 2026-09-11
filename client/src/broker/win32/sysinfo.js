@@ -407,6 +407,60 @@ export function memoryCompressionWorkingSet() {
 }
 
 // ===============================================================================================
+// 3a. Disk - PER VOLUME, NEVER AGGREGATED
+// ===============================================================================================
+
+const GetLogicalDriveStringsW = kernel32.func(
+  "uint32_t __stdcall GetLogicalDriveStringsW(uint32_t len, _Out_ void *buf)"
+);
+const GetDriveTypeW = kernel32.func("uint32_t __stdcall GetDriveTypeW(const char16_t *root)");
+const GetDiskFreeSpaceExW = kernel32.func(
+  "bool __stdcall GetDiskFreeSpaceExW(const char16_t *dir, _Out_ uint64_t *freeToCaller, _Out_ uint64_t *total, _Out_ uint64_t *totalFree)"
+);
+
+const DRIVE_FIXED = 3;
+
+/**
+ * Every FIXED volume, with its free and total bytes.
+ *
+ * **PER VOLUME, NEVER AGGREGATED**, which is the spec's own rule and is not a stylistic preference:
+ * a machine with 2.9 TB free across five volumes and 8 GB left on C: is in trouble, and the total
+ * says the opposite. Nothing in this file adds them up and nothing downstream may either.
+ *
+ * FIXED only. Removable drives, network shares and mounted ISOs are not this machine's storage and
+ * a USB stick at 99% full is not a support ticket.
+ *
+ * `GetDiskFreeSpaceExW`'s first output is the quota-aware figure for the calling user and the third
+ * is the volume's actual free space. **The third is the one reported**, because the panel is
+ * describing the disk rather than this account's allowance - and on a machine with no quotas they
+ * are equal, which is exactly why picking the wrong one is invisible until someone has quotas.
+ *
+ * @returns {{root: string, freeBytes: number, totalBytes: number, freeFraction: number}[] | null}
+ */
+export function fixedVolumes() {
+  const buf = Buffer.alloc(1024);
+  const chars = GetLogicalDriveStringsW(512, buf);
+  if (!chars) return null;
+  const roots = buf.subarray(0, chars * 2).toString("ucs2").split(NUL).filter(Boolean);
+
+  const volumes = [];
+  for (const root of roots) {
+    if (GetDriveTypeW(root) !== DRIVE_FIXED) continue;
+    const freeToCaller = [0n];
+    const total = [0n];
+    const totalFree = [0n];
+    // A volume that cannot be read is SKIPPED rather than reported as zero. A zero free-bytes
+    // reading is "this disk is completely full", which is the loudest thing this feature can say.
+    if (!GetDiskFreeSpaceExW(root, freeToCaller, total, totalFree)) continue;
+    const totalBytes = Number(total[0]);
+    const freeBytes = Number(totalFree[0]);
+    if (!totalBytes) continue;
+    volumes.push({ root, freeBytes, totalBytes, freeFraction: freeBytes / totalBytes });
+  }
+  return volumes;
+}
+
+// ===============================================================================================
 // 4. The two boot events - COLLECTED, RECORDED, NOT INTERPRETED
 // ===============================================================================================
 

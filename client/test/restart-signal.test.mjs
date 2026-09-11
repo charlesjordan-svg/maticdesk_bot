@@ -17,6 +17,8 @@ import {
   restartAdvice,
   lastRestartedPhrase,
   createRestartGate,
+  memoryBand,
+  memoryWords,
 } from "../src/agent/restart-signal.js";
 import { restartSignals, bootInstant } from "../src/broker/win32/sysinfo.js";
 import { probeMachine } from "../src/broker/capabilities/index.js";
@@ -191,9 +193,24 @@ console.log("\n=== 5. commit charge is collected, and never rendered as a number
   // D226's technique rather than a rule someone has to remember.
   const panel = { ...(probeMachine() ? {} : {}), ...{} };
   void panel;
-  const agentPanel = /const panel = \{ \.\.\.identity, \.\.\.summary, lastRestarted:/.test(agentCode);
-  check("the panel object the renderer receives is built from identity, summary and the row only",
-    agentPanel, "if a memory field is spread into `panel`, this check is the one that should fail");
+  // The whole `const panel = { … };` block, read back rather than one literal - it is a multi-line
+  // object since the memory row and the volumes joined it, and the rule is about what is IN it.
+  const panelBlock = agentCode.match(/const panel = \{[\s\S]*?\n    \};/)?.[0] ?? "";
+  check("the panel construction is found", panelBlock.length > 0);
+  check("it is built from identity and summary plus derived phrases",
+    /\.\.\.identity/.test(panelBlock) && /\.\.\.summary/.test(panelBlock));
+  // THE RULE IS ABOUT WHAT THE OBJECT CARRIES, NOT WHAT IT READS. The block legitimately reads
+  // `commitUsedFraction` in order to turn it into words; what it may never do is keep it as a
+  // FIELD, because a field on `panel` is a field the renderer can print. So this looks for a
+  // property key, which is the thing that would actually ship the number.
+  check("the panel object the renderer receives carries NO commit figure as a field",
+    !/^\s*commit\w*\s*:/m.test(panelBlock), "a `commit…:` key on `panel` is a number one line from a screen");
+  check("…and the only mention of commit is the argument it converts to words",
+    (panelBlock.match(/commit/gi) ?? []).length === 1 && /memoryWords\([^)]*commitUsedFraction/.test(panelBlock));
+  check("…and memory reaches it only through the words function",
+    /memory: memoryWords\(/.test(panelBlock));
+  check("…and nothing puts raw bytes on it",
+    !/Bytes\b/.test(panelBlock), "volumes arrive already reduced to words plus a free-space phrase");
   check("…and `summary` (which is also cloud-facing) carries no memory figure",
     !/commit|physicalTotal|memoryCompression/i.test(agentCode.match(/const summary = \{[\s\S]*?\};/)?.[0] ?? ""));
 
@@ -212,6 +229,54 @@ console.log("\n=== 5. commit charge is collected, and never rendered as a number
     /almost completely full/.test(restartSentence(scoreRestart(machine({ uptimeDays: 0.5, commit: 0.95, compression: 0.01 })))));
   check("76% reads as filling up",
     /filling up/.test(restartSentence(scoreRestart(machine({ uptimeDays: 0.5, commit: 0.76, compression: 0.01 })))));
+  // ---- the row says what the number MEANS, which is not the same as showing it ---------------
+  //
+  // Until 2026-09-11 the reading was scored and completely invisible. Acceptance 5 forbids the
+  // FIGURE on a user surface; it does not forbid the conclusion, and "the panel shows conclusions,
+  // not measurements" positively asks for one.
+  for (const [fraction, band, words] of [
+    [0.4, "roomLeft", "Plenty free"],
+    [0.749, "roomLeft", "Plenty free"],
+    [0.75, "fillingUp", "Filling up"],
+    [0.899, "fillingUp", "Filling up"],
+    [0.9, "almostFull", "Almost full"],
+    [0.97, "almostFull", "Almost full"],
+    [null, null, "Not known"],
+    [NaN, null, "Not known"],
+    [undefined, null, "Not known"],
+  ]) {
+    check(`commit ${fraction}: band ${band}, row "${words}"`,
+      memoryBand(fraction) === band && memoryWords(fraction) === words,
+      `band=${memoryBand(fraction)} row="${memoryWords(fraction)}"`);
+    check(`…and the row carries no digit`, !/\d/.test(memoryWords(fraction)));
+  }
+  // ONE BAND FUNCTION, TWO SURFACES. If the row and the sentence had their own bands they could
+  // describe one machine two ways at the boundary - D242's rule, one surface along.
+  for (const fraction of [0.749, 0.75, 0.899, 0.9]) {
+    const sentence = restartSentence(scoreRestart(machine({ uptimeDays: 0.5, commit: fraction, compression: 0.01 })));
+    const band = memoryBand(fraction);
+    if (band === "almostFull") {
+      check(`at ${fraction} the row and the sentence agree on "almost full"`,
+        memoryWords(fraction) === "Almost full" && /almost completely full/.test(sentence));
+    } else if (band === "fillingUp") {
+      check(`at ${fraction} the row and the sentence agree on "filling up"`,
+        memoryWords(fraction) === "Filling up" && /filling up/.test(sentence));
+    }
+  }
+  // And the case that made a shared band necessary: a tenant-lowered threshold scores a reading the
+  // row honestly calls "Plenty free", so the sentence names NO memory evidence rather than
+  // contradicting it.
+  {
+    const lowered = { ...DEFAULT_RESTART_POLICY, recommendAtScore: 1, commitElevatedFraction: 0.5 };
+    const scored = scoreRestart(machine({ uptimeDays: 0.5, commit: 0.6, compression: 0.01 }), lowered);
+    check("a tenant-lowered commit threshold still scores", scored.contributions.some((c) => c.id === "commitElevated"));
+    check("…but names no evidence the row would contradict",
+      scored.contributions.find((c) => c.id === "commitElevated")?.evidence === null);
+    check("…and the row reads honestly at that reading", memoryWords(0.6) === "Plenty free");
+    check("…and the sentence does not claim memory pressure",
+      !/memory/.test(restartSentence(scored)), restartSentence(scored));
+  }
+
   // The renderer is the other half: it may not render a commit figure even if one reached it.
   check("the renderer never reads a commit field", !/commitUsed|commitLimit|commitFraction/i.test(rendererCode));
   check("the renderer never renders a score either", !/restartAdvice\.score|advice\.score/.test(

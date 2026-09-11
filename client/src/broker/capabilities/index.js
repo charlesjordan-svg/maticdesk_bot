@@ -8,7 +8,7 @@
  */
 import { restartService, queryService } from "../win32/scm.js";
 import { flushDnsCache, renewDhcp, resetAdapter, listAdapters, getInterfaceStatus } from "../win32/net.js";
-import { restartSignals } from "../win32/sysinfo.js";
+import { restartSignals, fixedVolumes } from "../win32/sysinfo.js";
 import catalog from "../catalog.json" with { type: "json" };
 
 /**
@@ -179,12 +179,23 @@ export function probeMachine() {
     /* A collector that throws must not take the network and service facts down with it. */
   }
 
+  // Disk, PER VOLUME. Kept OUT of `restart` on purpose, and it is not a naming quibble: a full disk
+  // is not fixed by restarting, the telemetry spec's §6 score table does not list it, and a reading
+  // sitting inside an object called `restart` is one refactor away from being scored as one.
+  let volumes = null;
+  try {
+    volumes = fixedVolumes();
+  } catch {
+    /* Same rule as above: the disks failing must not take the rest of the probe down with them. */
+  }
+
   const primary = adapters.filter((a) => a.dhcpEnabled && a.hasGateway);
   return {
     services,
     adapters,
     primary,
     restart,
+    volumes,
     // Adapters worth acting on: DHCP-managed and either carrying a link or already routing.
     // This is what keeps the router off the permanently-idle virtual adapters.
     actionable: adapters.filter((a) => a.dhcpEnabled && (a.linkUp || a.hasGateway)),

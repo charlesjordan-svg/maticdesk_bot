@@ -318,3 +318,83 @@ shutdown, a machine someone powers down nightly still looks weeks old to the sco
 
 **The script deliberately does not offer to turn Fast Startup on.** That changes how a machine shuts
 down, and it is its owner's call.
+
+---
+
+## 12. Follow-up: disk per volume, and memory as a conclusion (D257, register §5.40)
+
+Charles, looking at the shipped band: *"Where is the info for memory, hard drives space. was it not
+included in this handoff"*. **They had different instructions, and both were his.**
+
+- **Memory was built, scored and deliberately invisible.** §2c of the handover was headed *"Memory —
+  collected, never rendered"*, §1 said a measurement can be collected without being displayed, and
+  acceptance 5 required it never appear as a number.
+- **Disk was excluded outright** — not in §2's "what to build" at all, and §8's ledger said so.
+
+He reversed both, each in the narrower of the two ways offered.
+
+### Memory is a row of WORDS, and acceptance 5 is narrowed rather than broken
+
+`Memory — Plenty free` / `Filling up` / `Almost full` / `Not known`. **The figure is still forbidden
+on every user surface and is still absent from the object the renderer receives** — what changed is
+that the panel now says what the figure MEANS, which is what *"the panel shows conclusions, not
+measurements"* positively asks for. A test asserts the row carries no digit at all.
+
+It goes through `memoryWords()`, and **`memoryBand()` is now one exported function that both the row
+and the recommendation's sentence read**, so they cannot disagree at a boundary. That immediately
+surfaced a contradiction latent in D256: the scoring bands are configurable and the descriptive ones
+are not, so a tenant who sets `commitElevatedFraction` to 0.5 makes a 60%-committed machine SCORE
+while the row honestly reads "Plenty free". Rather than invent a clause that contradicts the row,
+`EVIDENCE.commit` returns **null** below the descriptive bands — the contribution still counts and
+names no evidence, and `restartSentence()` drops clauseless contributions.
+
+### Disk is NOT a restart signal, and four structural checks keep it that way
+
+**A full disk is exactly as full after a restart**, and the spec's §6 score table does not list it.
+Rolling it in would produce the most useless recommendation this product could make. So:
+
+- `probeMachine()` returns `volumes` in a **separate field** from `restart`, and a test pins the pair;
+- `src/agent/disk-space.js` imports nothing from `restart-signal.js`, and vice versa;
+- the disk module contains no `score`, `weight` or `recommend`;
+- `scoreRestart()` is asserted to return an **identical score** with and without full disks.
+
+A comment saying "don't" is not a check.
+
+### The dual threshold earns itself a second time
+
+Flag only when free space is below **both** 15% and 25 GB. Re-measured here, the spec's finding
+holds exactly:
+
+| Volume | Free | % free | naive <20% | dual threshold |
+|---|---|---|---|---|
+| C: | 163 GB | 17.5% | **FIRES** | quiet |
+| D: | 414 GB | 22.4% | quiet | quiet |
+| E: | 163 GB | 17.5% | **FIRES** | quiet |
+| F: | 1659 GB | 44.5% | quiet | quiet |
+| G: | 501 GB | 26.9% | quiet | quiet |
+
+**Two false alarms on a healthy machine**, from the rule everybody writes first. The inverse is
+tested too: 24 GB free on a 3.7 TB disk **is** flagged. This is `PendingFileRenameOperations` one
+signal along.
+
+**Per volume, never aggregated** — no `reduce`, no `+=`, and a test says so. The conclusion leads and
+the figure follows, and the figure is exactly where disk differs from memory: *"163 GB free"* is
+actionable, *"commit charge 68.8%"* is not.
+
+### Verified
+
+**1593 assertions across 20 files**, up from 1498/19; `disk-space.test.mjs` is new (65). Driven in
+Electron against the real probe: **28 checks, 15 rows on screen**, memory reading "Plenty free" with
+no digit, five disk rows each a conclusion plus a figure, and no aggregate row.
+
+### THE DESIGN HANDOVER IS NOW WARRANTED
+
+§5.39k held it because nine rows is not obviously a different layout from eight, and recorded that
+the question — *what happens to this panel at roughly a dozen rows, and does it want grouping or
+severity?* — goes **when there are enough rows to answer it against something real.**
+
+The band is now **fifteen rows on this machine**, and the count is a function of the machine rather
+than of the design: a two-volume laptop gets twelve, a five-volume workstation fifteen. The
+delivery's two-column grid absorbs them and nothing is broken — but five near-identical rows reading
+"Plenty of room" is precisely the case the question was recorded for. **That handover is the next
+thing to write, and it now has real rows to argue about.**

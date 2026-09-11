@@ -267,6 +267,23 @@ ways, and 8a.4 onward needs one of them:
 | 8a.14 | **[CHARLES]** Listen to it | It reads as one sentence, and the day count is spoken as a number rather than spelled out. Nothing HEARD can be checked from a session |
 | 8a.15 | Open the inspector and the developer log | The score and the signal ids are there — `[restart] raised at score 2 from …` — and **nowhere a user reads**. The panel shows conclusions, not measurements |
 
+## 8b. Memory and disk in the band (D257, register §5.40) — **RUN 2026-09-11**
+
+Both show on any machine, unlike §8a's recommendation. On a five-volume machine the band is
+**fifteen rows**.
+
+| # | Do | Pass when |
+|---|---|---|
+| 8b.1 | Find the "Memory" row | It reads **"Plenty free"**, **"Filling up"**, **"Almost full"** or **"Not known"**. **Never a percentage, never a GB figure, never a digit at all** — the reading behind it is commit charge, which is the most useful input in the restart score and means nothing to a person as a number |
+| 8b.2 | Check it against the recommendation, if you can get one to fire | They must agree. Both go through `memoryWords()`/the same band function, so a machine whose row says "Almost full" cannot have a sentence saying its memory is merely filling up |
+| 8b.3 | Count the "Disk space" rows | **One per FIXED volume**, and no more. A USB stick or a network share must not appear; a mounted ISO must not appear |
+| 8b.4 | Look for a total | **There is none, and there must never be one.** 2.9 TB free across five drives with 8 GB left on C: is a machine in trouble, and a total says the opposite |
+| 8b.5 | Read a disk row | Conclusion first, figure second: **"Plenty of room — 163 GB free"**. The figure is carried here and forbidden on the memory row, and the difference is the point — "163 GB free" is something you can act on |
+| 8b.6 | Check a volume sitting under 20% free but with plenty of headroom | It reads **"Plenty of room"**. On this machine C: and E: are both at 17.5% with 163 GB each, and a naive percentage rule would raise two false alarms. **If either reads "Almost full", the dual threshold has been broken** |
+| 8b.7 | On the check page, look at D: and E: | The canned volumes are deliberately in three different states — "Plenty of room", "Getting full", "Almost full" — because a real machine shows one word on every drive and the other two are never seen |
+| 8b.8 | Fill a drive past both floors (under 15% **and** under 25 GB) | Only then does it read "Almost full" |
+| 8b.9 | Ask for a restart recommendation with a full disk | **The disk must not be a reason.** A full disk is exactly as full after a restart, and it is not in the score — if a restart sentence ever mentions a drive, something has merged two signals that must stay apart |
+
 ## 9. What to write down
 
 For anything that fails: what you did, what you saw, and what you expected. A screenshot of the
