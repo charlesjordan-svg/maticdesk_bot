@@ -585,8 +585,19 @@ const ESCALATION_PLAIN = {
  * It resolves only on an explicit click. There is no timeout that submits, for the same reason
  * the consent card has none.
  *
+ * IT RESOLVES ON THE CLICK AND THE CLICK IS NOT THE OUTCOME. Until 2026-09-11 the send handler
+ * wrote "Sent by you" into the card head on the spot - before `fileTicket()` had been called, let
+ * alone answered - so a filing that then failed left the card claiming, on the one screen in this
+ * product where a user approves data leaving the machine, that it had been sent. The card cannot
+ * know: only the caller holds the hub's answer. So this resolves with a `report` the caller must
+ * call with that answer, and the card says "Sending..." in the meantime, which is the one thing
+ * that is true at that moment.
+ *
  * @param {object} draft
- * @returns {Promise<object|null>} the (possibly edited) draft, or null if the user cancelled
+ * @returns {Promise<{approved: object|null, report: (filed: object|null) => void}>}
+ *   `approved` is the (possibly edited) draft, or null if the user cancelled. `report` writes the
+ *   card's final state from the filing result and is a no-op after a cancel - there is nothing to
+ *   report on a ticket that was never sent.
  */
 function reviewTicket(draft) {
   const box = framed(el("div", "bp ticket-review"));
@@ -598,6 +609,9 @@ function reviewTicket(draft) {
   // say it in the place the eye already is. **The COPY is still ours**: the delivery's artwork
   // carries placeholder wording, and product copy is not what a design delivery decides.
   const head = el("div", "tr-head");
+  // FIVE STATES, AND FOUR OF THEM ARE WRITTEN BY SOMEBODY ELSE. This starts as a statement about
+  // the system, becomes a statement about the decision while the request is in flight, and only
+  // then becomes a statement about the ticket - written by `report()` from the hub's own answer.
   const headState = el("span", "", "Nothing has left this machine");
   const legends = el("span", "tr-legends");
   const legend = (swatch, words) => {
@@ -723,24 +737,61 @@ function reviewTicket(draft) {
   setBusy(false);
 
   return new Promise((resolve) => {
-    const settle = (result, outcomeText) => {
-      // `actions`, not `row`: `row()` is the grid helper above and shadowed the old name. And
-      // `headState`, not `head.lastElementChild` — the head's last child is the legends now, so
-      // that lookup would have quietly replaced them with the outcome word.
+    /**
+     * Replace the buttons with the note that says what the user did. `actions`, not `row`:
+     * `row()` is the grid helper above and shadowed the old name. And `headState`, not
+     * `head.lastElementChild` — the head's last child is the legends now, so that lookup would
+     * have quietly replaced them with the outcome word.
+     *
+     * THE NOTE IS ABOUT THE DECISION AND THE HEAD IS ABOUT THE TICKET, and neither says what the
+     * other says. The transcript's own line after a failure ("Nothing was filed", or the timeout
+     * sentence) is the SYSTEM's half and is written by the caller — `persona.filing`'s comment
+     * names that split, and D245 forbids saying one fact twice in one exchange.
+     */
+    const answered = (outcomeText, headText) => {
       actions.replaceWith(el("div", "turn-note", outcomeText));
-      headState.textContent = result ? "Sent by you" : "Nothing was sent";
-      setBusy(Boolean(result));
-      resolve(result);
+      headState.textContent = headText;
     };
-    send.onclick = () => settle(
-      {
-        ...draft,
-        description: getDescription(),
-        reporter: { ...r, firstName: getFirst(), lastName: getLast(), location: getLocation(), contactId: getContact() },
-      },
-      "Sent by you.",
-    );
-    cancel.onclick = () => settle(null, "Cancelled by you — nothing was sent.");
+
+    send.onclick = () => {
+      // IN FLIGHT. The user has decided; the service desk has not answered. Both halves say only
+      // that, because that is all that is known — the rail goes busy for the same reason.
+      answered("You chose to send this.", "Sending…");
+      setBusy(true);
+      resolve({
+        approved: {
+          ...draft,
+          description: getDescription(),
+          reporter: { ...r, firstName: getFirst(), lastName: getLast(), location: getLocation(), contactId: getContact() },
+        },
+        /**
+         * The outcome, from the caller, who has the hub's answer. Three endings, and the middle
+         * one is why this exists at all: `filed === null` is a TIMEOUT, where the request went out
+         * and nothing came back, so neither "sent" nor "not sent" is a fact. Saying either there
+         * is the confident guess D213 spent five surfaces avoiding.
+         */
+        report: (filed) => {
+          headState.textContent =
+            filed?.ok ? "Sent by you"
+            : filed?.filed === null ? "Sent, not confirmed"
+            : "Not sent";
+        },
+      });
+    };
+
+    cancel.onclick = () => {
+      // D245, FOUND BY CANCELLING THE CARD ON 2026-09-11 rather than by reading it. This note said
+      // "Cancelled by you — nothing was sent." and the caller's note three lines below says
+      // "Cancelled — nothing left this machine." — one fact about what the system did not do, in
+      // two wordings, adjacent, with the card still on screen. The same shape as the defect D245
+      // was written for. The split is the one the send path now uses and `persona.filing`'s own
+      // comment names: this note is the DECISION, the caller's is the SYSTEM's half.
+      answered("Cancelled by you.", "Nothing was sent");
+      setBusy(false);
+      // Nothing was attempted, so there is no outcome to report and `report` does nothing. The
+      // caller still gets one, so it never has to check which branch it is on before calling it.
+      resolve({ approved: null, report: () => {} });
+    };
   });
 }
 
@@ -953,7 +1004,7 @@ async function handleTurn(text) {
     setState("thinking");
     await say(res.reply, "idle");
 
-    const approved = await reviewTicket(res.ticketDraft);
+    const { approved, report } = await reviewTicket(res.ticketDraft);
     if (!approved) {
       done("You cancelled. NOTHING WAS SENT and nothing was filed.", { executed: false, sent: false, cancelled: true });
       note("Cancelled — nothing left this machine.");
@@ -963,6 +1014,11 @@ async function handleTurn(text) {
 
     setState("thinking");
     const filed = await window.matic.fileTicket(approved);
+    // THE CARD LEARNS THE OUTCOME BEFORE ANYTHING IS SAID ABOUT IT, and it learns it from the hub's
+    // own answer rather than from the click that started this. It is called on BOTH branches and
+    // before either of them speaks, so the card and the spoken line can never describe the same
+    // filing differently — which is the 700d920 class of defect, one turn later.
+    report(filed);
     if (filed.ok) {
       done(`Filed. Reference ${filed.reference}.`,
         { reference: filed.reference, ticketId: filed.ticketId, notified: filed.notified, notifiedWhy: filed.notifiedWhy });

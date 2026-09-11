@@ -162,8 +162,9 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | 6.2 | `CATEGORY` and `GOES TO` (D244) | **Plain words as the value** — "needs a person", "a hardware fault" — with the stored value underneath, smaller. **No snake_case anywhere as the value itself**, and the stored value must still be legible: it is what is being sent |
 | 6.3 | The caveat on the card (D246) | "This is stored for **the service desk** to pick up. No email goes out, so nobody is alerted automatically — someone has to come and look." **It must not say "the hub"** — that is our name for it, and this is the one screen where you approve data leaving the machine |
 | 6.4 | Send it (D245) | The reference is spoken, and the note under it says **"Stored as MD-xxxx. The card above says what that does and does not do."** — the reference and nothing the card already said. **If the no-email fact appears twice in two wordings, that is the defect** |
-| 6.5 | The card, after sending | Still on screen, its caveat unchanged, its heading now "Sent by you" |
-| 6.5a | **A KNOWN DEFECT — do not spend time reporting it** | The heading changes to "Sent by you" **before** the filing is attempted, so a send that then fails has already been described as sent. Found 2026-09-10, left unfixed to keep the re-export pass from widening (D252 §9). It is a renderer bug: the delivery draws the states correctly. **If you see it, it is the one we know about; anything else about that heading is new** |
+| 6.5 | Watch the card's head **while** it sends (D253) | It reads **"Sending…"** first and only then the outcome. **It must never say "Sent by you" before the service desk has answered** — it did until 2026-09-11, so a send that then failed left the card claiming it had been sent, three lines above a note saying nothing was filed |
+| 6.5b | The card, after a filing that worked | Still on screen, its caveat unchanged, its head now "Sent by you" |
+| 6.5c | The note the card leaves where its buttons were | **"You chose to send this."** — about your DECISION, not about the outcome, because at the moment it is written the outcome is not known. **If it claims the ticket was sent, that is the defect back** |
 | 6.6 | The tickets band's count | It has gone up by one |
 | 6.7 | The new row in the band | Same fact as the card, in the past tense, and also not "the hub" |
 
@@ -182,6 +183,8 @@ fails* and *next filing: times out* — which is where it was driven from.)
 | 6a.4 | The developer log | The same `detail` line |
 | 6a.5 | Now the TIMEOUT case instead | Spoken: uncertainty, and it must claim **neither** that it was filed nor that it was not. The note beside it carries "whether the ticket was stored is unknown" in the attention colour |
 | 6a.6 | The two cases side by side | They do **not** say the same thing. "Nothing was stored" and "we don't know" are different outcomes and a user acts differently on each |
+| 6a.7 | **The card's head in each case** (D253) | **"Not sent"** for the refusal, **"Sent, not confirmed"** for the timeout — and neither of them "Sent by you". The card head and the note below it now come from the same `filed` result, so **the card cannot contradict the transcript**, which is what it did until 2026-09-11 |
+| 6a.8 | Cancel a card instead, and read both lines | **"Cancelled by you."** where the buttons were, and **"Cancelled — nothing left this machine."** in the transcript. They must not both state the system fact: until 2026-09-11 the first read "Cancelled by you — nothing was sent." and the two said one thing twice, adjacent (D245, D253 §5.36d) |
 
 ## 7. The two bands
 

@@ -403,6 +403,59 @@ check("…and the reference in it is marked as one, for the delivery's mono trea
   /note\(`Stored as \$\{filed\.reference\}[^`]*`, \{ ref: filed\.reference \}\)/.test(rendererCode)
   && /^\.turn-note \.ref \{/m.test(panelCss));
 
+// ── THE CARD CANNOT SAY "SENT" BEFORE THE HUB HAS ANSWERED (2026-09-11) ──────────────────────
+//
+// It did until this was written. `reviewTicket()`'s send handler wrote "Sent by you" into the card
+// head on the click, before `fileTicket()` had been called, so a filing that then failed left the
+// card claiming it had been sent — on the one screen in this product where a user approves data
+// leaving the machine, and beside a transcript line saying nothing was filed. Same class as
+// 700d920 (two surfaces describing one thing differently), one turn later.
+//
+// PINNED AS THE CONTRACT, NOT THE WORDS: the click must not write an outcome, the outcome must be
+// written from the caller's `filed`, and the caller must report on BOTH branches before it speaks.
+const sendHandler = rendererCode.match(/send\.onclick = \(\) => \{[\s\S]*?\n {4}\};/)?.[0] ?? "";
+check("the send handler exists to read", Boolean(sendHandler));
+// WHAT RUNS ON THE CLICK is everything before `resolve`. The `report` callback is DEFINED inside
+// the handler but runs later, with the hub's answer, so the two are read separately — reading the
+// whole handler for "Sent by you" finds `report`'s own string and passes on the defect it exists
+// to catch.
+const onClickNow = sendHandler.split("resolve({")[0];
+check("clicking send does NOT write an outcome into the card head",
+  Boolean(onClickNow) && !/Sent by you/.test(onClickNow), onClickNow);
+check("…it resolves with a `report` the caller must call with the hub's answer",
+  /report: \(filed\) => \{/.test(sendHandler));
+check("…and the outcome is derived from `filed`, which only the caller has",
+  /filed\?\.ok \? "Sent by you"/.test(rendererCode));
+// D213's third outcome. A timeout is not a failure and not a success, and the card must not pick
+// one: the request went out and nothing came back.
+check("a timed-out filing is neither 'sent' nor 'not sent' on the card",
+  /filed\?\.filed === null \? "Sent, not confirmed"/.test(rendererCode));
+check("the caller reports the outcome BEFORE either branch speaks",
+  /const filed = await window\.matic\.fileTicket\(approved\);[\s\S]{0,700}?report\(filed\);[\s\S]{0,40}if \(filed\.ok\)/.test(rendererCode));
+check("…and it destructures the card's two-part result rather than the old bare draft",
+  /const \{ approved, report \} = await reviewTicket\(res\.ticketDraft\);/.test(rendererCode));
+// A cancel has no outcome to report, and the caller must not have to know that before calling.
+check("a cancelled card resolves with a report that does nothing",
+  /resolve\(\{ approved: null, report: \(\) => \{\} \}\)/.test(rendererCode));
+// D245: the card's note is about the DECISION and the head is about the TICKET. The transcript's
+// own "Nothing was filed" line is the system's half and is the caller's to write — one fact, one
+// surface. So the note the click leaves behind must survive all three outcomes without lying.
+const sendNote = onClickNow.match(/answered\("([^"]*)"/)?.[1] ?? "";
+check("the note left by the click claims no outcome",
+  Boolean(sendNote) && !/\bsent\b/i.test(sendNote) && !/filed|stored|reached/i.test(sendNote), sendNote);
+// THE SAME SPLIT ON THE CANCEL PATH, and the defect there was found by cancelling the card rather
+// than by reading it (2026-09-11). The card's note said "Cancelled by you — nothing was sent." and
+// the caller's said "Cancelled — nothing left this machine." three lines below, with the card still
+// on screen: one fact about what the system did not do, in two wordings, adjacent. D245's own shape.
+const cancelHandler = rendererCode.match(/cancel\.onclick = \(\) => \{[\s\S]*?\n {4}\};/)?.[0] ?? "";
+const cancelNote = cancelHandler.match(/answered\("([^"]*)"/)?.[1] ?? "";
+const cancelSystemNote = rendererCode.match(/note\("(Cancelled[^"]*)"\)/)?.[1] ?? "";
+check("both halves of the cancel path exist to compare", Boolean(cancelNote) && Boolean(cancelSystemNote));
+check("the card's cancel note is the DECISION and states no system fact",
+  Boolean(cancelNote) && !/\bsent\b|left this machine|filed/i.test(cancelNote), cancelNote);
+check("the transcript's cancel note is the SYSTEM's half and keeps it",
+  /left this machine|nothing was sent|nothing was filed/i.test(cancelSystemNote), cancelSystemNote);
+
 // D246: a failed filing has two strings with two audiences. `filed.error` is the assistant's
 // sentence and is spoken; `filed.detail` is the URL, the status and the exception, and it goes to
 // the inspector and the developer log. The renderer must not put the second one on the surface.
