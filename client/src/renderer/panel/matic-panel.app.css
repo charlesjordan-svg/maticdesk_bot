@@ -1,24 +1,28 @@
 /* Matic Desk panel — the APP-ONLY half of the stylesheet. Hand-written, loaded after
    matic-panel.css (which is generated from the delivery and must not be edited).
 
-   FOUR SECTIONS, AND ONLY THE LAST ONE MAY TOUCH SOMETHING THE DELIVERY DREW. (a) the harness
-   stage becoming a real Electron window; (b) surfaces the delivery did not draw; (c) two attribute
-   hooks the app drives differently from the harness; (d) knowingly different from the delivery,
-   each item written down and carried to the next delivery.
+   THIS FILE LOST TWO THIRDS OF ITSELF ON 2026-09-10, AND THAT IS THE POINT. The re-export draws
+   the four surfaces the app had been drawing for itself (`.turn-note`, `.ticket-review`,
+   `.todo-card`, `.transcript-turn`), applies the live-blue split itself, and answers the four
+   accessibility and copy items. Everything that was here to cover those gaps is gone, because it
+   is in the delivery now. What is left is the short list below, and it should stay short: if this
+   file starts growing again, the thing to write is a design handover, not a rule.
+
+   THREE SECTIONS, AND NONE OF THEM MAY RESTYLE SOMETHING THE DELIVERY DREW.
+   (a) the harness stage becoming a real Electron window;
+   (b) two surfaces the delivery still does not draw, and one attribute the app sets that the
+       harness set differently;
+   (c) the four `--matic-ui-live-*` VALUES, which the delivery declares as stand-ins and asks us
+       to substitute. This is the one place the app declares a delivered token name, it is with
+       the delivery's written permission, and `test/panel.test.mjs` allows exactly these four and
+       nothing else.
 
    **If a colour, a size or a spacing looks wrong on screen, it is a note for the next delivery,
-   not an override to add below** - and if it genuinely cannot wait, it goes in (d) with the reason,
-   never quietly into (a) or (b). That header used to say "nothing here restyles something the
-   delivery did draw", which stopped being true on 2026-09-10 when (d) item 4 was added; a rule
-   stated as absolute and then broken in silence is worse than one stated with its exceptions. The
-   tokens are used as delivered and none is redefined - THAT one is still absolute, and a test
-   enforces it.
+   not an override to add below.** The previous version of this header carried a fourth section of
+   knowing exceptions; all of them were adopted by the re-export and it is empty again. Keeping it
+   empty is the measure of whether the arrangement is working.
 
-   The file the next delivery reads is
-   `docs/handovers/2026-09-10-claude-design-handover-panel-copy-followups.md`. Section (b) is its
-   §1 and section (d) is its §2 and §4.
-
-   Integrated 2026-09-10 (D240/D241). */
+   Integrated 2026-09-10 (D240/D241); rebuilt against the re-export the same day (D252). */
 
 /* ── (a) the stage becomes the window ───────────────────────────────────────────────────────
    The delivery draws a 1160x800 panel floating on a page with 24px of padding, a drop shadow
@@ -47,41 +51,17 @@ body {
    placeholder reserved. `theme` follows the panel's theme; everything else is the element's. */
 matic-avatar { display: block; }
 
-/* ── (b) surfaces the delivery did not draw ─────────────────────────────────────────────────
+/* ── (b) what the delivery still does not draw ───────────────────────────────────────────────
 
-   FOUR of them, and each one exists because it carries a fact the user has to be able to read.
-   They are built from delivered parts (`.bp` frame, `.reply` padding, the token set) rather than
-   invented, so they sit inside the same visual language.
+   Two things, and one of them is only a label.
 
-   1. `.turn-note`  — a plain statement about what the SYSTEM did or did not do: "nothing was
-      filed", "no email was sent", "the service desk is reachable again". These are NOT the
-      internal notes the design moved to the inspector (source lines, template names, broker
-      JSON - those now go to the inspector and the developer log and nowhere else). They are the
-      lines D86/D213/D205 exist to keep in front of the user, and deleting them to tidy the
-      surface would re-open every one of those defects. Quiet, never red, never an apology.
-   2. `.ticket-review` — the D213 review card. The design covers the OFFER; this is the step
-      after a yes, and it is the one card in the app through which user data leaves the machine.
-   3. `.todo-card` — the checks the USER has to carry out. A user read straight past these when
-      they were grey system text (the reason the old renderer gave them a card), so they keep a
-      card here too, in the attention colour rather than the accent.
-   4. `.transcript-turn` — the wrapper the renderer appends per turn, so a turn's parts stay
-      together and the newest is what scrolls into view. */
-
-.turn-note {
-  max-width: 640px;
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-  padding: 2px 0 2px 14px;
-  border-left: 2px solid var(--matic-ui-line-strong);
-  font-size: var(--matic-ui-text-sm);
-  line-height: 1.55;
-  color: var(--matic-ui-ink-muted);
-}
-/* The one flavour that is not neutral: a fact the user could be harmed by assuming away - "the
-   hub did not answer, whether it was stored is unknown". Attention, not error: nothing is broken
-   about the assistant, something is unknown about the world. */
-.turn-note.unknown { border-left-color: var(--matic-ui-attn); }
+   1. `.turn-note b` — the "JUST NOW" chip on a connectivity transition. The delivery draws the
+      note (a tick in the gutter, no frame) and has no label in its artwork, because none of the
+      strings it was given carried one. Ours does, on exactly two lines: the hub going away and
+      coming back, where WHEN it happened is half the message.
+   2. The two idle/busy rail sub-lines. `.status-sub` is the delivery's; which of the two is shown
+      is the app's business, because `data-busy` is set by the renderer and the harness had no
+      equivalent. Display only — nothing here says how either looks. */
 .turn-note b {
   flex: none;
   font-family: var(--matic-ui-font-head);
@@ -92,136 +72,40 @@ matic-avatar { display: block; }
   color: var(--matic-ui-ink-quiet);
 }
 
-.transcript-turn { display: flex; flex-direction: column; gap: 14px; }
-
-.ticket-review { background: var(--matic-ui-surface); max-width: 640px; }
-.ticket-review .consent-head b { color: var(--matic-ui-ok); }
-.ticket-review-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
-.ticket-review .lede { font-size: var(--matic-ui-text-sm); color: var(--matic-ui-ink-muted); }
-.ticket-review .fields { display: grid; grid-template-columns: minmax(104px, auto) 1fr; gap: 8px 14px; align-items: start; }
-.ticket-review label {
-  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--matic-ui-ink-quiet); padding-top: 11px;
-}
-.ticket-review textarea.input { min-height: 72px; resize: vertical; line-height: 1.5; padding-top: 10px; }
-/* Shown but not editable, and legible as such at a glance: it is the model's reading of the
-   problem, or a fact about the machine, and a field a user can retype is neither (D213). */
-.ticket-review .fixed {
-  font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
-  color: var(--matic-ui-ink-muted); padding-top: 11px; overflow-wrap: anywhere;
-}
-/* A glossed value and the stored value under it (D244). NO NEW FAINT TEXT IS INTRODUCED: the
-   label column beside this is already light grey at small size and is recorded as an open contrast
-   question for the next delivery, so subordination is bought by DARKENING THE GLOSS rather than by
-   fading the raw value, which stays at the colour every other `.fixed` row already uses. Position
-   and size do the rest. */
-.ticket-review .fixed.glossed { color: var(--matic-ui-ink); }
-.ticket-review .fixed .raw {
-  display: block; font-size: 11px; margin-top: 3px; color: var(--matic-ui-ink-muted);
-}
-.ticket-review .caveat {
-  font-size: var(--matic-ui-text-sm); line-height: 1.5; color: var(--matic-ui-ink-muted);
-  border-top: var(--matic-ui-hair) solid var(--matic-ui-line); padding-top: 13px;
-}
-
-.todo-card { max-width: 640px; background: var(--matic-ui-surface); border-left: 2px solid var(--matic-ui-attn); }
-.todo-card .consent-head b { color: var(--matic-ui-attn); }
-.todo-card ol { margin: 0; padding: 4px 18px 18px 40px; display: flex; flex-direction: column; gap: 12px; }
-.todo-card li { font-size: var(--matic-ui-text-md); line-height: 1.5; }
-.todo-card li b { display: block; font-weight: 600; }
-.todo-card li span { display: block; font-size: var(--matic-ui-text-sm); color: var(--matic-ui-ink-muted); margin-top: 2px; }
-.todo-card .next {
-  margin: 0 18px 18px; padding-top: 13px; font-size: var(--matic-ui-text-sm); line-height: 1.5;
-  border-top: var(--matic-ui-hair) solid var(--matic-ui-line);
-}
-
-/* ── (c) two attribute hooks the app drives that the harness drove differently ───────────────
-
-   `data-scene` in the APP has exactly two values and NO control: "first" until the user's first
-   message, then "live", which matches no `.scene` rule and so shows the transcript the renderer
-   is building. The harness's six scenes are conversational moments the app arrives at; they are
-   not state, and there is no switcher (acceptance 5).
-
-   `data-offer` is likewise not a global state here: an offer's own buttons are resolved on the
-   element, because a session can hold more than one offer and a root attribute would answer all
-   of them at once. The root attribute is kept for ONE thing - the composer's hint - so that rule
-   is restated without the harness's `[data-scene="offer"]` qualifier. */
-[data-offer="pending"] .composer .hint { display: block; }
-
-/* The first-run panel stops stretching to fill the transcript, because in the app something does
-   follow it: the assistant says hello (persona.boot, D234) the moment the voice is ready, and a
-   greeting pushed to the bottom of an empty column reads as an afterthought. */
+/* `data-scene` in the APP has two values and NO control: "first" until the user's first message,
+   then "live", which matches no `.scene` rule and so shows the transcript the renderer is
+   building. The harness's scenes are conversational moments the app arrives at; they are not
+   state, and there is no switcher (acceptance 5). The delivery's `.scene-first { flex:1 }` centres
+   the empty state in the stage; in the app the transcript below it does the growing. */
 [data-scene="first"] .scene-first { flex: none; }
 
-/* The status line under the avatar while a turn is in flight. The avatar carries the state
-   (v7 is the point of the pass); this is the same fact in words, for anyone who does not read a
-   face at 150px - and it replaces the old `#state` label, which printed our state NAMES. */
+/* `data-offer` is likewise not a global state here: an offer's own buttons are resolved on the
+   element, because a session can hold more than one offer and a root attribute would answer all of
+   them at once. The root attribute is kept for ONE thing - the composer's hint - so that rule is
+   restated without the delivery's `[data-scene="offer"]` qualifier. */
+[data-offer="pending"] .composer .hint { display: block; }
+
 .status-sub-busy { display: none; }
 [data-busy="on"] .status-sub-busy { display: block; }
 [data-busy="on"] .status-sub-idle { display: none; }
 
-/* The tickets band's count is hidden rather than showing a zero: "Tickets you've opened 0" reads
-   as a broken counter. The trigger stays, because the band explains what it can and cannot see. */
+/* The count is a live number, and an empty one is a box with nothing in it. The harness always had
+   a number to show; the app does not. */
 .count:empty { display: none; }
 
-/* ── (d) knowingly different from the delivery ────────────────────────────────────────────────
-
-   The exceptions to this file's opening rule, written down rather than slipped in. Each one is a
-   change to the DESIGN and each belongs in the next delivery rather than in this file for ever.
-   Items 1-3 were asked for against the running panel; item 4 is a delivered element carrying a
-   kind of content the delivery did not anticipate. THE FILE THE NEXT DELIVERY READS IS
-   `docs/handovers/2026-09-10-claude-design-handover-panel-copy-followups.md`, rewritten end of day
-   as the complete brief. Items 1-2 below are its §2 and item 4 is its §4; its §1 is the bigger ask,
-   which is that section (b) of THIS file draws four surfaces the delivery never drew at all
-   (`.turn-note`, `.ticket-review`, `.todo-card`, `.transcript-turn`) and they should stop being
-   our approximations. Four further items - the disclosure square, mono for prose, the label
-   column's contrast, the unlabelled crosshair - are its §3 and are deliberately NOT answered
-   anywhere in this file.
-
-   1. 2026-09-10 — the wordmark is centred. The delivery left-aligns it against the rail's padding
-      while everything under it (avatar, status line, service note) is centred.
-   2. 2026-09-10 — the interactive chrome takes the AVATAR's blue. "Looks bland, all one colour."
-      What that is describing is real: the delivery's accent is #5980a6, which is the avatar's
-      *paper line* — the quietest blue on the chassis — so every button, band and label was drawn
-      in the one colour the avatar uses for a drawn line on a sheet of paper. The avatar's own
-      body colours (the pods, the collar, the halo) were on screen beside them and used nowhere.
-   3. 2026-09-10 — ONE STRING, and it is in `index.html` rather than here: the rail's idle
-      sub-line reads "Nothing in progress" where the delivery says "Nothing running". Beside a band
-      that lists this machine's services, "nothing running" can be read as a claim about them
-      (D244/§5.29a). Copy, not CSS, so there is nothing to override — but it is the same kind of
-      divergence and it is in the same file for the next delivery.
-   4. 2026-09-10 — THE CONSENT CARD'S EXACT CALL IS SET APART (D247). This is the one rule in this
-      file that restyles something the delivery DID draw, and it is here rather than in (b) for
-      that reason. `.consent-verbatim p` is drawn as body prose; one of those paragraphs is
-      `rendered.detail` — `restart_service(serviceName=spooler)`, the machine-readable form of what
-      will run, which `broker.d.ts` defines and `docs/D130-RENDERER-CHECK.md` checks by name. Set at
-      body size beside the plain sentence it belongs to, it reads as prose that has gone wrong. It
-      is given the review card's raw-value treatment instead — mono, a step down, subordinate by
-      size and position — and is NOT hidden, because a person approving an action is entitled to
-      see the exact thing being approved (D128/D244). **The TEXT is the broker's, verbatim; only
-      the presentation is ours.** Whether it should also be GLOSSED is D248, proposed, awaiting
-      Charles — and that one needs a new field on the rendered contract, so it is a decision rather
-      than a patch. */
-.consent-verbatim p.exact {
-  font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
-  color: var(--matic-ui-ink-muted); margin-top: 6px; overflow-wrap: anywhere;
-}
-.rail .brand { text-align: center; }
-
-/* THE AVATAR'S PALETTE, BORROWED BY NAME AND BY VALUE.
+/* ── (c) the four live values, by the delivery's own instruction ─────────────────────────────
  *
- * New tokens under the delivery's own prefix, which is what the design handover §2 asks for when
- * the app needs more ("add them under the same prefix rather than renaming what exists") - NOT a
- * redefinition of a delivered token, which stays forbidden and is still enforced by a test.
+ * THE DELIVERY DECLARES THESE AND SAYS THEY ARE STAND-INS. Its header: *"--matic-ui-live / -deep /
+ * -wash / -edge are placeholders. Substitute the app's values, which are pinned to
+ * matic-avatar.css by a test. Only the roles are the delivery's."* So this is not an override
+ * smuggled in against the rule - it is the one the rule was waiting for, and it is the reason
+ * `test/panel.test.mjs` allows these four names in this file and no others.
  *
- * Every value below is copied from `../avatar/matic-avatar.css` and names the token it came from.
- * `test/panel.test.mjs` reads that file and fails if a value stops matching, so a new avatar
- * delivery that repaints the chassis cannot leave the panel wearing last month's blue.
- *
- * The split is: STRUCTURE stays the delivery's (ground, surface, ink, hairlines, the muted accent
- * on borders and focus), and ANYTHING THAT RESPONDS - a button, a band that opens, the label on a
- * thing you can act on - takes the live blue. Two blues from one family, one quiet and one awake,
- * rather than one blue doing both jobs badly. */
+ * The ROLES are the delivery's and are not ours to change: `-deep` carries text, the base carries
+ * fills and borders, `-wash` carries tinted grounds, `-edge` carries the hairline on an
+ * interactive thing. Every value below is copied from `../avatar/matic-avatar.css` and names the
+ * token it came from; the test reads that file and fails if a value stops matching, so a new
+ * avatar delivery that repaints the chassis cannot leave the panel wearing last month's blue. */
 :root {
   --matic-ui-live: #3f7fc4;                          /* --matic-avatar-pod */
   --matic-ui-live-deep: #1f5fa8;                     /* --matic-avatar-collar */
@@ -237,56 +121,3 @@ matic-avatar { display: block; }
   --matic-ui-live-wash: rgba(63, 127, 196, 0.20);
   --matic-ui-live-edge: rgba(92, 154, 217, 0.45);
 }
-
-/* The two bands. A band is a drawer that opened out of the button above it, and the coloured edge
-   at its top is the only thing on screen that says so. */
-.band { box-shadow: inset 0 2px 0 var(--matic-ui-live); }
-.band-title { color: var(--matic-ui-live-deep); }
-.tstat b { color: var(--matic-ui-live-deep); }
-/* The reference itself stays the delivery's muted ink ON PURPOSE: a mono string in the live blue
-   reads as a link, and there is nothing behind it to click. */
-
-/* The utility bar: two small marks in the avatar's blue, so the row reads as things you can open
-   rather than as a strip of grey text. The open state keeps the delivery's wash, tinted live. */
-.glyph-machine, .glyph-ticket { color: var(--matic-ui-live); }
-.count { background: var(--matic-ui-live); border-color: var(--matic-ui-live); color: var(--matic-ui-ground); }
-.band-trigger:hover, .inspector-trigger:hover { background: var(--matic-ui-live-wash); color: var(--matic-ui-live-deep); }
-[data-band="machine"] [data-band-key="machine"].band-trigger,
-[data-band="tickets"] [data-band-key="tickets"].band-trigger,
-[data-inspector="on"] .inspector-trigger {
-  background: var(--matic-ui-live-wash);
-  color: var(--matic-ui-live-deep);
-  border-color: var(--matic-ui-live);
-}
-/* THE OTHER HALF OF THAT RE-KEYING, MISSED (2026-09-10, found by clicking the check page). The
-   delivery rotates the chevron when a band is open, and its selector needs `data-set` — the
-   harness's markup hook, which D240 removed from `index.html` because it is the scene switcher's.
-   The open-state wash above was re-keyed onto `data-band-key` and this was not, so the band opened
-   and the chevron kept pointing down: a disclosure control whose only state indicator is inert.
-   This restores the delivery's own behaviour on the app's attribute — it is not a design change,
-   and there is nothing here for a delivery to carry. */
-[data-band="machine"] [data-band-key="machine"] .chev,
-[data-band="tickets"] [data-band-key="tickets"] .chev { transform: rotate(180deg); }
-
-/* Buttons. The primary is the one thing on a card that should look like it wants pressing. */
-.btn-primary { background: var(--matic-ui-live); border-color: var(--matic-ui-live); color: var(--matic-ui-ground); }
-.btn-primary:hover, .btn-primary:active { background: var(--matic-ui-live-deep); border-color: var(--matic-ui-live-deep); }
-[data-theme="dark"] .btn-primary:hover, [data-theme="dark"] .btn-primary:active { color: var(--matic-ui-ground); }
-.btn-secondary:hover, .btn-secondary:active { background: var(--matic-ui-live-wash); color: var(--matic-ui-live-deep); border-color: var(--matic-ui-live); }
-.btn-ghost { color: var(--matic-ui-live-deep); }
-.btn-ghost:hover { background: var(--matic-ui-live-wash); }
-:focus-visible { outline-color: var(--matic-ui-live); }
-
-/* The conversation. The user's own words wear the halo colour; the evidence line and the citation
-   wear the edge. The assistant's replies stay on the delivery's hairline frame - the point of the
-   design is that the assistant is quiet and the machinery is legible, and colouring its speech
-   would undo that. */
-.said > div { background: var(--matic-ui-live-wash); border-color: var(--matic-ui-live); color: var(--matic-ui-live-deep); }
-.why { border-left-color: var(--matic-ui-live); }
-.citation .from { color: var(--matic-ui-live-deep); }
-.aside-note { border-left-color: var(--matic-ui-live); }
-
-/* The inspector: its step labels and its disclosure links are the things you click. */
-.step > b, details > summary { color: var(--matic-ui-live-deep); }
-details > summary:hover { color: var(--matic-ui-live); }
-.devlog > summary:hover { background: var(--matic-ui-live-wash); color: var(--matic-ui-live-deep); }

@@ -50,11 +50,13 @@
     <aside class="rail">
       <div class="brand">Matic Desk</div>
 
-      <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:6px">
+      <!-- `.rail-stack` is the delivery's centred block (its §2.1 answer to the wordmark note).
+           It replaces the inline-styled column this used to be; the geometry is the delivery's. -->
+      <div class="rail-stack">
         <!-- The v7 bust (D232). 150px is the size the delivery reserves; `theme` follows the
              panel so the field is knocked out on dark (v7 §05). State is driven by renderer.js. -->
         <matic-avatar id="avatar" state="idle" size="150" theme="light"></matic-avatar>
-        <div style="text-align:center">
+        <div>
           <div class="status-head hubcopy hub-ok">Ready when you are</div>
           <div class="status-head hubcopy hub-unreachable">Ready, with limits</div>
           <div class="status-head hubcopy hub-none">Ready when you are</div>
@@ -106,21 +108,31 @@
         <!-- Both are `<button>`s and the square is a decorative `<span>`, not a checkbox - checked
              2026-09-10. `aria-expanded` is kept in step by `toggleBand`; the starting value is the
              closed one because `data-band` starts at "none". -->
+        <!-- THE GLYPHS ARE THE DELIVERY'S, COPIED FROM ITS ARTWORK. Its §3a answer: the bordered
+             square is gone and each trigger carries a thin-stroke glyph that cannot be read as a
+             checkbox, with the chevron as the only affordance. `.glyph-*` and `.chev` are SVG
+             holders now — empty spans render nothing — and the delivery said so, because CSS
+             cannot add the markup. The chevron's `&#8964;` character went with it. -->
         <button class="band-trigger" id="machineTrigger" data-band-key="machine" aria-expanded="false">
-          <span class="glyph-machine"></span>
+          <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
           <span>What I can see about this machine</span>
-          <span class="chev">&#8964;</span>
+          <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
         </button>
         <button class="band-trigger" id="ticketsTrigger" data-band-key="tickets" aria-expanded="false">
-          <span class="glyph-ticket"></span>
-          <span>Tickets you've opened</span>
+          <span class="glyph-ticket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18v4a2 2 0 000 4v3H3v-3a2 2 0 000-4V7z"></path><path d="M13 7v10"></path></svg></span>
+          <span>Tickets I've filed from this machine</span>
           <span class="count" id="ticketCount"></span>
-          <span class="chev">&#8964;</span>
+          <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
         </button>
+        <!-- §3d: the crosshair read as "+" / "add", which is the opposite of what it does. It is a
+             labelled control now - a glyph that reports, and the words beside it - so it no longer
+             depends on a hover to be understood. `.crosshair`'s rules are still in the delivery so
+             nothing unstyles mid-change, but the span is REPLACED rather than restyled. -->
         <button class="inspector-trigger" id="inspectorTrigger"
                 title="Show what I proposed, checked and did"
                 aria-label="Show what I proposed, checked and did">
-          <span class="crosshair"></span>
+          <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+          <span class="ins-label">What I did</span>
         </button>
       </div>
 

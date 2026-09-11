@@ -1,30 +1,100 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light" data-variant="overlay" data-scene="capability" data-hub="ok" data-band="none" data-inspector="off" data-offer="pending" data-tickets="open">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Matic Desk — end-user panel harness</title>
+<title>Matic Desk — end-user panel, buildable re-export</title>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     THE STYLE BLOCK BELOW IS THE DELIVERY. `npm run panel:build` copies it
+     verbatim. Every visual decision is in here as a class rule; the markup
+     under <body> is reference artwork and carries no decisions of its own.
+
+     No stylesheet link, no scripting, no webfont request, no templating.
+     Turn the network off and this file is unchanged.
+     ═════════════════════════════════════════════════════════════════════════ -->
 <style>
 /* ═══════════════════════════════════════════════════════════════════════
-   Matic Desk panel — token set.
-   Namespaced --matic-ui-* so it sits alongside the avatar's
-   --matic-avatar-* tokens without colliding. Names are final; values
-   are the only thing to retune.
+   Matic Desk panel — re-export, 2026-09-10.
+   Supersedes the September delivery. Answers the re-export request in full.
+
+   ── NAMES ────────────────────────────────────────────────────────────
+   Every name the September delivery styled is carried forward unchanged.
+   Six names come from your own brief: .turn-note (+ .unknown),
+   .ticket-review, .todo-card, .transcript-turn, .raw.
+
+   THIRTY-TWO NAMES ARE MINE AND NEED CHECKING AGAINST YOUR 90 — §5 of
+   the re-export handover never reached me, so these are proposals, not
+   matches. Rename any that collide; the rules are grouped under one
+   banner comment each so a rename is one pass:
+
+     review card   .tr-head .tr-legends .tr-legend .tr-swatch-edit
+                   .tr-swatch-fixed .tr-grid .tr-label .tr-value
+                   .tr-field .tr-hint .tr-fixed .tr-caveat .tr-actions
+                   and two modifiers: .tr-value.ruled, .tr-fixed .check
+     todo card     .todo-head .todo-note .todo-row .todo-n .todo-body
+                   .todo-do .todo-why .todo-next
+     consent §4    .consent-call .call-gloss
+     inspector §3d .ins-glyph .ins-label
+     tickets §2    .tfiled, and .tstat b.unseen
+     turn note     .turn-note .ref
+     rail §2.1     .rail-stack (the centred block the wordmark sits in)
+     transcript    .scene-review (the review card's scene, which the
+                   September delivery had no state for)
+
+   TWO MARKUP CHANGES ARE NEEDED ON YOUR SIDE — CSS cannot do them:
+     1. §3a. .glyph-machine / .glyph-ticket lose their 1px border and
+        become SVG holders. Their spans are empty in your markup, so
+        they will render nothing until a Lucide glyph is placed inside.
+        The two glyphs are in the artwork below, ready to copy.
+     2. §3d. .crosshair is superseded by .ins-glyph + .ins-label. Its
+        rules are LEFT IN below so your current markup does not
+        unstyle, but the span should be replaced, not restyled.
+
+   ── VALUES RETUNED ───────────────────────────────────────────────────
+   Names are not redefined. Four values changed, each with its number:
+     --matic-ui-ink-quiet  light  #7a7a7d -> #656769   (§3, your pick)
+                                  3.53:1  -> 4.68:1 on surface,
+                                             5.08 on ground, 5.68 on card
+     --matic-ui-ink-quiet  dark   #7e8b94 -> #8b98a1
+                                  4.16:1  -> 4.92:1 on surface-2. The old
+                                  value passed on surface and ground and
+                                  failed on the review card's own ground,
+                                  which is surface-2 — not measured in §3c
+                                  because the card had not been drawn yet.
+     --matic-ui-attn       light  #8a6a3a -> #7a5c2e   4.12:1 -> 5.09:1
+     --matic-ui-ok         light  #4a7a63 -> #3f6b56   4.07:1 -> 5.02:1
+   The last two are unasked-for and are the only things in this file you
+   did not request. Both tokens carry body-sized text in the panel and
+   both failed AA on surface. Revert them if you would rather decide
+   separately; nothing else depends on the change.
+
+   ── FOUR STAND-INS ───────────────────────────────────────────────────
+   --matic-ui-live / -deep / -wash / -edge are placeholders. Substitute
+   the app's values, which are pinned to matic-avatar.css by a test.
+   Only the roles are the delivery's: -deep carries text, - carries
+   fills and borders, -wash carries tinted grounds, -edge carries the
+   hairline on an interactive thing.
    ═══════════════════════════════════════════════════════════════════ */
+
 :root, [data-theme="light"] {
   --matic-ui-ground:#f2f2f3;
   --matic-ui-surface:#e9e9ea;
   --matic-ui-surface-2:#ffffff;
   --matic-ui-ink:#1d1f20;
   --matic-ui-ink-muted:#5d5d60;
-  --matic-ui-ink-quiet:#7a7a7d;
+  --matic-ui-ink-quiet:#656769;
   --matic-ui-line:rgba(29,31,32,0.16);
   --matic-ui-line-strong:rgba(29,31,32,0.34);
   --matic-ui-accent:#5980a6;
   --matic-ui-accent-deep:#416180;
   --matic-ui-accent-ink:#2c455d;
   --matic-ui-accent-wash:#e2ecf6;
-  --matic-ui-ok:#4a7a63;
-  --matic-ui-attn:#8a6a3a;
+  --matic-ui-live:#2f6ea8;
+  --matic-ui-live-deep:#1f4f78;
+  --matic-ui-live-wash:#dfeaf6;
+  --matic-ui-live-edge:#7ea6cc;
+  --matic-ui-ok:#3f6b56;
+  --matic-ui-attn:#7a5c2e;
   --matic-ui-shadow-lg:0 12px 32px rgba(43,43,45,0.22);
 }
 [data-theme="dark"] {
@@ -33,20 +103,34 @@
   --matic-ui-surface-2:#222a31;
   --matic-ui-ink:#e8ecef;
   --matic-ui-ink-muted:#9fabb4;
-  --matic-ui-ink-quiet:#7e8b94;
+  --matic-ui-ink-quiet:#8b98a1;
   --matic-ui-line:rgba(232,236,239,0.16);
   --matic-ui-line-strong:rgba(232,236,239,0.34);
   --matic-ui-accent:#8fb2d4;
   --matic-ui-accent-deep:#b5d0e8;
   --matic-ui-accent-ink:#d6e7f5;
   --matic-ui-accent-wash:#243441;
+  --matic-ui-live:#7fb4e6;
+  --matic-ui-live-deep:#a9d0f2;
+  --matic-ui-live-wash:#1d2c3a;
+  --matic-ui-live-edge:#4b7ea8;
   --matic-ui-ok:#7fb79b;
   --matic-ui-attn:#d0aa72;
   --matic-ui-shadow-lg:0 12px 32px rgba(0,0,0,0.5);
 }
+
+/* §2.2's toggle. Reverts every responding surface to the single muted
+   accent of the September delivery, for comparing the split against it. */
+[data-live="off"] {
+  --matic-ui-live:var(--matic-ui-accent);
+  --matic-ui-live-deep:var(--matic-ui-accent-deep);
+  --matic-ui-live-wash:var(--matic-ui-accent-wash);
+  --matic-ui-live-edge:var(--matic-ui-accent);
+}
+
 :root {
-  /* Barlow Condensed / Barlow are named first and used when the app ships
-     them as local font files. No webfont is requested at runtime. */
+  /* Families are named and fall back. No webfont is requested at runtime;
+     Barlow and Barlow Condensed render when the app ships them locally. */
   --matic-ui-font-head:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --matic-ui-font-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
   --matic-ui-font-mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;
@@ -78,10 +162,10 @@ h1,h2,h3,h4 { font-family:var(--matic-ui-font-head); font-weight:600; line-heigh
 p { margin:0; }
 button { font:inherit; color:inherit; }
 :focus { outline:none; }
-:focus-visible { outline:2px solid var(--matic-ui-accent); outline-offset:2px; }
-::selection { background:var(--matic-ui-accent-wash); }
-a { color:var(--matic-ui-accent-deep); text-underline-offset:3px; }
-a:hover { color:var(--matic-ui-accent); }
+:focus-visible { outline:2px solid var(--matic-ui-live); outline-offset:2px; }
+::selection { background:var(--matic-ui-live-wash); }
+a { color:var(--matic-ui-live-deep); text-underline-offset:3px; }
+a:hover { color:var(--matic-ui-live); }
 
 /* ── wireframe frame: square, hairline, registration marks ── */
 .bp { position:relative; border:var(--matic-ui-hair) solid var(--matic-ui-line); border-radius:0; }
@@ -92,86 +176,40 @@ a:hover { color:var(--matic-ui-accent); }
 .bp > .tl { top:-6px; left:-6px; } .bp > .tr { top:-6px; right:-6px; }
 .bp > .bl { bottom:-6px; left:-6px; } .bp > .br { bottom:-6px; right:-6px; }
 
-/* ── controls ── */
+/* ── controls ─────────────────────────────────────────────────────────
+   §2.2. A button is a thing that responds, so every button takes the
+   live blue. Text sits on -deep (7.07:1 on surface), never on the fill
+   colour; the primary's own label sits on the fill and is measured
+   below at 4.79:1. */
 .btn {
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   font-family:var(--matic-ui-font-head); font-weight:600; font-size:14px; line-height:1.2;
   padding:8px 14px; cursor:pointer; border-radius:0;
   background:transparent; border:var(--matic-ui-hair) solid var(--matic-ui-line);
-  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease),
+             border-color var(--matic-ui-dur) var(--matic-ui-ease);
 }
-.btn-primary { background:var(--matic-ui-accent); border-color:var(--matic-ui-accent); color:var(--matic-ui-ground); }
-.btn-primary:hover { background:var(--matic-ui-accent-deep); border-color:var(--matic-ui-accent-deep); }
-.btn-primary:active { background:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent-ink); }
+.btn-primary { background:var(--matic-ui-live); border-color:var(--matic-ui-live); color:var(--matic-ui-ground); }
+.btn-primary:hover { background:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-deep); }
+.btn-primary:active { background:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-deep); }
 .btn-secondary { color:var(--matic-ui-ink-muted); border-color:var(--matic-ui-line-strong); }
-.btn-secondary:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-.btn-secondary:active { background:var(--matic-ui-accent-wash); border-color:var(--matic-ui-accent); }
+.btn-secondary:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge); }
+.btn-secondary:active { background:var(--matic-ui-live-wash); border-color:var(--matic-ui-live); }
 .btn-ghost {
-  border-color:transparent; color:var(--matic-ui-accent-deep);
+  border-color:transparent; color:var(--matic-ui-live-deep);
   font-family:var(--matic-ui-font-body); font-weight:400; font-size:12px; padding:4px 6px; cursor:pointer;
   background:transparent;
 }
-.btn-ghost:hover { background:var(--matic-ui-accent-wash); }
+.btn-ghost:hover { background:var(--matic-ui-live-wash); }
 .input {
   width:100%; min-height:44px; padding:8px 12px; font:inherit; font-size:var(--matic-ui-text-md);
-  color:var(--matic-ui-ink); caret-color:var(--matic-ui-accent); border-radius:0;
+  color:var(--matic-ui-ink); caret-color:var(--matic-ui-live); border-radius:0;
   background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-line);
 }
 .input:hover { border-color:var(--matic-ui-line-strong); }
-.input:focus-visible { border-color:var(--matic-ui-accent); outline-offset:0; }
+.input:focus-visible { border-color:var(--matic-ui-live); outline-offset:0; }
 
-/* ── harness chrome ── */
-.harness-head {
-  display:flex; align-items:flex-end; gap:24px; flex-wrap:wrap;
-  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); padding-bottom:14px;
-}
-.kicker { font-family:var(--matic-ui-font-head); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
-.eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:5px; }
-.segrow { display:flex; }
-.seg {
-  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.04em;
-  padding:8px 13px; cursor:pointer; border-radius:0; margin-right:-1px;
-  background:transparent; color:var(--matic-ui-ink-muted);
-  border:var(--matic-ui-hair) solid var(--matic-ui-line);
-}
-.seg:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-.harness-body { display:flex; gap:var(--matic-ui-s6); align-items:flex-start; flex-wrap:wrap; }
-.rail-h { width:212px; flex:none; display:flex; flex-direction:column; gap:20px; position:sticky; top:var(--matic-ui-s6); }
-.railgroup { display:flex; flex-direction:column; }
-.rbtn {
-  text-align:left; font-size:13px; line-height:1.35; padding:8px 10px; cursor:pointer;
-  background:transparent; color:var(--matic-ui-ink-muted);
-  border:0; border-left:2px solid var(--matic-ui-line); border-radius:0;
-}
-.rbtn:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-.stage { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; overflow-x:auto; padding:8px 8px 8px 0; }
-
-/* active states for every control, driven by the root attributes */
-[data-theme="light"] [data-set="theme:light"], [data-theme="dark"] [data-set="theme:dark"],
-[data-variant="overlay"] [data-set="variant:overlay"], [data-variant="inline"] [data-set="variant:inline"],
-[data-scene="first"] [data-set="scene:first"], [data-scene="capability"] [data-set="scene:capability"],
-[data-scene="offer"] [data-set="scene:offer"], [data-scene="consent"] [data-set="scene:consent"],
-[data-scene="citation"] [data-set="scene:citation"], [data-scene="decline"] [data-set="scene:decline"],
-[data-hub="ok"] [data-set="hub:ok"], [data-hub="unreachable"] [data-set="hub:unreachable"],
-[data-hub="none"] [data-set="hub:none"],
-[data-band="machine"] [data-set="band:machine"], [data-band="tickets"] [data-set="band:tickets"],
-[data-inspector="on"] [data-set="inspector:on"],
-[data-tickets="open"] [data-set="tickets:open"], [data-tickets="closed"] [data-set="tickets:closed"] {
-  background:var(--matic-ui-accent); border-color:var(--matic-ui-accent); color:var(--matic-ui-ground);
-}
-.rbtn[data-set] { }
-[data-scene="first"] .rbtn[data-set="scene:first"], [data-scene="capability"] .rbtn[data-set="scene:capability"],
-[data-scene="offer"] .rbtn[data-set="scene:offer"], [data-scene="consent"] .rbtn[data-set="scene:consent"],
-[data-scene="citation"] .rbtn[data-set="scene:citation"], [data-scene="decline"] .rbtn[data-set="scene:decline"],
-[data-hub="ok"] .rbtn[data-set="hub:ok"], [data-hub="unreachable"] .rbtn[data-set="hub:unreachable"],
-[data-hub="none"] .rbtn[data-set="hub:none"],
-[data-band="machine"] .rbtn[data-set="band:machine"], [data-band="tickets"] .rbtn[data-set="band:tickets"],
-[data-inspector="on"] .rbtn[data-set="inspector:on"] {
-  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink);
-  border:0; border-left:2px solid var(--matic-ui-accent);
-}
-
-/* ── the panel ── */
+/* ── the panel shell ── */
 .window {
   width:1160px; flex:none; height:800px; display:flex; flex-direction:column;
   background:var(--matic-ui-ground); box-shadow:var(--matic-ui-shadow-lg); overflow:hidden;
@@ -181,21 +219,29 @@ a:hover { color:var(--matic-ui-accent); }
   border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface);
 }
 .titlebar .name { font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px; letter-spacing:.04em; color:var(--matic-ui-ink-muted); }
+.titlebar > span:first-child { width:9px; height:9px; flex:none; border:1px solid var(--matic-ui-line-strong); }
+.titlebar > span:last-child { margin-left:auto; display:flex; }
 .wbtn { width:34px; height:36px; display:grid; place-items:center; color:var(--matic-ui-ink-quiet); font-size:12px; }
 .panelbody { flex:1; min-height:0; display:flex; position:relative; }
 
-/* left rail */
+/* ── left rail ─────────────────────────────────────────────────────────
+   §2.1. The wordmark is centred, with everything under it. */
 .rail {
   width:236px; flex:none; padding:22px 20px; gap:18px;
   border-right:var(--matic-ui-hair) solid var(--matic-ui-line);
   display:flex; flex-direction:column;
 }
-.brand { font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px; letter-spacing:.2em; text-transform:uppercase; color:var(--matic-ui-ink-muted); }
+.brand {
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px;
+  letter-spacing:.2em; text-transform:uppercase; color:var(--matic-ui-ink-muted);
+  text-align:center;
+}
 .avatar-mount {
   width:150px; height:150px; display:grid; place-items:center; text-align:center; line-height:1.5;
   border:1px dashed var(--matic-ui-line-strong); color:var(--matic-ui-ink-quiet);
   font-size:10px; letter-spacing:.06em;
 }
+.rail-stack { display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:6px; text-align:center; }
 .status-head { font-family:var(--matic-ui-font-head); font-weight:600; font-size:19px; }
 .status-sub { font-size:12px; color:var(--matic-ui-ink-quiet); margin-top:2px; }
 .dot { width:8px; height:8px; flex:none; margin-top:6px; border-radius:50%; background:var(--matic-ui-ink-quiet); }
@@ -206,91 +252,169 @@ a:hover { color:var(--matic-ui-accent); }
   padding-top:14px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line);
 }
 .service-title { font-size:var(--matic-ui-text-sm); line-height:1.35; }
-.service-detail { font-size:11px; line-height:1.4; color:var(--matic-ui-ink-quiet); margin-top:2px; }
+.service-detail { font-size:11px; line-height:1.45; color:var(--matic-ui-ink-quiet); margin-top:3px; }
 
-/* conversation column */
+/* ── conversation column ── */
 .main { flex:1; min-width:520px; display:flex; flex-direction:column; position:relative; }
 .utility {
-  flex:none; display:flex; align-items:center; gap:8px; height:44px; padding:0 14px 0 20px;
+  flex:none; display:flex; align-items:center; gap:8px; height:46px; padding:0 14px 0 20px;
   border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line);
 }
+
+/* ── disclosure bands ─────────────────────────────────────────────────
+   §3a. One control, one affordance. The bordered square is gone: the
+   glyph is a thin-stroke Lucide mark that cannot read as a checkbox,
+   and the chevron is the only affordance. Keep the aria-expanded you
+   added — it is announced, and these rules only draw it. */
 .band-trigger {
   display:inline-flex; align-items:center; gap:9px; cursor:pointer; padding:6px 10px; border-radius:0;
   background:transparent; color:var(--matic-ui-ink-muted); border:var(--matic-ui-hair) solid transparent;
   font-family:var(--matic-ui-font-body); font-size:13px;
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
 }
 .band-trigger:first-child { margin-left:-10px; }
-.band-trigger:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.band-trigger:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); }
 [data-band="machine"] [data-set="band:machine"].band-trigger,
-[data-band="tickets"] [data-set="band:tickets"].band-trigger {
-  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent);
+[data-band="tickets"] [data-set="band:tickets"].band-trigger,
+.band-trigger[aria-expanded="true"] {
+  background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge);
 }
-.glyph-machine { width:13px; height:11px; border:1px solid currentColor; flex:none; display:block; }
-.glyph-ticket { width:11px; height:13px; border:1px solid currentColor; flex:none; display:block; }
-.count { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.06em; padding:1px 6px; border:1px solid var(--matic-ui-line-strong); }
-.chev { font-size:12px; display:inline-block; transition:transform var(--matic-ui-dur) var(--matic-ui-ease); }
-[data-band="machine"] [data-set="band:machine"] .chev, [data-band="tickets"] [data-set="band:tickets"] .chev { transform:rotate(180deg); }
+/* SVG holders. The border is deliberately gone — see the markup note at
+   the head of this file; these spans need a glyph child. */
+.glyph-machine, .glyph-ticket {
+  width:15px; height:15px; flex:none; display:block; border:0;
+  color:currentColor;
+}
+.glyph-machine svg, .glyph-ticket svg { display:block; width:15px; height:15px; }
+.count {
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.06em;
+  padding:1px 6px; border:1px solid var(--matic-ui-live-edge); color:var(--matic-ui-live-deep);
+}
+.chev { display:inline-block; flex:none; transition:transform var(--matic-ui-dur) var(--matic-ui-ease); }
+.chev svg { display:block; width:11px; height:11px; }
+[data-band="machine"] [data-set="band:machine"] .chev,
+[data-band="tickets"] [data-set="band:tickets"] .chev,
+.band-trigger[aria-expanded="true"] .chev { transform:rotate(180deg); }
+
+/* ── inspector trigger ────────────────────────────────────────────────
+   §3d. A visible label and a glyph that reports rather than adds. The
+   label is the fix; the glyph alone was the problem. */
 .inspector-trigger {
-  margin-left:auto; width:34px; height:34px; display:grid; place-items:center; cursor:pointer; border-radius:0;
-  background:transparent; color:var(--matic-ui-ink-quiet); border:var(--matic-ui-hair) solid transparent;
+  margin-left:auto; display:inline-flex; align-items:center; gap:7px;
+  padding:6px 11px; cursor:pointer; border-radius:0;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.04em;
+  background:transparent; color:var(--matic-ui-ink-muted);
+  border:var(--matic-ui-hair) solid var(--matic-ui-line);
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
 }
-.inspector-trigger:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-[data-inspector="on"] .inspector-trigger { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent); }
+.inspector-trigger:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge); }
+[data-inspector="on"] .inspector-trigger { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge); }
+.ins-glyph { width:14px; height:14px; flex:none; display:block; }
+.ins-glyph svg { display:block; width:14px; height:14px; }
+.ins-label { white-space:nowrap; }
+/* Superseded by .ins-glyph + .ins-label. Left in so existing markup does
+   not unstyle; delete the span rather than restyling it. */
 .crosshair { position:relative; width:14px; height:14px; display:block; }
 .crosshair::before { content:""; position:absolute; left:6px; top:0; width:1px; height:100%; background:currentColor; }
 .crosshair::after { content:""; position:absolute; top:6px; left:0; width:100%; height:1px; background:currentColor; }
 
-/* bands */
+/* ── bands ── */
 .band { display:none; flex:none; padding:16px 20px 18px; background:var(--matic-ui-surface); border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
 [data-band="machine"] .band-machine { display:block; }
 [data-band="tickets"] .band-tickets { display:block; }
 .band-head { display:flex; align-items:center; gap:12px; margin-bottom:11px; flex-wrap:wrap; }
 .band-title { font-family:var(--matic-ui-font-head); font-weight:600; font-size:15px; letter-spacing:.02em; }
-.band-note { font-size:11px; color:var(--matic-ui-ink-quiet); }
-.mgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px 28px; }
+.band-note { font-size:11px; line-height:1.5; color:var(--matic-ui-ink-quiet); }
+.mgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px 28px; margin:0; }
 .mrow { display:flex; gap:14px; align-items:baseline; padding:7px 0; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
 .mrow dt { width:126px; flex:none; font-size:var(--matic-ui-text-sm); color:var(--matic-ui-ink-quiet); margin:0; }
 .mrow dd { margin:0; font-size:var(--matic-ui-text-sm); line-height:1.45; overflow-wrap:anywhere; }
 .filter { font-size:12px; padding:5px 12px; cursor:pointer; border-radius:0; margin-left:-1px; background:transparent; color:var(--matic-ui-ink-muted); border:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.filter:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.filter:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); }
 .tset { display:none; }
 [data-tickets="open"] .tset-open { display:block; }
 [data-tickets="closed"] .tset-closed { display:block; }
 [data-tickets="open"] .tickets-title-open, [data-tickets="closed"] .tickets-title-closed { display:inline; }
 .tickets-title-open, .tickets-title-closed { display:none; }
+
+/* ── tickets band ─────────────────────────────────────────────────────
+   §2. The band states two facts on every row and cannot imply a third.
+   .tfiled and .unseen are the two phrases; they are drawn as a matched
+   pair, one in each column, so neither can be dropped without the row
+   looking broken. .unseen is deliberately the quiet token and not the
+   attention one: "progress not visible" is a limit, not a warning. */
 .trow { display:flex; gap:16px; align-items:flex-start; padding:12px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.tref { width:104px; flex:none; }
+.tref { width:118px; flex:none; }
 .tref b { display:block; font-family:var(--matic-ui-font-mono); font-weight:400; font-size:11.5px; color:var(--matic-ui-ink-muted); }
 .tref span { display:block; font-size:11px; color:var(--matic-ui-ink-quiet); margin-top:3px; }
+.tfiled {
+  display:inline-block; margin-top:5px; padding:1px 5px;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:10px;
+  letter-spacing:.08em; text-transform:uppercase;
+  color:var(--matic-ui-ink-muted); border:1px solid var(--matic-ui-line-strong);
+}
 .tbody { flex:1; min-width:0; }
 .tbody b { display:block; font-weight:400; font-size:var(--matic-ui-text-sm); line-height:1.45; }
 .tbody span { display:block; font-size:var(--matic-ui-text-sm); line-height:1.5; color:var(--matic-ui-ink-muted); margin-top:4px; }
 .tstat { width:150px; flex:none; text-align:right; }
-.tstat b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.tstat b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
 .tstat b.you { color:var(--matic-ui-attn); }
 .tstat b.closed { color:var(--matic-ui-ink-quiet); }
+.tstat b.unseen { color:var(--matic-ui-ink-quiet); font-family:var(--matic-ui-font-body); font-weight:400; font-size:11px; letter-spacing:0; text-transform:none; }
 .tstat span { display:block; font-size:11px; color:var(--matic-ui-ink-quiet); margin-top:5px; }
 
-/* transcript */
-.transcript { flex:1; min-height:0; overflow-y:auto; padding:26px 26px 30px; display:flex; flex-direction:column; gap:20px; }
-.scene { display:none; flex-direction:column; gap:20px; }
+/* ── transcript ───────────────────────────────────────────────────────
+   §1. .transcript-turn is the wrapper one turn's parts go in. It is the
+   only thing in the transcript with vertical rhythm of its own: parts
+   inside a turn are close (10px), turns are far apart (22px), so an
+   answer reads as one object without a frame around it. */
+.transcript { flex:1; min-height:0; overflow-y:auto; padding:26px 26px 30px; display:flex; flex-direction:column; gap:22px; }
+.transcript-turn { display:flex; flex-direction:column; gap:10px; }
+.transcript-turn:last-child { padding-bottom:4px; }
+.scene { display:none; flex-direction:column; gap:22px; }
 [data-scene="first"] .scene-first, [data-scene="capability"] .scene-capability,
 [data-scene="offer"] .scene-offer, [data-scene="consent"] .scene-consent,
-[data-scene="citation"] .scene-citation, [data-scene="decline"] .scene-decline { display:flex; }
+[data-scene="citation"] .scene-citation, [data-scene="decline"] .scene-decline,
+[data-scene="review"] .scene-review { display:flex; }
 .scene-first { flex:1; justify-content:center; }
 .said { display:flex; justify-content:flex-end; }
 .said > div {
   max-width:60%; padding:11px 15px; font-size:var(--matic-ui-text-md); line-height:1.5;
-  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink);
-  border:var(--matic-ui-hair) solid var(--matic-ui-accent);
+  background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep);
+  border:var(--matic-ui-hair) solid var(--matic-ui-live-edge);
 }
-.reply { max-width:640px; padding:18px 20px; }
+.reply { max-width:660px; padding:18px 20px; }
 .reply p + p { margin-top:14px; }
-.stack { max-width:640px; display:flex; flex-direction:column; gap:14px; }
+.stack { max-width:660px; display:flex; flex-direction:column; gap:14px; }
 .actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 .actionbar { margin-top:16px; padding-top:15px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
 
-/* hub-dependent copy */
+/* ── turn note ────────────────────────────────────────────────────────
+   §1. A statement of fact about what did or did not happen. Drawn as a
+   margin annotation, not a message: a tick in the gutter, no frame, no
+   surface fill, set in the reply column so it reads as part of the
+   answer above it rather than as a new turn.
+
+   Two flavours and no more. The default states a fact. .unknown states
+   that the fact is not known, and takes the attention token — the only
+   difference between them, because the only difference in meaning is
+   whether the system can vouch for the sentence.
+
+   Sized for two lines at the reply column's 660px, which the longest
+   string in the app reaches. Anything longer is a reply, not a note. */
+.turn-note {
+  display:flex; gap:10px; align-items:baseline; max-width:660px;
+  font-size:var(--matic-ui-text-sm); line-height:1.5; color:var(--matic-ui-ink-muted);
+}
+.turn-note::before {
+  content:""; flex:none; width:10px; height:1px; margin-top:10px;
+  background:var(--matic-ui-line-strong);
+}
+.turn-note.unknown { color:var(--matic-ui-attn); }
+.turn-note.unknown::before { background:var(--matic-ui-attn); }
+.turn-note .ref { font-family:var(--matic-ui-font-mono); font-size:12.5px; }
+
+/* ── hub-dependent copy ── */
 .hubcopy { display:none; }
 [data-hub="ok"] .hub-ok, [data-hub="unreachable"] .hub-unreachable, [data-hub="none"] .hub-none { display:block; }
 .degraded {
@@ -307,40 +431,149 @@ a:hover { color:var(--matic-ui-accent); }
 .no-service { display:none; }
 [data-hub="unreachable"] .no-service-unreachable, [data-hub="none"] .no-service-none { display:block; }
 
-/* composer */
+/* ── composer ── */
 .composer { flex:none; padding:16px 26px 20px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); display:flex; flex-direction:column; gap:8px; }
 .composer .hint { display:none; font-size:11px; color:var(--matic-ui-ink-quiet); }
 [data-scene="offer"][data-offer="pending"] .composer .hint { display:block; }
 .composer .row { display:flex; gap:10px; align-items:stretch; }
 .send { min-height:44px; padding:0 22px; font-size:var(--matic-ui-text-md); }
 
-/* offer answer states */
+/* ── offer answer states ── */
 .offer-pending, .offer-answered, .after-accept, .after-decline { display:none; }
 [data-offer="pending"] .offer-pending { display:flex; }
 [data-offer="accepted"] .offer-answered, [data-offer="declined"] .offer-answered { display:flex; }
 [data-offer="accepted"] .after-accept, [data-offer="declined"] .after-decline { display:block; }
 [data-offer="accepted"] .answer-yes, [data-offer="declined"] .answer-no { display:inline; }
-.answer-yes, .answer-no { display:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.answer-yes, .answer-no { display:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
 
-/* capability answer, laid out */
+/* ── capability answer ── */
 .clause { display:flex; gap:12px; align-items:baseline; padding:9px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
 .clause span:first-child { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; color:var(--matic-ui-accent-deep); width:16px; flex:none; }
 .clause span + span { font-size:var(--matic-ui-text-md); line-height:1.5; }
 .aside-note { border-left:2px solid var(--matic-ui-accent); padding:2px 0 2px 14px; }
 .aside-note p { font-size:var(--matic-ui-text-sm); line-height:1.6; color:var(--matic-ui-ink-muted); }
-.why { display:flex; gap:12px; align-items:baseline; padding:11px 14px; background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-accent); }
+.why { max-width:660px; display:flex; gap:12px; align-items:baseline; padding:11px 14px; background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-accent); }
 .why > span:first-child { flex:none; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); }
 .why > span + span { font-size:var(--matic-ui-text-sm); line-height:1.5; }
 
-/* consent */
-.consent { background:var(--matic-ui-surface); }
+/* ── consent card ─────────────────────────────────────────────────────
+   §3b's answer, applied here. Mono means MACHINE-EXACT — a string a
+   machine would have to match character for character — and not
+   verbatim. So .consent-verbatim's paragraph stays in the body face
+   even though it is verbatim, and the verbatim property is carried
+   structurally instead: the card's frame, its head, and the fixed
+   hairline that marks a thing shown as written.
+
+   §4/D248, drawn as PROPOSED. .call-gloss is the plain-language line,
+   .raw the exact call below it, subordinate by size and position. This
+   needs the new field on the rendered contract. If the answer is no,
+   delete .call-gloss's element; .raw stands on its own. */
+.consent { max-width:660px; background:var(--matic-ui-surface); }
 .consent-head { display:flex; align-items:center; gap:10px; padding:11px 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.consent-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.consent-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
 .consent-head span { margin-left:auto; font-size:11px; color:var(--matic-ui-ink-quiet); }
 .consent-verbatim { padding:18px; }
 .consent-verbatim p { font-size:var(--matic-ui-text-md); line-height:1.6; }
+.consent-call {
+  margin-top:16px; padding-top:14px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line);
+  display:flex; gap:14px; align-items:flex-start;
+}
+.consent-call > .tr-label { padding:0; width:104px; }
+.call-gloss { font-size:var(--matic-ui-text-sm); line-height:1.5; }
+.call-gloss .hint { color:var(--matic-ui-ink-quiet); }
 
-/* citation */
+/* Machine-exact strings. §1's own example, and the one name every
+   mono run in the panel should carry. */
+.raw {
+  font-family:var(--matic-ui-font-mono); font-size:12px; line-height:1.5;
+  color:var(--matic-ui-ink-muted); margin-top:4px; overflow-wrap:anywhere;
+}
+
+/* ── ticket review card ───────────────────────────────────────────────
+   §1's highest-stakes surface. The one screen through which user data
+   leaves the machine.
+
+   §1(a), both halves, drawn with one mark each and stated in a legend
+   in the card head:
+     .tr-field  a filled input box  — the user's, editable
+     .tr-fixed  a 2px left hairline — the model's, sent as written
+   Only the problem description and the contact detail are .tr-field.
+   The case note and the checks are .tr-fixed, which is the answer to
+   the two-authors risk: the user cannot retype the model's words, so
+   the ticket has one author per field and the card says which.
+
+   Every field that will be sent is present. Nothing is hidden to tidy
+   the grid — D128. The card sits on surface-2 so it reads as a
+   document rather than a message, and its ground is why dark's
+   ink-quiet was retuned.
+
+   §1(b). .tr-caveat is the single place the "no email is sent" fact is
+   stated — D245. Restyled here, not removed: it moved to the foot with
+   an attention rule and full-strength ink, so it is the last thing
+   read before the send button. */
+.ticket-review { max-width:660px; background:var(--matic-ui-surface-2); border-color:var(--matic-ui-line-strong); }
+.tr-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:12px 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.tr-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
+.tr-legends { margin-left:auto; display:flex; align-items:center; gap:14px; }
+.tr-legend { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--matic-ui-ink-quiet); }
+.tr-swatch-edit { width:12px; height:12px; flex:none; background:var(--matic-ui-surface); border:1px solid var(--matic-ui-live-edge); }
+.tr-swatch-fixed { width:2px; height:12px; flex:none; background:var(--matic-ui-line-strong); }
+.tr-grid { display:grid; grid-template-columns:118px minmax(0,1fr); gap:0 16px; align-items:start; padding:4px 18px 0; }
+.tr-label {
+  padding:16px 0 0; font-size:11px; line-height:1.4; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--matic-ui-ink-quiet);
+}
+.tr-value { padding:16px 0 0; }
+.tr-value.ruled { border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.tr-field {
+  padding:9px 12px; min-height:44px; font-size:var(--matic-ui-text-md); line-height:1.5;
+  background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-live-edge);
+  caret-color:var(--matic-ui-live);
+}
+.tr-field:hover { border-color:var(--matic-ui-live); }
+.tr-field:focus-visible { border-color:var(--matic-ui-live); outline-offset:0; }
+.tr-hint { margin-top:5px; font-size:11px; color:var(--matic-ui-ink-quiet); }
+.tr-fixed { border-left:2px solid var(--matic-ui-line-strong); padding-left:14px; }
+.tr-fixed p { font-size:var(--matic-ui-text-md); line-height:1.55; }
+.tr-fixed .check { display:flex; gap:10px; align-items:baseline; font-size:var(--matic-ui-text-md); line-height:1.5; padding:2px 0; }
+.tr-fixed .check::before { content:""; flex:none; width:7px; height:1px; margin-top:11px; background:var(--matic-ui-line-strong); }
+.tr-caveat {
+  margin:20px 18px 0; padding:12px 14px;
+  background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-attn);
+}
+.tr-caveat p { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink); }
+.tr-caveat b { font-weight:500; }
+.tr-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:16px 18px 18px; }
+
+/* ── to-do card ───────────────────────────────────────────────────────
+   §1. Checks the USER has to carry out. A user read straight past these
+   when they were grey system text, so they are drawn as an object:
+   framed, numbered, each instruction at body size in full ink with its
+   reason subordinate under it. The numbers are boxed because they are
+   an order to work through, not decoration. */
+.todo-card { max-width:660px; padding:16px 20px 18px; }
+.todo-head { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
+.todo-note { font-size:12px; color:var(--matic-ui-ink-quiet); margin:4px 0 12px; }
+.todo-row { display:flex; gap:14px; align-items:flex-start; padding:11px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.todo-n {
+  flex:none; width:24px; height:24px; display:grid; place-items:center;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px;
+  color:var(--matic-ui-live-deep); border:1px solid var(--matic-ui-live-edge);
+}
+.todo-body { min-width:0; }
+.todo-do { font-size:var(--matic-ui-text-md); line-height:1.5; }
+.todo-why { font-size:12px; line-height:1.5; color:var(--matic-ui-ink-quiet); margin-top:2px; }
+.todo-next {
+  margin-top:14px; padding-top:13px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line-strong);
+  display:flex; gap:14px; align-items:baseline;
+}
+.todo-next > span:first-child {
+  flex:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet);
+}
+.todo-next > span + span { font-size:var(--matic-ui-text-sm); line-height:1.5; }
+
+/* ── citation ── */
 .citation { padding:16px 20px 18px; background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-line); border-top:0; }
 .citation .from { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-accent-deep); display:block; margin-bottom:10px; }
 .citation .body { font-size:var(--matic-ui-text-md); line-height:1.6; }
@@ -348,7 +581,7 @@ a:hover { color:var(--matic-ui-accent); }
 .citation .src span:last-child { margin-left:auto; }
 .follow { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }
 
-/* inspector */
+/* ── inspector ── */
 .inspector { display:none; flex-direction:column; background:var(--matic-ui-ground); }
 [data-inspector="on"] .inspector { display:flex; }
 [data-variant="overlay"] .inspector {
@@ -356,18 +589,18 @@ a:hover { color:var(--matic-ui-accent); }
   border-left:var(--matic-ui-hair) solid var(--matic-ui-line-strong); box-shadow:var(--matic-ui-shadow-lg);
 }
 [data-variant="inline"] .inspector { width:392px; flex:none; border-left:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.scrim { display:none; position:absolute; inset:0; background:rgba(20,24,28,0.22); }
+.scrim { display:none; position:absolute; inset:0; background:rgba(20,24,28,0.22); z-index:1; }
 [data-inspector="on"][data-variant="overlay"] .scrim { display:block; }
-.ins-head { flex:none; display:flex; align-items:center; gap:10px; height:44px; padding:0 12px 0 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.ins-head { flex:none; display:flex; align-items:center; gap:10px; height:46px; padding:0 12px 0 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
 .ins-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--matic-ui-ink-muted); }
 .ins-body { flex:1; min-height:0; overflow-y:auto; padding:18px; }
 .step { border-top:var(--matic-ui-hair) solid var(--matic-ui-line); padding:14px 0; display:flex; gap:12px; align-items:baseline; }
 .step > b { width:88px; flex:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
 .step > div { flex:1; min-width:0; }
 .step .plain { font-size:var(--matic-ui-text-sm); line-height:1.5; overflow-wrap:anywhere; }
-details > summary { cursor:pointer; list-style:none; font-size:11px; color:var(--matic-ui-accent-deep); padding:4px 0; }
+details > summary { cursor:pointer; list-style:none; font-size:11px; color:var(--matic-ui-live-deep); padding:4px 0; }
 details > summary::-webkit-details-marker { display:none; }
-details > summary:hover { color:var(--matic-ui-accent); }
+details > summary:hover { color:var(--matic-ui-live); }
 details[open] > summary .more, details:not([open]) > summary .less { display:none; }
 pre {
   margin:8px 0 0; padding:12px; font-family:var(--matic-ui-font-mono); font-size:11.5px; line-height:1.6;
@@ -381,476 +614,716 @@ pre {
   font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; color:var(--matic-ui-ink-muted);
   border:var(--matic-ui-hair) solid var(--matic-ui-line); padding:8px 12px;
 }
-.devlog > summary:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-
-/* per-scene inspector payloads */
+.devlog > summary:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); }
 .ins-set { display:none; }
 [data-scene="consent"] .ins-consent, [data-scene="decline"] .ins-decline { display:block; }
+[data-scene="review"] .ins-review { display:block; }
 [data-scene="first"] .ins-default, [data-scene="capability"] .ins-default,
 [data-scene="offer"] .ins-default, [data-scene="citation"] .ins-default { display:block; }
+</style>
 
-/* the note */
-.notes { width:1160px; flex:none; padding:20px 22px; }
-.notegrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px 28px; }
-.notegrid h4 { font-size:var(--matic-ui-text-lg); margin-bottom:4px; }
-.notegrid p { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }
+<!-- Sheet chrome only. NOT part of the delivery and not for copying —
+     it styles the captions between artboards and nothing inside one. -->
+<style id="sheet-only">
+.sheet-head { display:flex; align-items:flex-end; gap:32px; flex-wrap:wrap; border-bottom:1px solid var(--matic-ui-line); padding-bottom:14px; }
+.sheet-kicker { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
+.sheet-note { max-width:760px; font-size:var(--matic-ui-text-sm); line-height:1.6; color:var(--matic-ui-ink-muted); }
+.ab { display:flex; flex-direction:column; gap:12px; }
+.ab-cap { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; max-width:1160px; }
+.ab-n { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.1em; color:var(--matic-ui-live-deep); }
+.ab-t { font-family:var(--matic-ui-font-head); font-weight:600; font-size:17px; }
+.ab-d { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }
+.ab-d code, .sheet-note code { font-family:var(--matic-ui-font-mono); font-size:12px; }
+.ab-full .window { height:auto; }
+.ab-full .transcript { overflow:visible; }
+.ab-pair { display:flex; gap:40px; align-items:flex-start; flex-wrap:wrap; }
+.sheet-foot { max-width:900px; display:flex; flex-direction:column; gap:14px; padding-top:8px; border-top:1px solid var(--matic-ui-line); }
+.sheet-foot h4 { font-size:var(--matic-ui-text-lg); }
+.sheet-foot p { font-size:var(--matic-ui-text-sm); line-height:1.6; color:var(--matic-ui-ink-muted); }
+.sheet-foot code { font-family:var(--matic-ui-font-mono); font-size:12px; }
 </style>
 </head>
 <body>
 
-<header class="harness-head">
+<header class="sheet-head">
   <div style="margin-right:auto">
-    <div class="kicker">Design harness — offline, single file</div>
-    <h1 style="font-size:26px">Matic Desk — end-user panel</h1>
+    <div class="sheet-kicker">Re-export &middot; 2026-09-10 &middot; buildable</div>
+    <h1 style="font-size:30px">Matic Desk &mdash; end-user panel</h1>
   </div>
-  <div style="display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap">
-    <div>
-      <div class="eyebrow">Theme</div>
-      <div class="segrow">
-        <button class="seg" data-set="theme:light">Light</button>
-        <button class="seg" data-set="theme:dark">Dark</button>
-      </div>
-    </div>
-    <div>
-      <div class="eyebrow">Inspector opens as</div>
-      <div class="segrow">
-        <button class="seg" data-set="variant:overlay">A · drawer over</button>
-        <button class="seg" data-set="variant:inline">B · panel beside</button>
-      </div>
-    </div>
-  </div>
+  <p class="sheet-note">Every decision is a class rule in the first style block. Nothing is fetched, nothing is scripted, no webfont is requested, nothing is templated &mdash; turn the network off and nothing changes. The artboards below are reference artwork: each is a real <code>.window</code> carrying its own state attributes, so the selectors that drive them are the ones the app already uses.</p>
 </header>
 
-<div class="harness-body">
+<!-- ══ 1 · the review card, light ══════════════════════════════════════ -->
+<section class="ab ab-full">
+  <div class="ab-cap">
+    <span class="ab-n">01</span>
+    <span class="ab-t">The ticket review card</span>
+    <span class="ab-d">&sect;1's highest-stakes surface, light. Legends in the head, one mark per authorship, caveat at the foot.</span>
+  </div>
 
-  <nav class="rail-h">
-    <div>
-      <div class="eyebrow">Conversation states</div>
-      <div class="railgroup">
-        <button class="rbtn" data-set="scene:first">First run, empty</button>
-        <button class="rbtn" data-set="scene:capability">Long capability answer</button>
-        <button class="rbtn" data-set="scene:offer">Offer awaiting an answer</button>
-        <button class="rbtn" data-set="scene:consent">Consent card</button>
-        <button class="rbtn" data-set="scene:citation">Answer with a citation</button>
-        <button class="rbtn" data-set="scene:decline">A decline</button>
-      </div>
+  <div class="window bp" data-theme="light" data-variant="overlay" data-scene="review" data-hub="ok" data-band="none" data-inspector="off" data-tickets="open">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+
+    <div class="titlebar">
+      <span></span>
+      <span class="name">Matic Desk</span>
+      <span>
+        <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+      </span>
     </div>
-    <div>
-      <div class="eyebrow">Shell</div>
-      <div class="railgroup">
-        <button class="rbtn" data-toggle="inspector">Inspector</button>
-        <button class="rbtn" data-set="band:machine">Machine view</button>
-        <button class="rbtn" data-set="band:tickets">Tickets</button>
-      </div>
-    </div>
-    <div>
-      <div class="eyebrow">Connection states</div>
-      <div class="railgroup">
-        <button class="rbtn" data-set="hub:ok">1 · Normal</button>
-        <button class="rbtn" data-set="hub:unreachable">2 · Can't reach it</button>
-        <button class="rbtn" data-set="hub:none">3 · None connected</button>
-      </div>
-    </div>
-    <p style="font-size:11px; line-height:1.5; color:var(--matic-ui-ink-quiet)">All names, addresses and ticket references are placeholders.</p>
-  </nav>
 
-  <div class="stage">
-    <div class="window bp">
-      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-
-      <div class="titlebar">
-        <span style="width:9px; height:9px; border:1px solid var(--matic-ui-line-strong); flex:none"></span>
-        <span class="name">Matic Desk</span>
-        <span style="margin-left:auto; display:flex">
-          <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
-        </span>
-      </div>
-
-      <div class="panelbody">
-
-        <!-- ── left rail ── -->
-        <aside class="rail">
-          <div class="brand">Matic Desk</div>
-
-          <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:6px">
-            <!-- avatar assets mount here, as delivered. Styled around, never on. -->
-            <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
-            <div style="text-align:center">
-              <div class="status-head hubcopy hub-ok">Ready when you are</div>
-              <div class="status-head hubcopy hub-unreachable">Ready, with limits</div>
-              <div class="status-head hubcopy hub-none">Ready when you are</div>
-              <div class="status-sub hubcopy hub-ok">Nothing running</div>
-              <div class="status-sub hubcopy hub-unreachable">Some help unavailable</div>
-              <div class="status-sub hubcopy hub-none">This machine only</div>
+    <div class="panelbody">
+      <aside class="rail">
+        <div class="brand">Matic Desk</div>
+        <div class="rail-stack">
+          <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+          <div>
+            <div class="status-head hubcopy hub-ok">Ready when you are</div>
+            <div class="status-sub hubcopy hub-ok">Nothing in progress</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
+          <div class="service">
+            <span class="dot"></span>
+            <div>
+              <div class="service-title hubcopy hub-ok">Everything I need is available</div>
+              <div class="service-detail hubcopy hub-ok">Company guidance and the service desk are both available. Checked a moment ago.</div>
             </div>
           </div>
-
-          <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
-            <div class="service">
-              <span class="dot"></span>
-              <div>
-                <div class="service-title hubcopy hub-ok">Everything I need is available</div>
-                <div class="service-title hubcopy hub-unreachable">Working with less than usual</div>
-                <div class="service-title hubcopy hub-none">Working on this machine only</div>
-                <div class="service-detail hubcopy hub-ok">Company guidance and the service desk are both available. Checked a moment ago.</div>
-                <div class="service-detail hubcopy hub-unreachable">I can't reach your company's guidance or the service desk right now. Checked a moment ago.</div>
-                <div class="service-detail hubcopy hub-none">No company guidance or service desk is set up here. That's normal for this machine.</div>
-              </div>
-            </div>
-            <div style="display:flex; gap:8px">
-              <button class="btn btn-secondary" style="flex:1; justify-content:flex-start; font-size:12px; padding:7px 10px">Settings</button>
-              <button class="btn btn-secondary" data-toggle="theme" title="Switch between light and dark" aria-label="Switch between light and dark" style="width:34px; padding:0; flex:none">
-                <span style="position:relative; width:14px; height:14px; display:block; border:1px solid currentColor; border-radius:50%; overflow:hidden">
-                  <span id="themeGlyph" style="position:absolute; inset:0; background:currentColor; clip-path:inset(0 50% 0 0)"></span>
-                </span>
-              </button>
-            </div>
-          </div>
-        </aside>
-
-        <!-- ── conversation ── -->
-        <main class="main">
-
-          <div class="utility">
-            <button class="band-trigger" data-set="band:machine">
-              <span class="glyph-machine"></span>
-              <span>What I can see about this machine</span>
-              <span class="chev">&#8964;</span>
-            </button>
-            <button class="band-trigger" data-set="band:tickets">
-              <span class="glyph-ticket"></span>
-              <span>Tickets you've opened</span>
-              <span class="count">3</span>
-              <span class="chev">&#8964;</span>
-            </button>
-            <button class="inspector-trigger" data-toggle="inspector" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
-              <span class="crosshair"></span>
+          <div style="display:flex; gap:8px">
+            <button class="btn btn-secondary" style="flex:1; justify-content:flex-start; font-size:12px; padding:7px 10px">Settings</button>
+            <button class="btn btn-secondary" title="Switch between light and dark" aria-label="Switch between light and dark" style="width:34px; padding:0; flex:none">
+              <span style="position:relative; width:14px; height:14px; display:block; border:1px solid currentColor; border-radius:50%; overflow:hidden">
+                <span style="position:absolute; inset:0; background:currentColor; clip-path:inset(0 50% 0 0)"></span>
+              </span>
             </button>
           </div>
+        </div>
+      </aside>
 
-          <!-- machine view, collapsed by default -->
-          <div class="band band-machine">
-            <div class="band-head">
-              <div class="band-title">Here's what I can see</div>
-              <div class="band-note" style="margin-left:auto">Checked a moment ago</div>
-            </div>
-            <dl class="mgrid">
-              <div class="mrow"><dt>This computer</dt><dd>PLACEHOLDER-PC</dd></div>
-              <div class="mrow"><dt>Signed in as</dt><dd>placeholder.user</dd></div>
-              <div class="mrow"><dt>Printing</dt><dd>Running normally</dd></div>
-              <div class="mrow"><dt>Sound</dt><dd>Running normally</dd></div>
-              <div class="mrow"><dt>Network adapter</dt><dd>Placeholder Gigabit Ethernet Controller</dd></div>
-              <div class="mrow"><dt>Network</dt><dd>Connected, address given out automatically</dd></div>
-            </dl>
-          </div>
+      <main class="main">
+        <div class="utility">
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span>What I can see about this machine</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-ticket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18v4a2 2 0 000 4v3H3v-3a2 2 0 000-4V7z"></path><path d="M13 7v10"></path></svg></span>
+            <span>Tickets I've filed from this machine</span>
+            <span class="count">3</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="inspector-trigger" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+            <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+            <span class="ins-label">What I did</span>
+          </button>
+        </div>
 
-          <!-- tickets, collapsed by default -->
-          <div class="band band-tickets">
-            <div class="band-head">
-              <div class="band-title"><span class="tickets-title-open">Still being worked on</span><span class="tickets-title-closed">Recently closed</span></div>
-              <div class="segrow" style="margin-left:auto">
-                <button class="filter" data-set="tickets:open">Still open</button>
-                <button class="filter" data-set="tickets:closed">Closed</button>
-              </div>
-            </div>
-            <div class="tset tset-open">
-              <div class="trow">
-                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened Monday</span></div>
-                <div class="tbody"><b>Dock stopped driving the second screen</b><span>Desktop support asked whether the dock's light is on when both screens are blank.</span></div>
-                <div class="tstat"><b class="you">Waiting on you</b><span>Updated yesterday</span></div>
-              </div>
-              <div class="trow">
-                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened last week</span></div>
-                <div class="tbody"><b>Mailbox move to the new server</b><span>Scheduled for the next migration window. No action needed from you.</span></div>
-                <div class="tstat"><b>With desktop support</b><span>Updated 3 days ago</span></div>
-              </div>
-              <div class="trow">
-                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened last week</span></div>
-                <div class="tbody"><b>Files in the shared folder not syncing</b><span>Someone has picked it up and is checking the sync logs I attached.</span></div>
-                <div class="tstat"><b>Being looked at</b><span>Updated 4 days ago</span></div>
-              </div>
-            </div>
-            <div class="tset tset-closed">
-              <div class="trow">
-                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened 2 weeks ago</span></div>
-                <div class="tbody"><b>Printer queue kept stalling</b><span>Restarting the printing service cleared it. Closed after you confirmed it was printing again.</span></div>
-                <div class="tstat"><b class="closed">Closed</b><span>Closed 12 days ago</span></div>
-              </div>
-              <div class="trow">
-                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened 3 weeks ago</span></div>
-                <div class="tbody"><b>Couldn't reach the intranet from home</b><span>Turned out to be the connection software version. Desktop support upgraded it remotely.</span></div>
-                <div class="tstat"><b class="closed">Closed</b><span>Closed 18 days ago</span></div>
-              </div>
-            </div>
-            <div class="band-note" style="margin-top:12px">Your five most recent. Anything older lives in the service desk.</div>
-          </div>
+        <div class="transcript">
+          <div class="scene scene-review">
 
-          <!-- state 2 and 3: the assistant says what it can't do, without blaming itself -->
-          <div class="degraded degraded-unreachable">
-            <span class="tagword">Right now</span>
-            <p>I can't reach your company's guidance or the service desk at the moment, so I can only go on what I can see on this machine. I'll tell you as soon as that changes.</p>
-          </div>
-          <div class="degraded degraded-none">
-            <span class="tagword">On this machine</span>
-            <p>There's no company guidance or service desk connected here, so I'll stick to what I can check and fix on this machine itself.</p>
-          </div>
-
-          <div class="transcript">
-
-            <!-- first run -->
-            <div class="scene scene-first" style="max-width:560px; margin:0 auto; text-align:center; gap:22px">
-              <div>
-                <h2 style="font-size:var(--matic-ui-text-2xl)">Tell me what's gone wrong</h2>
-                <p style="line-height:1.6; color:var(--matic-ui-ink-muted); margin-top:8px">Plain words are fine. I'll look at this machine first, tell you what I find, and ask before I change anything.</p>
-              </div>
-              <div style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center">
-                <button class="btn btn-secondary" style="font-family:var(--matic-ui-font-body); font-weight:400; font-size:var(--matic-ui-text-sm)">My printer won't print</button>
-                <button class="btn btn-secondary" style="font-family:var(--matic-ui-font-body); font-weight:400; font-size:var(--matic-ui-text-sm)">I can't get online</button>
-                <button class="btn btn-secondary" style="font-family:var(--matic-ui-font-body); font-weight:400; font-size:var(--matic-ui-text-sm)">A screen has stopped working</button>
-              </div>
-            </div>
-
-            <!-- the long generated answer, laid out. Words and order are untouched;
-                 the layout breaks it at the semicolons the catalog already puts in. -->
-            <div class="scene scene-capability">
-              <div class="said"><div>What are your capabilities</div></div>
+            <div class="transcript-turn">
+              <div class="said"><div>it still won't print after that. can someone look at it</div></div>
               <div class="reply bp">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                <p style="margin-bottom:14px">Glad you asked. On this machine I can step in when</p>
-                <div style="margin-bottom:16px">
-                  <div class="clause"><span>01</span><span>a printer or another background Windows service has got stuck and needs a nudge</span></div>
-                  <div class="clause"><span>02</span><span>websites or company servers won't load because this machine is remembering old addresses</span></div>
-                  <div class="clause"><span>03</span><span>the network connection has dropped out or this machine has lost its address</span></div>
-                  <div class="clause"><span>04</span><span>and the network adapter itself needs switching off and on again</span></div>
-                </div>
-                <div class="aside-note" style="margin-bottom:14px">
-                  <p>I'll always show you exactly what I'm about to do and wait for you to approve it &mdash; nothing changes until you say so. One of those &mdash; disable and re-enable a network adapter &mdash; you'll notice happen, so I'll flag it before asking.</p>
-                </div>
-                <p>Anything beyond that list I can't do myself &mdash; but I can look for your company's guidance on it, or hand it to IT with everything I've already checked.</p>
+                <p>Then this needs a person. Here is the whole ticket before it goes anywhere &mdash; read it, change your own words if I've got them wrong, and send it when you're happy.</p>
               </div>
-            </div>
 
-            <!-- an offer that can be answered -->
-            <div class="scene scene-offer">
-              <div class="said"><div>please take another look</div></div>
-              <div class="stack">
-                <div class="reply bp">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>I can't fix this one from here &mdash; it needs desktop support. I can open a ticket for you and include what I've already checked. Would you like me to?</p>
-                  <div class="actionbar">
-                    <div class="actions offer-pending">
-                      <button class="btn btn-primary" data-set="offer:accepted" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Yes, open a ticket</button>
-                      <button class="btn btn-secondary" data-set="offer:declined" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">No thanks</button>
-                      <details style="margin-left:2px">
-                        <summary><span class="more">What would you send?</span><span class="less">Hide what I'd send</span></summary>
-                        <div style="margin-top:10px; padding:14px; border:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface); width:100%">
-                          <div style="font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:8px">What I'd send with it</div>
-                          <div style="display:flex; flex-direction:column; gap:6px; font-size:var(--matic-ui-text-sm); line-height:1.45; color:var(--matic-ui-ink-muted)">
-                            <span>What you told me, in your words</span>
-                            <span>What I checked on this machine, and what I found</span>
-                            <span>Anything I tried, and whether it helped</span>
-                            <span>This machine's name and who is signed in</span>
-                          </div>
-                        </div>
-                      </details>
-                    </div>
-                    <div class="actions offer-answered">
-                      <span class="answer-yes">You said yes</span>
-                      <span class="answer-no">You said no thanks</span>
-                      <button class="btn btn-ghost" data-set="offer:pending">Change my answer</button>
+              <div class="ticket-review bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div class="tr-head">
+                  <b>The ticket, before it is sent</b>
+                  <span class="tr-legends">
+                    <span class="tr-legend"><span class="tr-swatch-edit"></span>yours to change</span>
+                    <span class="tr-legend"><span class="tr-swatch-fixed"></span>sent as written</span>
+                  </span>
+                </div>
+
+                <div class="tr-grid">
+                  <div class="tr-label">What's wrong</div>
+                  <div class="tr-value">
+                    <div class="tr-field">Printer just sits there. Nothing comes out and the queue keeps growing.</div>
+                    <div class="tr-hint">Your words. Change anything here.</div>
+                  </div>
+
+                  <div class="tr-label">Who to reach</div>
+                  <div class="tr-value">
+                    <div class="tr-field">placeholder.user@example.com &middot; desk 4B</div>
+                  </div>
+
+                  <div class="tr-label ruled" style="grid-column:1/-1; height:16px; padding:0"></div>
+
+                  <div class="tr-label">Case note</div>
+                  <div class="tr-value ruled">
+                    <div class="tr-fixed">
+                      <p>Printing service was found stopped and restarted with the user's approval at 14:06. The queue cleared but the job failed again within a minute, so the fault is not the service state alone. The user has not changed anything else on the machine.</p>
+                      <div class="tr-hint">Written by me. Sent exactly as it reads.</div>
                     </div>
                   </div>
+
+                  <div class="tr-label">Already checked</div>
+                  <div class="tr-value ruled">
+                    <div class="tr-fixed">
+                      <div class="check">Printing service &mdash; was stopped, restarted at 14:06, running now.</div>
+                      <div class="check">Print queue &mdash; 4 jobs, cleared, then one failed again.</div>
+                      <div class="check">Printer driver &mdash; present, version matches the model.</div>
+                      <div class="check">Network path to the printer &mdash; reachable.</div>
+                    </div>
+                  </div>
+
+                  <div class="tr-label">Category</div>
+                  <div class="tr-value ruled">
+                    <div style="font-size:var(--matic-ui-text-md); line-height:1.5">Needs a person</div>
+                    <div class="raw">needs_human_judgement</div>
+                  </div>
+
+                  <div class="tr-label">Goes to</div>
+                  <div class="tr-value ruled">
+                    <div style="font-size:var(--matic-ui-text-md); line-height:1.5">Desktop support, through the service desk</div>
+                    <div class="raw">queue=desktop_support</div>
+                  </div>
+
+                  <div class="tr-label">This machine</div>
+                  <div class="tr-value ruled">
+                    <div class="raw" style="margin-top:0; font-size:13px; color:var(--matic-ui-ink)">PLACEHOLDER-PC &middot; placeholder.user</div>
+                    <div class="tr-hint">Goes with the ticket so nobody has to ask.</div>
+                  </div>
                 </div>
-                <div class="reply bp after-accept">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>Done &mdash; the ticket is with desktop support, and everything I checked is attached to it. Your reference is <b style="font-family:var(--matic-ui-font-mono); font-weight:400; font-size:var(--matic-ui-text-sm)">PLACEHOLDER-0000</b>. If it's still a problem, tell me and I'll take another look.</p>
+
+                <div class="tr-caveat">
+                  <p>This is stored on the service desk for IT to pick up. <b>No email is sent in this build</b>, so nobody is alerted automatically.</p>
                 </div>
-                <div class="reply bp after-decline">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>No problem. Nothing has been sent anywhere. Say the word if you change your mind and I'll open it with everything I've already checked.</p>
+
+                <div class="tr-actions">
+                  <button class="btn btn-primary">Send this to the service desk</button>
+                  <button class="btn btn-secondary">Don't send it</button>
+                </div>
+              </div>
+
+              <div class="turn-note">Stored as <span class="ref">MD-1007</span>. The card above says what that does and does not do.</div>
+
+              <div class="todo-card bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div class="todo-head">Three things for you to do</div>
+                <div class="todo-note">I can't do these from here.</div>
+                <div class="todo-row">
+                  <span class="todo-n">1</span>
+                  <div class="todo-body">
+                    <div class="todo-do">Print a test page from the printer's own front panel.</div>
+                    <div class="todo-why">Tells desktop support whether the printer or this machine is at fault.</div>
+                  </div>
+                </div>
+                <div class="todo-row">
+                  <span class="todo-n">2</span>
+                  <div class="todo-body">
+                    <div class="todo-do">Check the printer is not showing a paper or toner warning.</div>
+                    <div class="todo-why">I can't see the panel from here.</div>
+                  </div>
+                </div>
+                <div class="todo-row">
+                  <span class="todo-n">3</span>
+                  <div class="todo-body">
+                    <div class="todo-do">Leave the printer switched on for the next hour.</div>
+                    <div class="todo-why">Desktop support may want to reach it remotely.</div>
+                  </div>
+                </div>
+                <div class="todo-next">
+                  <span>Next step</span>
+                  <span>Desktop support will pick MD-1007 up. Tell me what the test page does and I'll add it to the ticket.</span>
                 </div>
               </div>
             </div>
 
-            <!-- consent: the card is ours, the words inside are the host's, verbatim -->
-            <div class="scene scene-consent">
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="row">
+            <input class="input" placeholder="Describe the problem &mdash; e.g. &ldquo;my printer isn't working&rdquo;">
+            <button class="btn btn-primary send">Send</button>
+          </div>
+        </div>
+        <div class="scrim"></div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 2 · the review card, dark ═══════════════════════════════════════ -->
+<section class="ab ab-full">
+  <div class="ab-cap">
+    <span class="ab-n">02</span>
+    <span class="ab-t">The same card, dark</span>
+    <span class="ab-d">The card's ground is surface-2, which is why dark's <code>--matic-ui-ink-quiet</code> was retuned: the old value gave 4.16:1 here.</span>
+  </div>
+
+  <div class="window bp" data-theme="dark" data-variant="overlay" data-scene="review" data-hub="ok" data-band="none" data-inspector="off" data-tickets="open">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="titlebar">
+      <span></span>
+      <span class="name">Matic Desk</span>
+      <span>
+        <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+      </span>
+    </div>
+    <div class="panelbody">
+      <aside class="rail">
+        <div class="brand">Matic Desk</div>
+        <div class="rail-stack">
+          <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+          <div>
+            <div class="status-head hubcopy hub-ok">Ready when you are</div>
+            <div class="status-sub hubcopy hub-ok">Nothing in progress</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
+          <div class="service">
+            <span class="dot"></span>
+            <div>
+              <div class="service-title hubcopy hub-ok">Everything I need is available</div>
+              <div class="service-detail hubcopy hub-ok">Company guidance and the service desk are both available. Checked a moment ago.</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn btn-secondary" style="flex:1; justify-content:flex-start; font-size:12px; padding:7px 10px">Settings</button>
+            <button class="btn btn-secondary" title="Switch between light and dark" aria-label="Switch between light and dark" style="width:34px; padding:0; flex:none">
+              <span style="position:relative; width:14px; height:14px; display:block; border:1px solid currentColor; border-radius:50%; overflow:hidden">
+                <span style="position:absolute; inset:0; background:currentColor; clip-path:inset(0 0 0 50%)"></span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="utility">
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span>What I can see about this machine</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-ticket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18v4a2 2 0 000 4v3H3v-3a2 2 0 000-4V7z"></path><path d="M13 7v10"></path></svg></span>
+            <span>Tickets I've filed from this machine</span>
+            <span class="count">3</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="inspector-trigger" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+            <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+            <span class="ins-label">What I did</span>
+          </button>
+        </div>
+        <div class="transcript">
+          <div class="scene scene-review">
+            <div class="transcript-turn">
+              <div class="said"><div>it still won't print after that. can someone look at it</div></div>
+              <div class="ticket-review bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div class="tr-head">
+                  <b>The ticket, before it is sent</b>
+                  <span class="tr-legends">
+                    <span class="tr-legend"><span class="tr-swatch-edit"></span>yours to change</span>
+                    <span class="tr-legend"><span class="tr-swatch-fixed"></span>sent as written</span>
+                  </span>
+                </div>
+                <div class="tr-grid">
+                  <div class="tr-label">What's wrong</div>
+                  <div class="tr-value">
+                    <div class="tr-field">Printer just sits there. Nothing comes out and the queue keeps growing.</div>
+                    <div class="tr-hint">Your words. Change anything here.</div>
+                  </div>
+                  <div class="tr-label">Who to reach</div>
+                  <div class="tr-value">
+                    <div class="tr-field">placeholder.user@example.com &middot; desk 4B</div>
+                  </div>
+                  <div class="tr-label ruled" style="grid-column:1/-1; height:16px; padding:0"></div>
+                  <div class="tr-label">Case note</div>
+                  <div class="tr-value ruled">
+                    <div class="tr-fixed">
+                      <p>Printing service was found stopped and restarted with the user's approval at 14:06. The queue cleared but the job failed again within a minute, so the fault is not the service state alone.</p>
+                      <div class="tr-hint">Written by me. Sent exactly as it reads.</div>
+                    </div>
+                  </div>
+                  <div class="tr-label">Category</div>
+                  <div class="tr-value ruled">
+                    <div style="font-size:var(--matic-ui-text-md); line-height:1.5">Needs a person</div>
+                    <div class="raw">needs_human_judgement</div>
+                  </div>
+                  <div class="tr-label">This machine</div>
+                  <div class="tr-value ruled">
+                    <div class="raw" style="margin-top:0; font-size:13px; color:var(--matic-ui-ink)">PLACEHOLDER-PC &middot; placeholder.user</div>
+                    <div class="tr-hint">Goes with the ticket so nobody has to ask.</div>
+                  </div>
+                </div>
+                <div class="tr-caveat">
+                  <p>This is stored on the service desk for IT to pick up. <b>No email is sent in this build</b>, so nobody is alerted automatically.</p>
+                </div>
+                <div class="tr-actions">
+                  <button class="btn btn-primary">Send this to the service desk</button>
+                  <button class="btn btn-secondary">Don't send it</button>
+                </div>
+              </div>
+              <div class="turn-note">Stored as <span class="ref">MD-1007</span>. The card above says what that does and does not do.</div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="row">
+            <input class="input" placeholder="Describe the problem">
+            <button class="btn btn-primary send">Send</button>
+          </div>
+        </div>
+        <div class="scrim"></div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3 · turn notes ══════════════════════════════════════════════════ -->
+<section class="ab">
+  <div class="ab-cap">
+    <span class="ab-n">03</span>
+    <span class="ab-t">Turn notes &mdash; every string in the app today</span>
+    <span class="ab-d">Two flavours. The default states a fact; <code>.unknown</code> states that the fact is not known. Shown at the reply column's real width.</span>
+  </div>
+  <div class="ab-pair">
+    <div class="bp" data-theme="light" style="width:700px; padding:20px 22px; background:var(--matic-ui-ground); display:flex; flex-direction:column; gap:9px">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+      <div class="turn-note">You said yes.</div>
+      <div class="turn-note">Sent by you.</div>
+      <div class="turn-note">Nothing was filed.</div>
+      <div class="turn-note">No email went out.</div>
+      <div class="turn-note">Not approved &mdash; nothing was changed.</div>
+      <div class="turn-note">Cancelled &mdash; nothing left this machine.</div>
+      <div class="turn-note">The service desk is reachable again.</div>
+      <div class="turn-note">Stored as <span class="ref">MD-1007</span>. The card above says what that does and does not do.</div>
+      <div class="turn-note unknown">That stopped part-way. I don't know how far it got.</div>
+      <div class="turn-note unknown">Whether it was stored is unknown.</div>
+      <div class="turn-note unknown">That needs the privileged half of this application, which isn't running. Nothing was changed.</div>
+    </div>
+    <div class="bp" data-theme="dark" style="width:700px; padding:20px 22px; background:var(--matic-ui-ground); display:flex; flex-direction:column; gap:9px">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+      <div class="turn-note">You said yes.</div>
+      <div class="turn-note">Sent by you.</div>
+      <div class="turn-note">Nothing was filed.</div>
+      <div class="turn-note">No email went out.</div>
+      <div class="turn-note">Not approved &mdash; nothing was changed.</div>
+      <div class="turn-note">Cancelled &mdash; nothing left this machine.</div>
+      <div class="turn-note">The service desk is reachable again.</div>
+      <div class="turn-note">Stored as <span class="ref">MD-1007</span>. The card above says what that does and does not do.</div>
+      <div class="turn-note unknown">That stopped part-way. I don't know how far it got.</div>
+      <div class="turn-note unknown">Whether it was stored is unknown.</div>
+      <div class="turn-note unknown">That needs the privileged half of this application, which isn't running. Nothing was changed.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 4 · the tickets band, rewritten ═════════════════════════════════ -->
+<section class="ab ab-full">
+  <div class="ab-cap">
+    <span class="ab-n">04</span>
+    <span class="ab-t">The tickets band, &sect;2's wording</span>
+    <span class="ab-d">Heading, both row phrases and the note, as given. &ldquo;Filed from here&rdquo; and &ldquo;Progress not visible&rdquo; are drawn as a matched pair, one per column, so a row missing either looks broken.</span>
+  </div>
+
+  <div class="window bp" data-theme="light" data-variant="overlay" data-scene="first" data-hub="ok" data-band="tickets" data-inspector="off" data-tickets="open">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="titlebar">
+      <span></span>
+      <span class="name">Matic Desk</span>
+      <span>
+        <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+      </span>
+    </div>
+    <div class="panelbody">
+      <aside class="rail">
+        <div class="brand">Matic Desk</div>
+        <div class="rail-stack">
+          <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+          <div>
+            <div class="status-head hubcopy hub-ok">Ready when you are</div>
+            <div class="status-sub hubcopy hub-ok">Nothing in progress</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
+          <div class="service">
+            <span class="dot"></span>
+            <div>
+              <div class="service-title hubcopy hub-ok">Everything I need is available</div>
+              <div class="service-detail hubcopy hub-ok">Company guidance and the service desk are both available. Checked a moment ago.</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="utility">
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span>What I can see about this machine</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="band-trigger" aria-expanded="true">
+            <span class="glyph-ticket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18v4a2 2 0 000 4v3H3v-3a2 2 0 000-4V7z"></path><path d="M13 7v10"></path></svg></span>
+            <span>Tickets I've filed from this machine</span>
+            <span class="count">3</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="inspector-trigger" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+            <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+            <span class="ins-label">What I did</span>
+          </button>
+        </div>
+
+        <div class="band band-tickets">
+          <div class="band-head">
+            <div class="band-title">Tickets I've filed from this machine</div>
+          </div>
+          <p class="band-note" style="max-width:620px; margin-bottom:2px">This is what I sent from this machine. I can't see how they're getting on &mdash; checking a ticket's progress with the service desk isn't something I can do in this build &mdash; so quote the reference if you follow one up.</p>
+          <div class="tset tset-open">
+            <div class="trow">
+              <div class="tref">
+                <b>PLACEHOLDER-0000</b>
+                <span class="tfiled">Filed from here</span>
+              </div>
+              <div class="tbody"><b>Dock stopped driving the second screen</b><span>Sent with the display settings and adapter checks attached.</span></div>
+              <div class="tstat"><b class="unseen">Progress not visible</b><span>Filed Monday</span></div>
+            </div>
+            <div class="trow">
+              <div class="tref">
+                <b>PLACEHOLDER-0000</b>
+                <span class="tfiled">Filed from here</span>
+              </div>
+              <div class="tbody"><b>Mailbox move to the new server</b><span>Sent as a request; nothing on this machine was changed.</span></div>
+              <div class="tstat"><b class="unseen">Progress not visible</b><span>Filed last week</span></div>
+            </div>
+            <div class="trow">
+              <div class="tref">
+                <b>PLACEHOLDER-0000</b>
+                <span class="tfiled">Filed from here</span>
+              </div>
+              <div class="tbody"><b>Files in the shared folder not syncing</b><span>Sent with the sync logs attached.</span></div>
+              <div class="tstat"><b class="unseen">Progress not visible</b><span>Filed last week</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="transcript">
+          <div class="scene scene-first">
+            <div style="max-width:560px; margin:0 auto; text-align:center; display:flex; flex-direction:column; gap:22px; align-items:center">
+              <div>
+                <h2 style="font-size:28px">Tell me what's gone wrong</h2>
+                <p style="margin-top:8px; line-height:1.6; color:var(--matic-ui-ink-muted)">Plain words are fine. I'll look at this machine first, tell you what I find, and ask before I change anything.</p>
+              </div>
+              <div class="actions" style="justify-content:center">
+                <button class="btn btn-secondary">My printer won't print</button>
+                <button class="btn btn-secondary">I can't get online</button>
+                <button class="btn btn-secondary">A screen has stopped working</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="row">
+            <input class="input" placeholder="Describe the problem &mdash; e.g. &ldquo;my printer isn't working&rdquo;">
+            <button class="btn btn-primary send">Send</button>
+          </div>
+        </div>
+        <div class="scrim"></div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5 · consent card + D248 ═════════════════════════════════════════ -->
+<section class="ab ab-full">
+  <div class="ab-cap">
+    <span class="ab-n">05</span>
+    <span class="ab-t">Consent card, with &sect;4 glossed</span>
+    <span class="ab-d">D248 drawn as proposed: <code>.call-gloss</code> above, <code>.raw</code> below. The verbatim paragraph is in the body face &mdash; &sect;3b's answer &mdash; and carries verbatim structurally instead.</span>
+  </div>
+
+  <div class="window bp" data-theme="light" data-variant="overlay" data-scene="consent" data-hub="ok" data-band="none" data-inspector="off" data-tickets="open">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="titlebar">
+      <span></span>
+      <span class="name">Matic Desk</span>
+      <span>
+        <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+      </span>
+    </div>
+    <div class="panelbody">
+      <aside class="rail">
+        <div class="brand">Matic Desk</div>
+        <div class="rail-stack">
+          <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+          <div>
+            <div class="status-head hubcopy hub-ok">Ready when you are</div>
+            <div class="status-sub hubcopy hub-ok">Nothing in progress</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
+          <div class="service">
+            <span class="dot"></span>
+            <div>
+              <div class="service-title hubcopy hub-ok">Everything I need is available</div>
+              <div class="service-detail hubcopy hub-ok">Company guidance and the service desk are both available. Checked a moment ago.</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="utility">
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span>What I can see about this machine</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-ticket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18v4a2 2 0 000 4v3H3v-3a2 2 0 000-4V7z"></path><path d="M13 7v10"></path></svg></span>
+            <span>Tickets I've filed from this machine</span>
+            <span class="count">3</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="inspector-trigger" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+            <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+            <span class="ins-label">What I did</span>
+          </button>
+        </div>
+        <div class="transcript">
+          <div class="scene scene-consent">
+            <div class="transcript-turn">
               <div class="said"><div>nothing prints, it just sits there</div></div>
-              <div class="stack">
-                <div class="reply bp">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>That matches what I can see here &mdash; the service that queues your printing has stopped. Restarting it usually clears the queue and nothing else on the machine is affected.</p>
+              <div class="reply bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <p>That matches what I can see here &mdash; the service that queues your printing has stopped. Restarting it usually clears the queue and nothing else on the machine is affected.</p>
+              </div>
+              <div class="why">
+                <span>Why</span>
+                <span>Printing service &mdash; <b>stopped</b>. Everything else I check on this machine is running normally.</span>
+              </div>
+              <div class="consent bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div class="consent-head">
+                  <b>Your approval needed</b>
+                  <span>Nothing has changed yet</span>
                 </div>
-                <div class="why">
-                  <span>Why</span>
-                  <span>Printing service &mdash; <b>stopped</b>. Everything else I check on this machine is running normally.</span>
-                </div>
-                <div class="bp consent">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <div class="consent-head">
-                    <b>Your approval needed</b>
-                    <span>Nothing has changed yet</span>
-                  </div>
-                  <div class="consent-verbatim">
-                    <!-- VERBATIM from the privileged half of the application.
-                         Not authored, paraphrased, shortened or reformatted here. -->
-                    <p>Matic Desk is requesting permission to restart the Print Spooler service on PLACEHOLDER-PC. This will stop and start the service that manages printing. Documents currently queued may need to be sent again. This action can be reversed by restarting the service or the computer. Approving this request applies to this action only.</p>
-                    <div class="actions" style="margin-top:18px">
-                      <button class="btn btn-primary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Go ahead</button>
-                      <button class="btn btn-secondary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Not now</button>
+                <div class="consent-verbatim">
+                  <p>Matic Desk is requesting permission to restart the Print Spooler service on PLACEHOLDER-PC. This will stop and start the service that manages printing. Documents currently queued may need to be sent again. This action can be reversed by restarting the service or the computer. Approving this request applies to this action only.</p>
+                  <div class="consent-call">
+                    <div class="tr-label">Exactly what runs</div>
+                    <div style="min-width:0">
+                      <div class="call-gloss">Restart the printing service on this machine. <span class="hint">(D248, proposed)</span></div>
+                      <div class="raw">restart_service(serviceName=spooler)</div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- a citation: shown, never spoken, and attributed to the company -->
-            <div class="scene scene-citation">
-              <div class="said"><div>my dock stopped driving both screens</div></div>
-              <div class="stack" style="gap:0">
-                <div class="reply bp needs-service">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>Docks that drop a second screen are usually a firmware level thing rather than anything on this machine, and your company has written guidance for exactly this. Here is what it says.</p>
-                </div>
-                <div class="citation needs-service">
-                  <span class="from">From your company's IT guidance</span>
-                  <p class="body">Docking stations supplied with company laptops must be running firmware 1.4 or later to drive two external displays. Firmware updates are delivered through the software centre and require the dock to stay connected for the duration of the update. If both displays remain blank after the update, raise a ticket with the dock's serial number.</p>
-                  <div class="src">
-                    <span>Placeholder Knowledge Base &middot; &ldquo;Docking stations and external displays&rdquo;</span>
-                    <span>Updated placeholder date</span>
+                  <div class="actions" style="margin-top:18px">
+                    <button class="btn btn-primary">Go ahead</button>
+                    <button class="btn btn-secondary">Not now</button>
                   </div>
                 </div>
-                <p class="follow needs-service" style="padding-top:14px">I can't apply that from here. If it doesn't help, I can hand it to IT with everything I've already checked.</p>
-
-                <!-- state 2: honest about the limit, not an apology and not an error -->
-                <div class="reply bp no-service no-service-unreachable">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>Your company does keep guidance on docks and second screens, and normally I'd read it to you here &mdash; I just can't reach it at the moment.</p>
-                  <p>What I can tell you is that this machine looks fine: the display settings and the adapter are both healthy, so the dock itself is the thing to look at. Try me again in a few minutes and I'll pull up the guidance.</p>
-                </div>
-                <!-- state 3: a different thing, and not a fault -->
-                <div class="reply bp no-service no-service-none">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>I don't have your company's guidance connected on this machine, so I can only go on what I can see here &mdash; and this machine looks fine: the display settings and the adapter are both healthy, which points at the dock rather than the laptop.</p>
-                  <p>Docks that drop a second screen are usually a firmware level thing, so whoever looks after your hardware is the right next step.</p>
-                </div>
               </div>
-            </div>
-
-            <!-- a decline: the product working correctly, framed as a result -->
-            <div class="scene scene-decline">
-              <div class="said"><div>can you move my mailbox to the new server</div></div>
-              <div class="stack">
-                <div class="reply bp">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <p>That one sits outside what I can do on this machine, and your company's guidance doesn't cover it either &mdash; so the honest answer is that this needs a person.</p>
-                  <p>I can pass it to IT with what I've already checked, which usually saves them a round of questions.</p>
-                  <div class="actionbar actions">
-                    <button class="btn btn-primary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Pass it to IT</button>
-                    <button class="btn btn-secondary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">I'll handle it</button>
-                  </div>
-                </div>
-                <div style="display:flex; gap:10px; align-items:baseline; font-size:11px; color:var(--matic-ui-ink-quiet)">
-                  <span>The internal note for this turn is in the inspector, not here.</span>
-                  <button class="btn btn-ghost" data-set="inspector:on">Open it</button>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          <div class="composer">
-            <div class="hint">Waiting on your yes or no above &mdash; or just type instead.</div>
-            <div class="row">
-              <input class="input" placeholder="Describe the problem &mdash; e.g. &ldquo;my printer isn't working&rdquo;" style="flex:1">
-              <button class="btn btn-primary send">Send</button>
             </div>
           </div>
-
-          <div class="scrim" data-set="inspector:off"></div>
-        </main>
-
-        <!-- ── inspector: one view, two depths, hidden by default ── -->
-        <aside class="inspector">
-          <div class="ins-head">
-            <b>What I did on this machine</b>
-            <button class="btn btn-ghost" data-set="inspector:off" style="margin-left:auto">Close</button>
+        </div>
+        <div class="composer">
+          <div class="row">
+            <input class="input" placeholder="Describe the problem">
+            <button class="btn btn-primary send">Send</button>
           </div>
-          <div class="ins-body">
-            <div class="band-note" style="margin-bottom:14px">This turn &middot; placeholder timestamp</div>
+        </div>
+        <div class="scrim"></div>
+      </main>
+    </div>
+  </div>
+</section>
 
-            <div class="ins-set ins-default">
-              <div class="step">
-                <b>Proposed</b>
-                <div>
-                  <div class="plain">Nothing. This turn was a question, answered from what the assistant already knows about this machine.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "socialTemplate": "capability",
-  "note": "answered from a client-shipped template — no provider call, no proposal",
-  "proposal": null
-}</pre>
-                  </details>
-                </div>
+<!-- ══ 6 · inspector open ══════════════════════════════════════════════ -->
+<section class="ab ab-full">
+  <div class="ab-cap">
+    <span class="ab-n">06</span>
+    <span class="ab-t">&ldquo;What I did&rdquo;, open</span>
+    <span class="ab-d">&sect;3d. Labelled trigger, checks glyph, and the drawer it opens. Hidden by default &mdash; D240 &mdash; and it carries no scene switcher, no state name, no variant toggle.</span>
+  </div>
+
+  <div class="window bp" data-theme="light" data-variant="overlay" data-scene="consent" data-hub="ok" data-band="none" data-inspector="on" data-tickets="open">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="titlebar">
+      <span></span>
+      <span class="name">Matic Desk</span>
+      <span>
+        <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+      </span>
+    </div>
+    <div class="panelbody">
+      <aside class="rail">
+        <div class="brand">Matic Desk</div>
+        <div class="rail-stack">
+          <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+          <div>
+            <div class="status-head hubcopy hub-ok">Ready when you are</div>
+            <div class="status-sub hubcopy hub-ok">Nothing in progress</div>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="utility">
+          <button class="band-trigger" aria-expanded="false">
+            <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span>What I can see about this machine</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="inspector-trigger" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+            <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+            <span class="ins-label">What I did</span>
+          </button>
+        </div>
+        <div class="transcript">
+          <div class="scene scene-consent">
+            <div class="transcript-turn">
+              <div class="said"><div>nothing prints, it just sits there</div></div>
+              <div class="reply bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <p>That matches what I can see here &mdash; the service that queues your printing has stopped.</p>
               </div>
-              <div class="step">
-                <b>Checked</b>
-                <div>
-                  <div class="plain">Not applicable &mdash; nothing was proposed, so there was nothing to check.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "applicable": false,
-  "reason": "no proposal"
-}</pre>
-                  </details>
-                </div>
-              </div>
-              <div class="step">
-                <b>Consent</b>
-                <div>
-                  <div class="plain">Not needed.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "status": "not-required"
-}</pre>
-                  </details>
-                </div>
-              </div>
-              <div class="step">
-                <b>Done</b>
-                <div>
-                  <div class="plain">Nothing has been changed on this machine this turn.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "executed": false,
-  "changes": []
-}</pre>
-                  </details>
-                </div>
-              </div>
+              <div class="turn-note">Nothing has been changed on this machine yet.</div>
             </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="row">
+            <input class="input" placeholder="Describe the problem">
+            <button class="btn btn-primary send">Send</button>
+          </div>
+        </div>
+        <div class="scrim"></div>
+      </main>
 
-            <div class="ins-set ins-consent">
-              <div class="step">
-                <b>Proposed</b>
-                <div>
-                  <div class="plain">Restart the service that queues printing, because it is stopped. Nothing else on the machine is touched.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
+      <aside class="inspector">
+        <div class="ins-head">
+          <b>What I did on this machine</b>
+          <button class="btn btn-ghost" style="margin-left:auto">Close</button>
+        </div>
+        <div class="ins-body">
+          <div style="font-size:11px; color:var(--matic-ui-ink-quiet); margin-bottom:14px">This turn &middot; placeholder timestamp</div>
+          <div class="ins-set ins-consent">
+            <div class="step">
+              <b>Proposed</b>
+              <div>
+                <div class="plain">Restart the service that queues printing, because it is stopped. Nothing else on the machine is touched.</div>
+                <pre>{
   "capability": "service.restart",
   "target": "print-spooler",
   "reason": "state=stopped",
   "reversible": true,
   "userVisible": false
 }</pre>
-                  </details>
-                </div>
               </div>
-              <div class="step">
-                <b>Checked</b>
-                <div>
-                  <div class="plain">Allowed on this machine, and the service really is stopped. No reboot needed.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
+            </div>
+            <div class="step">
+              <b>Checked</b>
+              <div>
+                <div class="plain">Allowed on this machine, and the service really is stopped. No reboot needed.</div>
+                <pre>{
   "policyAllows": true,
   "preconditions": [
     { "check": "service.exists", "pass": true },
@@ -858,181 +1331,146 @@ pre {
   ],
   "requiresReboot": false
 }</pre>
-                  </details>
-                </div>
               </div>
-              <div class="step">
-                <b>Consent</b>
-                <div>
-                  <div class="plain">Waiting on the person at the keyboard. Nothing has run.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
+            </div>
+            <div class="step">
+              <b>Consent</b>
+              <div>
+                <div class="plain">Waiting on the person at the keyboard. Nothing has run.</div>
+                <pre>{
   "status": "awaiting-user",
   "textSource": "privileged-host",
   "shownVerbatim": true
 }</pre>
-                  </details>
-                </div>
               </div>
-              <div class="step">
-                <b>Done</b>
-                <div>
-                  <div class="plain">Nothing has been changed on this machine this turn.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
+            </div>
+            <div class="step">
+              <b>Done</b>
+              <div>
+                <div class="plain">Nothing has been changed on this machine this turn.</div>
+                <pre>{
   "executed": false,
   "changes": []
 }</pre>
-                  </details>
-                </div>
               </div>
             </div>
-
-            <div class="ins-set ins-decline">
-              <div class="step">
-                <b>Proposed</b>
-                <div>
-                  <div class="plain">Nothing. The request is outside what this assistant can do here, and no company guidance matched it, so it was handed on instead.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "proposal": null,
-  "note": "no capability in the catalog covers this — escalating",
-  "catalogVersion": "placeholder-0.0.0"
-}</pre>
-                  </details>
-                </div>
-              </div>
-              <div class="step">
-                <b>Checked</b>
-                <div>
-                  <div class="plain">Not applicable &mdash; there was nothing to validate.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "applicable": false,
-  "reason": "no proposal"
-}</pre>
-                  </details>
-                </div>
-              </div>
-              <div class="step">
-                <b>Consent</b>
-                <div>
-                  <div class="plain">Not needed. Nothing was proposed.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "status": "not-required"
-}</pre>
-                  </details>
-                </div>
-              </div>
-              <div class="step">
-                <b>Done</b>
-                <div>
-                  <div class="plain">Nothing has been changed on this machine this turn.</div>
-                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
-<pre>{
-  "executed": false,
-  "changes": []
-}</pre>
-                  </details>
-                </div>
-              </div>
-            </div>
-
-            <details class="devlog">
-              <summary><span>Developer log</span><span class="chev">&#8964;</span></summary>
-<pre>[hub] authenticated as placeholder-principal (auth: none) — B0 skeleton
-[router] capability question ("what are your capabilities") — answered from the catalog (id 0000), template, no provider call, NO PROPOSAL
-[ticket] the offer was neither accepted nor declined — dropping it and handling the sentence normally</pre>
-            </details>
           </div>
-        </aside>
-
-      </div>
-    </div>
-
-    <!-- what changed, and why -->
-    <div class="notes bp">
-      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-      <div class="kicker" style="margin-bottom:12px">What changed, and why</div>
-      <div class="notegrid">
-        <div>
-          <h4>Two regions, not four</h4>
-          <p>The panel is the conversation plus the assistant. Diagnostics are no longer resident: the machine view is one line, the inspector is absent until asked for. Nothing was deleted.</p>
         </div>
-        <div>
-          <h4>The inspector opens into the layout</h4>
-          <p>Nothing reserves space for it, so nothing is left behind when it closes. Two candidates: a drawer over the conversation, and a panel beside it. Switch at the top of this page.</p>
-        </div>
-        <div>
-          <h4>One inspector, two depths</h4>
-          <p>Each step reads as a sentence a buyer can follow, with its raw payload one click under it, wrapped rather than clipped. The [hub]/[router]/[ticket] log is a further step down, ours alone.</p>
-        </div>
-        <div>
-          <h4>Offers can be answered</h4>
-          <p>Yes / No thanks sit inside the message that made the offer, and the composer says an answer is outstanding. Answering leaves a record of what you said, and it can be changed.</p>
-        </div>
-        <div>
-          <h4>Evidence at the moment it matters</h4>
-          <p>The stopped print service appears as the reason above the proposal, not as a row in a list nobody opens. The full machine view stays available for anyone who wants it.</p>
-        </div>
-        <div>
-          <h4>Three connection states, in the user's words</h4>
-          <p>Normal is a quiet line in the rail. Unreachable says what it can't do and doesn't apologise for it. None-connected reads as a configuration, not a fault &mdash; grey, no warning colour. No "hub", and no timestamps to the second.</p>
-        </div>
-        <div>
-          <h4>Our words stopped reaching the user</h4>
-          <p>State names, voice settings and catalog language are gone from the surface. The internal note moved to the inspector, where the text is still verbatim for us.</p>
-        </div>
-        <div>
-          <h4>A decline is a result</h4>
-          <p>It gets the same frame as an answer, states the limit once, and offers the next step. No apology tone, no error styling, no red.</p>
-        </div>
-        <div>
-          <h4>Tokens, motion, fonts</h4>
-          <p>Colour, type, spacing and motion are <b>--matic-ui-*</b> variables, separate from --matic-avatar-*. Only chevrons and hovers move, and prefers-reduced-motion flattens them. No webfont is requested at runtime &mdash; Barlow is named first and used if the app ships it locally.</p>
-        </div>
-      </div>
+      </aside>
     </div>
   </div>
-</div>
+</section>
 
-<script>
-/* Plain vanilla state switching. No framework, no build step, no network.
-   Every control carries data-set="key:value" or data-toggle="key"; the state
-   lives in attributes on <html> and all visibility is CSS. */
-(function () {
-  var root = document.documentElement;
-  var attrFor = { theme:'data-theme', variant:'data-variant', scene:'data-scene',
-                  hub:'data-hub', band:'data-band', inspector:'data-inspector',
-                  offer:'data-offer', tickets:'data-tickets' };
+<!-- ══ 7 · degraded connection ═════════════════════════════════════════ -->
+<section class="ab ab-full">
+  <div class="ab-cap">
+    <span class="ab-n">07</span>
+    <span class="ab-t">Can't reach the service desk</span>
+    <span class="ab-d">The two standing sentences are unchanged and word-for-word &mdash; &sect;6, pinned by <code>panel.test.mjs</code>. Only the machine band is open, to show a turn note against a degraded shell.</span>
+  </div>
 
-  function syncThemeGlyph() {
-    var g = document.getElementById('themeGlyph');
-    if (g) g.style.clipPath = root.getAttribute('data-theme') === 'dark' ? 'inset(0 0 0 50%)' : 'inset(0 50% 0 0)';
-  }
+  <div class="window bp" data-theme="light" data-variant="overlay" data-scene="decline" data-hub="unreachable" data-band="machine" data-inspector="off" data-tickets="open">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="titlebar">
+      <span></span>
+      <span class="name">Matic Desk</span>
+      <span>
+        <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+      </span>
+    </div>
+    <div class="panelbody">
+      <aside class="rail">
+        <div class="brand">Matic Desk</div>
+        <div class="rail-stack">
+          <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+          <div>
+            <div class="status-head hubcopy hub-unreachable">Ready, with limits</div>
+            <div class="status-sub hubcopy hub-unreachable">Some help unavailable</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
+          <div class="service">
+            <span class="dot"></span>
+            <div>
+              <div class="service-title hubcopy hub-unreachable">Working with less than usual</div>
+              <div class="service-detail hubcopy hub-unreachable">I can't reach your company's guidance or the service desk right now. Checked a moment ago.</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="utility">
+          <button class="band-trigger" aria-expanded="true">
+            <span class="glyph-machine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14"></rect><path d="M8 21h8M12 17v4"></path></svg></span>
+            <span>What I can see about this machine</span>
+            <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"></path></svg></span>
+          </button>
+          <button class="inspector-trigger" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+            <span class="ins-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6l3 3 4-5M3 16l3 3 4-5M13 7h8M13 17h8"></path></svg></span>
+            <span class="ins-label">What I did</span>
+          </button>
+        </div>
 
-  function set(key, value) {
-    var attr = attrFor[key];
-    if (!attr) return;
-    if (key === 'band' && root.getAttribute(attr) === value) value = 'none';
-    root.setAttribute(attr, value);
-    if (key === 'scene') root.setAttribute('data-offer', 'pending');
-    if (key === 'theme') syncThemeGlyph();
-  }
+        <div class="degraded degraded-unreachable">
+          <span class="tagword">Right now</span>
+          <p>I can't reach your company's guidance or the service desk at the moment, so I can only go on what I can see on this machine. I'll tell you as soon as that changes.</p>
+        </div>
 
-  document.addEventListener('click', function (e) {
-    var el = e.target.closest ? e.target.closest('[data-set],[data-toggle]') : null;
-    if (!el) return;
-    var toggle = el.getAttribute('data-toggle');
-    if (toggle === 'theme') { set('theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); return; }
-    if (toggle === 'inspector') { set('inspector', root.getAttribute('data-inspector') === 'on' ? 'off' : 'on'); return; }
-    var pair = (el.getAttribute('data-set') || '').split(':');
-    if (pair.length === 2) set(pair[0], pair[1]);
-  });
+        <div class="band band-machine">
+          <div class="band-head">
+            <div class="band-title">Here's what I can see</div>
+            <div class="band-note" style="margin-left:auto">Checked a moment ago</div>
+          </div>
+          <dl class="mgrid">
+            <div class="mrow"><dt>This computer</dt><dd>PLACEHOLDER-PC</dd></div>
+            <div class="mrow"><dt>Signed in as</dt><dd>placeholder.user</dd></div>
+            <div class="mrow"><dt>Printing</dt><dd>Running normally</dd></div>
+            <div class="mrow"><dt>Sound</dt><dd>Running normally</dd></div>
+            <div class="mrow"><dt>Network adapter</dt><dd>Placeholder Gigabit Ethernet Controller</dd></div>
+            <div class="mrow"><dt>Network</dt><dd>Connected, address given out automatically</dd></div>
+          </dl>
+        </div>
 
-  syncThemeGlyph();
-})();
-</script>
+        <div class="transcript">
+          <div class="scene scene-decline">
+            <div class="transcript-turn">
+              <div class="said"><div>can you move my mailbox to the new server</div></div>
+              <div class="reply bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <p>That one sits outside what I can do on this machine, and I can't reach your company's guidance to check whether it covers it &mdash; so the honest answer is that this needs a person.</p>
+                <p>I can't hand it over myself at the moment either. Quote it to the service desk directly and they can pick it up.</p>
+              </div>
+              <div class="turn-note">Nothing was filed.</div>
+              <div class="turn-note unknown">Whether it was stored is unknown.</div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="row">
+            <input class="input" placeholder="Describe the problem">
+            <button class="btn btn-primary send">Send</button>
+          </div>
+        </div>
+        <div class="scrim"></div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<footer class="sheet-foot">
+  <div>
+    <h4>What to check before you build</h4>
+    <p>Network off, open the file, nothing changes. <code>0</code> script tags, <code>0</code> link tags, <code>0</code> templating. The first style block is the delivery; the second is captions and is marked not to copy.</p>
+  </div>
+  <div>
+    <h4>What needs your side</h4>
+    <p>The thirty-two names listed at the head of the style block are proposals, not matches &mdash; &sect;5 of the re-export handover never reached me, so check them against your 90 and rename freely; each group sits under one banner comment. Two changes are markup, not CSS: the two band glyphs need their Lucide SVG child (copy from any artboard above), and <code>.crosshair</code>'s span should be replaced by <code>.ins-glyph</code> + <code>.ins-label</code> rather than restyled &mdash; its old rules are left in so nothing unstyles in the meantime.</p>
+  </div>
+  <div>
+    <h4>What is still not mine to decide</h4>
+    <p>The four <code>--matic-ui-live-*</code> values stay stand-ins; substitute the app's, which are pinned to the avatar by a test. D248 is drawn and marked proposed and needs the new field on the rendered contract. <code>--matic-ui-attn</code> and <code>--matic-ui-ok</code> were retuned without being asked for, because both failed AA on surface at body size; revert them if you would rather decide separately.</p>
+  </div>
+</footer>
+
 </body>
 </html>

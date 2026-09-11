@@ -5,3 +5,8 @@
 # Never anywhere in this repo
 .env
 *.onnx
+
+# Claude Code per-session launch configuration: two sessions writing the same file is how one
+# of them got overwritten on 2026-09-10. The commands it holds are in CLAUDE.md, which is the copy
+# anyone else needs.
+.claude/

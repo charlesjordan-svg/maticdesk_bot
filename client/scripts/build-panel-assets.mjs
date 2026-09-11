@@ -67,12 +67,29 @@ const HEADER = [
 export function buildPanelCss(deliveryPath = DELIVERY) {
   const html = readFileSync(deliveryPath, "utf8");
   const opens = html.match(/<style\b[^>]*>/g) ?? [];
-  if (opens.length !== 1) {
-    // Worth failing loudly rather than concatenating: a second <style> in a future delivery means
-    // the file's shape changed, and silently gluing them together would hide that.
-    throw new Error(`expected exactly one <style> block in ${deliveryPath}, found ${opens.length}`);
+  // THE DELIVERY LABELS ITS OWN BLOCKS, AND THAT IS THE ONLY REASON THERE IS A CHOICE HERE.
+  //
+  // The re-export of 2026-09-10 arrived with two: the panel, and `<style id="sheet-only">` — the
+  // contact sheet's own chrome, the headings and captions around the artboards. This function used
+  // to throw on a second block, on the argument that a shape change should surface rather than be
+  // silently concatenated. It still throws on anything it does not recognise, which keeps that
+  // property; what it no longer does is refuse a block the DELIVERY has told us is not the panel.
+  //
+  // The distinction matters and is not a softening of the rule in §"WHAT IS *NOT* STRIPPED": that
+  // rule forbids THIS SCRIPT from deciding which rules the app needs, because then the check proves
+  // the app matches the script's opinion. An `id` on the block is the delivery's decision, not
+  // ours, and it is visible to anyone reading either file.
+  const SHEET_ONLY = /\sid=["']sheet-only["']/;
+  const panelOpens = opens.filter((o) => !SHEET_ONLY.test(o));
+  if (panelOpens.length !== 1) {
+    throw new Error(
+      `expected exactly one unlabelled <style> block in ${deliveryPath} (the panel's), found ` +
+      `${panelOpens.length} of ${opens.length}: ${opens.join(" ")}. A block the delivery has not ` +
+      `labelled \`id="sheet-only"\` is assumed to be the panel's; if the shape has changed again, ` +
+      `decide here rather than in the delivery.`,
+    );
   }
-  const start = html.indexOf(opens[0]) + opens[0].length;
+  const start = html.indexOf(panelOpens[0]) + panelOpens[0].length;
   const end = html.indexOf("</style>", start);
   if (end < 0) throw new Error(`unterminated <style> block in ${deliveryPath}`);
   // The block opens with a newline after `<style>` and closes with one before `</style>`; both are

@@ -119,13 +119,22 @@ function reply(text) {
  * are correct outcomes (D205, v7's `declining`), and red is reserved for nothing at all here.
  *
  * @param {string} text
- * @param {{ label?: string, unknown?: boolean }} [opts] `unknown` marks the one flavour that is
- *   not neutral: a fact the user would be harmed by assuming away.
+ * @param {{ label?: string, unknown?: boolean, ref?: string }} [opts] `unknown` marks the one
+ *   flavour that is not neutral: a fact the user would be harmed by assuming away. `ref` is a
+ *   ticket reference inside `text` — the delivery sets one in mono (`.ref`), because a string
+ *   somebody has to quote back is a string they have to read character by character.
  */
-function note(text, { label = "", unknown = false } = {}) {
+function note(text, { label = "", unknown = false, ref = "" } = {}) {
   const n = el("div", `turn-note${unknown ? " unknown" : ""}`);
   if (label) n.append(el("b", "", label));
-  n.append(el("span", "", text));
+  const body = el("span");
+  const at = ref ? String(text).indexOf(ref) : -1;
+  if (at < 0) body.textContent = text;
+  else {
+    body.append(document.createTextNode(String(text).slice(0, at)), el("span", "ref", ref));
+    body.append(document.createTextNode(String(text).slice(at + ref.length)));
+  }
+  n.append(body);
   turn().append(n);
   scrollDown();
   return n;
@@ -581,56 +590,112 @@ const ESCALATION_PLAIN = {
  */
 function reviewTicket(draft) {
   const box = framed(el("div", "bp ticket-review"));
-  const head = el("div", "consent-head");
-  head.append(el("b", "", "Review before sending"), el("span", "", "Nothing has left this machine"));
-  const body = el("div", "ticket-review-body");
-  body.append(el("div", "lede", "This is exactly what will be sent. Nothing leaves this machine until you press Send."));
 
-  const fields = el("div", "fields");
+  // THE STRUCTURE IS THE DELIVERY'S (2026-09-10 re-export). Its §1a answer to "say which fields
+  // are the user's": two legends in the head, one mark each — a filled box for editable, a 2px
+  // left rule for sent-as-written — and then every row carries the mark rather than a sentence
+  // explaining the convention. The lede that used to say it in words is gone, because the legends
+  // say it in the place the eye already is. **The COPY is still ours**: the delivery's artwork
+  // carries placeholder wording, and product copy is not what a design delivery decides.
+  const head = el("div", "tr-head");
+  const headState = el("span", "", "Nothing has left this machine");
+  const legends = el("span", "tr-legends");
+  const legend = (swatch, words) => {
+    const l = el("span", "tr-legend");
+    l.append(el("span", swatch), document.createTextNode(words));
+    return l;
+  };
+  legends.append(legend("tr-swatch-edit", "yours to change"), legend("tr-swatch-fixed", "sent as written"));
+  head.append(el("b", "", "The ticket, before it is sent"), headState, legends);
+
+  const grid = el("div", "tr-grid");
+  /** A label/value pair. Every row in the card is one of these; `ruled` draws the hairline above. */
+  const row = (labelText, valueNode, { ruled = false } = {}) => {
+    grid.append(el("div", "tr-label", labelText), valueNode);
+    if (ruled) valueNode.classList.add("ruled");
+    return valueNode;
+  };
   /** One editable row. Returns a getter, so the submit handler reads the DOM rather than a copy. */
-  const editable = (labelText, value, { multiline = false } = {}) => {
-    fields.append(el("label", "", labelText));
-    const input = el(multiline ? "textarea" : "input", "input");
+  const editable = (labelText, value, { multiline = false, hint = "", rows = 0 } = {}) => {
+    const cell = el("div", "tr-value");
+    // BOTH CLASSES, AND THAT IS THE FIX RATHER THAN AN APP OVERRIDE. `.tr-field` is drawn for the
+    // artwork's `<div>`s — it sets the card's padding, ground and border, and even a `caret-color`,
+    // so the delivery knew these are editable — but it sets no `font-family`, because a div does
+    // not need one. A real `<textarea>` does: browsers default form controls to their own
+    // monospace-ish face, so the first render put the user's own words in a mono box. `.input` is
+    // the delivery's own form-control rule and carries `font:inherit`; it sits earlier in the
+    // sheet, so `.tr-field` still wins every property they both set. Two delivered rules, no
+    // fourth override, nothing for a handover to carry.
+    const input = el(multiline ? "textarea" : "input", "input tr-field");
+    // `rows` and not a CSS height: the delivery's `min-height` is a floor for a one-line field, and
+    // a paragraph needs a real box. Markup is where that belongs — a height in app.css would be
+    // restyling something the delivery drew.
+    if (rows) input.rows = rows;
     input.value = value ?? "";
-    fields.append(input);
+    cell.append(input);
+    if (hint) cell.append(el("div", "tr-hint", hint));
+    row(labelText, cell);
     return () => input.value;
   };
+  /** Shown, not editable: the left rule is the mark, and the legend above says what it means. */
+  const fixedProse = (labelText, text, hint = "") => {
+    const inner = el("div", "tr-fixed");
+    // A multi-line value becomes the delivery's ticked check list; a single sentence is a
+    // paragraph. The model returns one string either way, so the shape follows the content.
+    const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 1) for (const l of lines) inner.append(el("div", "check", l));
+    else inner.append(el("p", "", lines[0] ?? "-"));
+    if (hint) inner.append(el("div", "tr-hint", hint));
+    const cell = el("div", "tr-value");
+    cell.append(inner);
+    row(labelText, cell, { ruled: true });
+  };
   /**
-   * One read-only row, in the mono style, so "shown, not editable" is legible at a glance.
-   * `raw` is the stored value behind a glossed one - shown smaller and underneath, never instead
-   * of, because the user is approving the thing that gets sent (D244, D128).
+   * A closed enum: the plain words, and the stored value under them (D244, D128). Never instead
+   * of — the user is approving the thing that gets sent — and never the enum alone.
    */
-  const fixed = (labelText, value, raw) => {
+  const glossed = (labelText, value, raw) => {
+    const cell = el("div", "tr-value");
+    const gloss = el("div", "", value);
+    gloss.style.cssText = "font-size:var(--matic-ui-text-md); line-height:1.5";
+    cell.append(gloss);
     // An unglossed member falls back to showing itself, and showing it twice would be worse than
     // the defect this replaces - so the raw line appears only when it says something new.
-    const show = Boolean(raw) && raw !== value;
-    const box = el("div", `fixed${show ? " glossed" : ""}`, value);
-    if (show) box.append(el("span", "raw", raw));
-    fields.append(el("label", "", labelText), box);
+    if (raw && raw !== value) cell.append(el("div", "raw", raw));
+    row(labelText, cell, { ruled: true });
+  };
+  /** The delivery's full-width spacer between the user's fields and the model's. */
+  const separator = () => {
+    const sp = el("div", "tr-label ruled");
+    sp.style.cssText = "grid-column:1/-1; height:16px; padding:0";
+    grid.append(sp);
   };
 
   const r = draft.reporter ?? {};
+  const getDescription = editable("What's wrong", draft.description, { multiline: true, rows: 3, hint: "Your words. Change anything here." });
   const getFirst = editable("First name", r.firstName);
   const getLast = editable("Last name", r.lastName);
   const getLocation = editable("Location", r.location);
-  const getContact = editable("Contact", r.contactId);
-  // Not editable: it is a statement about which account is running this software, and a field the
-  // user can retype is not that. It is shown because the ticket carries it.
-  fixed("OS account", `${r.osUsername ?? "unknown"}  (self-asserted — not authenticated)`);
-  fixed("Machine", draft.machineName ?? "-");
-  const getDescription = editable("Problem", draft.description, { multiline: true });
+  const getContact = editable("Who to reach", r.contactId);
+  separator();
+  fixedProse("Case note", draft.summary, "Written by me. Sent exactly as it reads.");
+  if (draft.whatWasChecked) fixedProse("Already checked", draft.whatWasChecked);
   // Both are closed enums and both are glossed. An unknown member falls back to the raw value as
   // the gloss rather than to nothing: a category the card cannot name is still a category the user
   // is about to send, and the test that keeps the tables complete is what stops this being seen.
-  fixed("Category", ESCALATION_PLAIN.category[draft.category] ?? draft.category, draft.category);
-  fixed("Goes to",
+  glossed("Category", ESCALATION_PLAIN.category[draft.category] ?? draft.category, draft.category);
+  glossed("Goes to",
     draft.suggestedOwner
       ? ESCALATION_PLAIN.owner[draft.suggestedOwner] ?? draft.suggestedOwner
       : "unrouted — IT will decide",
-    draft.suggestedOwner ?? "");
-  fixed("Case note", draft.summary);
-  if (draft.whatWasChecked) fixed("Already checked", draft.whatWasChecked);
-  body.append(fields);
+    draft.suggestedOwner ? `queue=${draft.suggestedOwner}` : "");
+  // Not editable: it is a statement about which account is running this software and which machine
+  // it is, and a field the user can retype is neither. Shown because the ticket carries both.
+  const machine = el("div", "tr-value");
+  const ident = el("div", "raw", `${draft.machineName ?? "-"} · ${r.osUsername ?? "unknown"}`);
+  ident.style.cssText = "margin-top:0; font-size:13px; color:var(--matic-ui-ink)";
+  machine.append(ident, el("div", "tr-hint", "Goes with the ticket so nobody has to ask. The account name is self-asserted — not authenticated."));
+  row("This machine", machine, { ruled: true });
 
   // The standing caveat, in the card rather than only in a log line: this is where a user decides
   // whether to send, so it is where the limits of what sending achieves have to be readable.
@@ -639,17 +704,19 @@ function reviewTicket(draft) {
   // a user was asked to approve an egress while reading our name for the thing it goes to. "In
   // this build" went with it, for the same reason. **Every fact is still here**: it is stored,
   // someone has to come and get it, and no email goes out (D86/D213). This is the single place
-  // that fact is stated (D245), so it is the one string that may not lose any of it.
-  body.append(el("div", "caveat", "This is stored for the service desk to pick up. No email goes out, so nobody is alerted automatically — someone has to come and look."));
+  // that fact is stated (D245), so it is the one string that may not lose any of it. The delivery
+  // bolds the load-bearing clause; the clause it bolds is ours to choose and it is the email one.
+  const caveat = el("div", "tr-caveat");
+  const p = el("p", "", "This is stored for the service desk to pick up. ");
+  p.append(el("b", "", "No email goes out"), document.createTextNode(", so nobody is alerted automatically — someone has to come and look."));
+  caveat.append(p);
 
-  const row = el("div", "actions");
-  const send = el("button", "btn btn-primary", "Send it");
-  const cancel = el("button", "btn btn-secondary", "Cancel");
-  send.style.cssText = cancel.style.cssText = "font-size:var(--matic-ui-text-sm); padding:9px 16px";
-  row.append(send, cancel);
-  body.append(row);
+  const actions = el("div", "tr-actions");
+  const send = el("button", "btn btn-primary", "Send this to the service desk");
+  const cancel = el("button", "btn btn-secondary", "Don't send it");
+  actions.append(send, cancel);
 
-  box.append(head, body);
+  box.append(head, grid, caveat, actions);
   turn().append(box);
   box.scrollIntoView({ block: "nearest" });
   // Waiting on the person at the keyboard, and the rail says so rather than implying work.
@@ -657,8 +724,11 @@ function reviewTicket(draft) {
 
   return new Promise((resolve) => {
     const settle = (result, outcomeText) => {
-      row.replaceWith(el("div", "turn-note", outcomeText));
-      head.lastElementChild.textContent = result ? "Sent by you" : "Nothing was sent";
+      // `actions`, not `row`: `row()` is the grid helper above and shadowed the old name. And
+      // `headState`, not `head.lastElementChild` — the head's last child is the legends now, so
+      // that lookup would have quietly replaced them with the outcome word.
+      actions.replaceWith(el("div", "turn-note", outcomeText));
+      headState.textContent = result ? "Sent by you" : "Nothing was sent";
       setBusy(Boolean(result));
       resolve(result);
     };
@@ -706,15 +776,26 @@ function askConsent(request, proposal) {
 
   const verbatim = el("div", "consent-verbatim");
   verbatim.append(el("p", "", r.what));
-  // `r.detail` is `capabilityId(param=value)` — "restart_service(serviceName=spooler)" — and it was
-  // painted as a paragraph, the same size and face as the plain-language sentence above it. NOT ONE
+  // `r.detail` is `capabilityId(param=value)` — "restart_service(serviceName=spooler)". NOT ONE
   // BYTE OF IT IS CHANGED HERE (D130: this is displayed, never authored), and it is NOT hidden: the
-  // contract calls it the exact call built from the validated parameters, `docs/D130-RENDERER-CHECK.md`
-  // checks it by name, and it is the same disclosure D244 refused to hide on the review card. It is
-  // given that card's treatment instead — mono, smaller, underneath — so the sentence a person reads
-  // is the sentence, and the exact call is available and subordinate. Whether it should also be
-  // GLOSSED is a change to the rendered contract and is D248, proposed, awaiting Charles.
-  if (r.detail) verbatim.append(el("p", "exact", r.detail));
+  // contract calls it the exact call built from the validated parameters,
+  // `docs/D130-RENDERER-CHECK.md` checks it by name, and it is the same disclosure D244 refused to
+  // hide on the review card.
+  //
+  // The delivery gives it a labelled row of its own (`.consent-call`) rather than a paragraph in
+  // the prose, which is what it had been reading as. **D248'S GLOSS IS NOT RENDERED**: the
+  // delivery draws a `.call-gloss` line above the call and marks it proposed, and it stays
+  // undrawn here because there is no field on the rendered contract to draw it FROM — inventing
+  // the sentence in the renderer is exactly what D130 forbids. When Charles ratifies D248 and the
+  // broker gains the field, the line goes in above the `.raw`.
+  if (r.detail) {
+    const call = el("div", "consent-call");
+    const cell = el("div");
+    cell.style.cssText = "min-width:0";
+    cell.append(el("div", "raw", r.detail));
+    call.append(el("div", "tr-label", "Exactly what runs"), cell);
+    verbatim.append(call);
+  }
   if (r.rollbackNote) {
     // The broker phrases R2's note as a warning; R1's is a quiet reassurance. Same field, and the
     // tier decides the weight it is given - never the colour of a failure.
@@ -901,7 +982,7 @@ async function handleTurn(text) {
       // because the card is the one shown BEFORE the user agrees, which is where honesty about
       // what sending achieves has to be. The transcript still carries the fact: the card is IN the
       // transcript. Deleting it from BOTH would re-open D86/D213 and is not what this is.
-      if (!filed.notified) note(`Stored as ${filed.reference}. The card above says what that does and does not do.`);
+      if (!filed.notified) note(`Stored as ${filed.reference}. The card above says what that does and does not do.`, { ref: filed.reference });
       renderTickets(await window.matic.ticketsFiled());
     } else {
       // TWO STRINGS, TWO AUDIENCES (D246). `filed.error` is the assistant's sentence and comes from
@@ -1153,15 +1234,23 @@ async function handleTurn(text) {
  */
 function todoCard({ checks, nextStep }) {
   const box = framed(el("div", "bp todo-card"));
-  const head = el("div", "consent-head");
-  head.append(el("b", "", "Over to you"), el("span", "", "Things I can't check from here"));
-  const list = el("ol");
-  for (const c of checks) {
-    const li = el("li");
-    li.append(el("b", "", c.label), el("span", "", c.detail));
-    list.append(li);
-  }
-  box.append(head, list, el("div", "next", nextStep));
+  // The delivery's structure: a numbered row per check, each with what to do and why it is worth
+  // doing, and a "next step" foot. The numbers are `.todo-n` spans rather than an `<ol>` — the
+  // design puts them in a column of their own, which an ordered list's marker cannot sit in.
+  box.append(
+    el("div", "todo-head", `${checks.length === 1 ? "One thing" : `${checks.length} things`} for you to do`),
+    el("div", "todo-note", "I can't do these from here."),
+  );
+  checks.forEach((c, i) => {
+    const body = el("div", "todo-body");
+    body.append(el("div", "todo-do", c.label), el("div", "todo-why", c.detail));
+    const row = el("div", "todo-row");
+    row.append(el("span", "todo-n", String(i + 1)), body);
+    box.append(row);
+  });
+  const next = el("div", "todo-next");
+  next.append(el("span", "", "Next step"), el("span", "", nextStep));
+  box.append(next);
   turn().append(box);
   scrollDown();
 }

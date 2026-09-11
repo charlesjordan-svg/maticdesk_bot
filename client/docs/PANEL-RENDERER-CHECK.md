@@ -1,6 +1,7 @@
 # Panel renderer check — for Charles to run
 
-**Written 2026-09-10 with the panel integration (D240–D243).** Same shape as
+**Written 2026-09-10 with the panel integration (D240–D243); revised the same day for the
+re-export (D252), which redrew most of what is described below.** Same shape as
 [`AVATAR-RENDERER-CHECK.md`](AVATAR-RENDERER-CHECK.md) and
 [`D130-RENDERER-CHECK.md`](D130-RENDERER-CHECK.md): the renderer is not covered by `npm test`,
 because no headless test can see a screen, so this is the list a person looks at.
@@ -15,6 +16,13 @@ from reachable to unreachable. §7 of the handover says what that does and does 
 **What nobody has seen: the panel in Electron, against a real broker, a real probe and a real
 hub.** That is this document, and it is the acceptance item the design handover refused to make
 optional. Six of the last seven click-throughs on this project found something.
+
+**This document is now unrun against THREE deliveries.** The panel on disk is Claude Design's
+re-export (D252): the review card, the todo card, the turn notes and the transcript turns are its
+drawings rather than the app's approximations, `matic-panel.app.css` is 123 lines where it was 280,
+and the two band glyphs and the inspector's control are new markup. **The steps below are written
+against the current build**, so a step that does not match what you see is a finding, not a stale
+document — say which, and it will be chased.
 
 ## 0. Before starting
 
@@ -63,7 +71,7 @@ layout, never behaviour.
 
 | # | Do | Pass when |
 |---|---|---|
-| 3.1 | Look at the top-right of the conversation | A small crosshair. **No panel of JSON is on screen** |
+| 3.1 | Look at the top-right of the conversation | A thin glyph with the words **"What I did"** beside it. **No panel of JSON is on screen.** It was a bare crosshair until the re-export (D252) — which read as "+" / "add", the opposite of what it does — so if you find an unlabelled crosshair, the build is stale |
 | 3.2 | Click it | A drawer opens **over** the conversation, from the right, with a dimmed scrim behind it |
 | 3.3 | Read the four steps | Proposed / Checked / Consent / Done, each a sentence you could read aloud to a buyer |
 | 3.4 | Expand "Show the data" on each | The payload **wraps**. Nothing is cut off at the right edge, and there is no horizontal scrollbar |
@@ -79,7 +87,7 @@ distinctive and **listen**.
 | # | Look at / listen for | Pass when |
 |---|---|---|
 | 3a.1 | The machine band: "This computer", "Signed in as", "This machine's address" | Your real hostname, account and IP. **Shown is correct for all three** |
-| 3a.2 | The review card's "Machine" and "OS account" rows | The same. They go on the ticket, and IT needs them |
+| 3a.2 | The review card's identity row — "This machine" | Your real hostname and account, on **one** line since the re-export (D252) drew it that way, with "self-asserted — not authenticated" under it (D215). The same values as the band. They go on the ticket, and IT needs them |
 | 3a.3 | Anything the avatar SAYS about the machine | **"this PC"**. Never the hostname, never spelled out |
 | 3a.4 | …about the account | **"your account"** |
 | 3a.5 | Renew the DHCP lease and listen to the result | **"…now has an address."** Not the digits. *Having one* is the evidence it worked, and that survives. **This is the address the boot probe never saw** — the capability's whole job is to change it — so it is the case the rule could not reach until the broker's own result was folded in |
@@ -150,10 +158,12 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | # | Look at | Pass when |
 |---|---|---|
 | 6.1 | The review card | Every field that will be sent. Your details editable, the case note and category shown and fixed |
+| 6.1a | Type into the name, email and "what happened" fields | **The text is in the panel's own face, at the panel's own size, and the long one is several lines tall.** The delivery draws those fields for `<div>`s and sets no `font-family`, so the first integrated build put your words in a monospace box one line high (D252 §7). A browser-default form control is the shape of that defect |
 | 6.2 | `CATEGORY` and `GOES TO` (D244) | **Plain words as the value** — "needs a person", "a hardware fault" — with the stored value underneath, smaller. **No snake_case anywhere as the value itself**, and the stored value must still be legible: it is what is being sent |
 | 6.3 | The caveat on the card (D246) | "This is stored for **the service desk** to pick up. No email goes out, so nobody is alerted automatically — someone has to come and look." **It must not say "the hub"** — that is our name for it, and this is the one screen where you approve data leaving the machine |
 | 6.4 | Send it (D245) | The reference is spoken, and the note under it says **"Stored as MD-xxxx. The card above says what that does and does not do."** — the reference and nothing the card already said. **If the no-email fact appears twice in two wordings, that is the defect** |
 | 6.5 | The card, after sending | Still on screen, its caveat unchanged, its heading now "Sent by you" |
+| 6.5a | **A KNOWN DEFECT — do not spend time reporting it** | The heading changes to "Sent by you" **before** the filing is attempted, so a send that then fails has already been described as sent. Found 2026-09-10, left unfixed to keep the re-export pass from widening (D252 §9). It is a renderer bug: the delivery draws the states correctly. **If you see it, it is the one we know about; anything else about that heading is new** |
 | 6.6 | The tickets band's count | It has gone up by one |
 | 6.7 | The new row in the band | Same fact as the card, in the past tense, and also not "the hub" |
 
@@ -178,9 +188,10 @@ fails* and *next filing: times out* — which is where it was driven from.)
 | # | Do | Pass when |
 |---|---|---|
 | 7.1 | Open "What I can see about this machine" | Your real machine name and user, printing and sound in plain words, the adapter, and the address rows. "Checked just now" |
-| 7.1a | The chevron on the trigger, open and closed | **It points the other way when the band is open.** It did not until 2026-09-10 — the delivery's rule keyed off a markup hook D240 removed, and only the button's highlight had been re-keyed |
+| 7.1a | The chevron on the trigger, open and closed | **It points the other way when the band is open.** It did not until 2026-09-10 — the September delivery keyed off a markup hook D240 removed, and only the button's highlight had been re-keyed. The re-export keys **both** the chevron and the open-state wash off `aria-expanded` (D252), which the renderer maintains for screen readers, **so what you see and what a reader announces cannot disagree** — if they ever do, the renderer has stopped setting the attribute |
+| 7.1b | The glyph on each trigger | A thin-stroke monitor and a thin-stroke ticket, drawn as SVG. **Not a bordered square** — that read as a checkbox, and both triggers are `<button>`s that toggle a disclosure, not things you tick |
 | 7.2 | Stop the spooler, reopen the band | It says Stopped. **The band re-reads the probe when it opens** — if it shows a stale value, that is a finding |
-| 7.3 | Open "Tickets you've opened" | The tickets **this machine** filed, each saying "Filed from here / Progress not visible" |
+| 7.3 | Open "Tickets I've filed from this machine" | The tickets **this machine** filed, each saying "Filed from here / Progress not visible". The trigger used to read "Tickets you've opened"; the re-export's wording is D242's own constraint said better, since the endpoint knows what it FILED and never what a person opened elsewhere |
 | 7.4 | Read the note under them | It says progress cannot be checked in this build, in the same words the spoken answer uses |
 | 7.5 | Ask "where's my ticket?" | The spoken answer and the band agree. **Two surfaces describing one thing differently is the defect to look for** |
 

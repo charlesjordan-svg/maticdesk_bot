@@ -4,26 +4,87 @@
    drop the new harness in and run `npm.cmd run panel:build`. test/panel.test.mjs fails while
    this file is stale. App-only rules go in matic-panel.app.css, which is loaded after it. */
 /* ═══════════════════════════════════════════════════════════════════════
-   Matic Desk panel — token set.
-   Namespaced --matic-ui-* so it sits alongside the avatar's
-   --matic-avatar-* tokens without colliding. Names are final; values
-   are the only thing to retune.
+   Matic Desk panel — re-export, 2026-09-10.
+   Supersedes the September delivery. Answers the re-export request in full.
+
+   ── NAMES ────────────────────────────────────────────────────────────
+   Every name the September delivery styled is carried forward unchanged.
+   Six names come from your own brief: .turn-note (+ .unknown),
+   .ticket-review, .todo-card, .transcript-turn, .raw.
+
+   THIRTY-TWO NAMES ARE MINE AND NEED CHECKING AGAINST YOUR 90 — §5 of
+   the re-export handover never reached me, so these are proposals, not
+   matches. Rename any that collide; the rules are grouped under one
+   banner comment each so a rename is one pass:
+
+     review card   .tr-head .tr-legends .tr-legend .tr-swatch-edit
+                   .tr-swatch-fixed .tr-grid .tr-label .tr-value
+                   .tr-field .tr-hint .tr-fixed .tr-caveat .tr-actions
+                   and two modifiers: .tr-value.ruled, .tr-fixed .check
+     todo card     .todo-head .todo-note .todo-row .todo-n .todo-body
+                   .todo-do .todo-why .todo-next
+     consent §4    .consent-call .call-gloss
+     inspector §3d .ins-glyph .ins-label
+     tickets §2    .tfiled, and .tstat b.unseen
+     turn note     .turn-note .ref
+     rail §2.1     .rail-stack (the centred block the wordmark sits in)
+     transcript    .scene-review (the review card's scene, which the
+                   September delivery had no state for)
+
+   TWO MARKUP CHANGES ARE NEEDED ON YOUR SIDE — CSS cannot do them:
+     1. §3a. .glyph-machine / .glyph-ticket lose their 1px border and
+        become SVG holders. Their spans are empty in your markup, so
+        they will render nothing until a Lucide glyph is placed inside.
+        The two glyphs are in the artwork below, ready to copy.
+     2. §3d. .crosshair is superseded by .ins-glyph + .ins-label. Its
+        rules are LEFT IN below so your current markup does not
+        unstyle, but the span should be replaced, not restyled.
+
+   ── VALUES RETUNED ───────────────────────────────────────────────────
+   Names are not redefined. Four values changed, each with its number:
+     --matic-ui-ink-quiet  light  #7a7a7d -> #656769   (§3, your pick)
+                                  3.53:1  -> 4.68:1 on surface,
+                                             5.08 on ground, 5.68 on card
+     --matic-ui-ink-quiet  dark   #7e8b94 -> #8b98a1
+                                  4.16:1  -> 4.92:1 on surface-2. The old
+                                  value passed on surface and ground and
+                                  failed on the review card's own ground,
+                                  which is surface-2 — not measured in §3c
+                                  because the card had not been drawn yet.
+     --matic-ui-attn       light  #8a6a3a -> #7a5c2e   4.12:1 -> 5.09:1
+     --matic-ui-ok         light  #4a7a63 -> #3f6b56   4.07:1 -> 5.02:1
+   The last two are unasked-for and are the only things in this file you
+   did not request. Both tokens carry body-sized text in the panel and
+   both failed AA on surface. Revert them if you would rather decide
+   separately; nothing else depends on the change.
+
+   ── FOUR STAND-INS ───────────────────────────────────────────────────
+   --matic-ui-live / -deep / -wash / -edge are placeholders. Substitute
+   the app's values, which are pinned to matic-avatar.css by a test.
+   Only the roles are the delivery's: -deep carries text, - carries
+   fills and borders, -wash carries tinted grounds, -edge carries the
+   hairline on an interactive thing.
    ═══════════════════════════════════════════════════════════════════ */
+
 :root, [data-theme="light"] {
   --matic-ui-ground:#f2f2f3;
   --matic-ui-surface:#e9e9ea;
   --matic-ui-surface-2:#ffffff;
   --matic-ui-ink:#1d1f20;
   --matic-ui-ink-muted:#5d5d60;
-  --matic-ui-ink-quiet:#7a7a7d;
+  --matic-ui-ink-quiet:#656769;
   --matic-ui-line:rgba(29,31,32,0.16);
   --matic-ui-line-strong:rgba(29,31,32,0.34);
   --matic-ui-accent:#5980a6;
   --matic-ui-accent-deep:#416180;
   --matic-ui-accent-ink:#2c455d;
   --matic-ui-accent-wash:#e2ecf6;
-  --matic-ui-ok:#4a7a63;
-  --matic-ui-attn:#8a6a3a;
+  --matic-ui-live:#2f6ea8;
+  --matic-ui-live-deep:#1f4f78;
+  --matic-ui-live-wash:#dfeaf6;
+  --matic-ui-live-edge:#7ea6cc;
+  --matic-ui-ok:#3f6b56;
+  --matic-ui-attn:#7a5c2e;
   --matic-ui-shadow-lg:0 12px 32px rgba(43,43,45,0.22);
 }
 [data-theme="dark"] {
@@ -32,20 +93,34 @@
   --matic-ui-surface-2:#222a31;
   --matic-ui-ink:#e8ecef;
   --matic-ui-ink-muted:#9fabb4;
-  --matic-ui-ink-quiet:#7e8b94;
+  --matic-ui-ink-quiet:#8b98a1;
   --matic-ui-line:rgba(232,236,239,0.16);
   --matic-ui-line-strong:rgba(232,236,239,0.34);
   --matic-ui-accent:#8fb2d4;
   --matic-ui-accent-deep:#b5d0e8;
   --matic-ui-accent-ink:#d6e7f5;
   --matic-ui-accent-wash:#243441;
+  --matic-ui-live:#7fb4e6;
+  --matic-ui-live-deep:#a9d0f2;
+  --matic-ui-live-wash:#1d2c3a;
+  --matic-ui-live-edge:#4b7ea8;
   --matic-ui-ok:#7fb79b;
   --matic-ui-attn:#d0aa72;
   --matic-ui-shadow-lg:0 12px 32px rgba(0,0,0,0.5);
 }
+
+/* §2.2's toggle. Reverts every responding surface to the single muted
+   accent of the September delivery, for comparing the split against it. */
+[data-live="off"] {
+  --matic-ui-live:var(--matic-ui-accent);
+  --matic-ui-live-deep:var(--matic-ui-accent-deep);
+  --matic-ui-live-wash:var(--matic-ui-accent-wash);
+  --matic-ui-live-edge:var(--matic-ui-accent);
+}
+
 :root {
-  /* Barlow Condensed / Barlow are named first and used when the app ships
-     them as local font files. No webfont is requested at runtime. */
+  /* Families are named and fall back. No webfont is requested at runtime;
+     Barlow and Barlow Condensed render when the app ships them locally. */
   --matic-ui-font-head:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --matic-ui-font-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
   --matic-ui-font-mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;
@@ -77,10 +152,10 @@ h1,h2,h3,h4 { font-family:var(--matic-ui-font-head); font-weight:600; line-heigh
 p { margin:0; }
 button { font:inherit; color:inherit; }
 :focus { outline:none; }
-:focus-visible { outline:2px solid var(--matic-ui-accent); outline-offset:2px; }
-::selection { background:var(--matic-ui-accent-wash); }
-a { color:var(--matic-ui-accent-deep); text-underline-offset:3px; }
-a:hover { color:var(--matic-ui-accent); }
+:focus-visible { outline:2px solid var(--matic-ui-live); outline-offset:2px; }
+::selection { background:var(--matic-ui-live-wash); }
+a { color:var(--matic-ui-live-deep); text-underline-offset:3px; }
+a:hover { color:var(--matic-ui-live); }
 
 /* ── wireframe frame: square, hairline, registration marks ── */
 .bp { position:relative; border:var(--matic-ui-hair) solid var(--matic-ui-line); border-radius:0; }
@@ -91,86 +166,40 @@ a:hover { color:var(--matic-ui-accent); }
 .bp > .tl { top:-6px; left:-6px; } .bp > .tr { top:-6px; right:-6px; }
 .bp > .bl { bottom:-6px; left:-6px; } .bp > .br { bottom:-6px; right:-6px; }
 
-/* ── controls ── */
+/* ── controls ─────────────────────────────────────────────────────────
+   §2.2. A button is a thing that responds, so every button takes the
+   live blue. Text sits on -deep (7.07:1 on surface), never on the fill
+   colour; the primary's own label sits on the fill and is measured
+   below at 4.79:1. */
 .btn {
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   font-family:var(--matic-ui-font-head); font-weight:600; font-size:14px; line-height:1.2;
   padding:8px 14px; cursor:pointer; border-radius:0;
   background:transparent; border:var(--matic-ui-hair) solid var(--matic-ui-line);
-  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease),
+             border-color var(--matic-ui-dur) var(--matic-ui-ease);
 }
-.btn-primary { background:var(--matic-ui-accent); border-color:var(--matic-ui-accent); color:var(--matic-ui-ground); }
-.btn-primary:hover { background:var(--matic-ui-accent-deep); border-color:var(--matic-ui-accent-deep); }
-.btn-primary:active { background:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent-ink); }
+.btn-primary { background:var(--matic-ui-live); border-color:var(--matic-ui-live); color:var(--matic-ui-ground); }
+.btn-primary:hover { background:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-deep); }
+.btn-primary:active { background:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-deep); }
 .btn-secondary { color:var(--matic-ui-ink-muted); border-color:var(--matic-ui-line-strong); }
-.btn-secondary:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-.btn-secondary:active { background:var(--matic-ui-accent-wash); border-color:var(--matic-ui-accent); }
+.btn-secondary:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge); }
+.btn-secondary:active { background:var(--matic-ui-live-wash); border-color:var(--matic-ui-live); }
 .btn-ghost {
-  border-color:transparent; color:var(--matic-ui-accent-deep);
+  border-color:transparent; color:var(--matic-ui-live-deep);
   font-family:var(--matic-ui-font-body); font-weight:400; font-size:12px; padding:4px 6px; cursor:pointer;
   background:transparent;
 }
-.btn-ghost:hover { background:var(--matic-ui-accent-wash); }
+.btn-ghost:hover { background:var(--matic-ui-live-wash); }
 .input {
   width:100%; min-height:44px; padding:8px 12px; font:inherit; font-size:var(--matic-ui-text-md);
-  color:var(--matic-ui-ink); caret-color:var(--matic-ui-accent); border-radius:0;
+  color:var(--matic-ui-ink); caret-color:var(--matic-ui-live); border-radius:0;
   background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-line);
 }
 .input:hover { border-color:var(--matic-ui-line-strong); }
-.input:focus-visible { border-color:var(--matic-ui-accent); outline-offset:0; }
+.input:focus-visible { border-color:var(--matic-ui-live); outline-offset:0; }
 
-/* ── harness chrome ── */
-.harness-head {
-  display:flex; align-items:flex-end; gap:24px; flex-wrap:wrap;
-  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); padding-bottom:14px;
-}
-.kicker { font-family:var(--matic-ui-font-head); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
-.eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:5px; }
-.segrow { display:flex; }
-.seg {
-  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.04em;
-  padding:8px 13px; cursor:pointer; border-radius:0; margin-right:-1px;
-  background:transparent; color:var(--matic-ui-ink-muted);
-  border:var(--matic-ui-hair) solid var(--matic-ui-line);
-}
-.seg:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-.harness-body { display:flex; gap:var(--matic-ui-s6); align-items:flex-start; flex-wrap:wrap; }
-.rail-h { width:212px; flex:none; display:flex; flex-direction:column; gap:20px; position:sticky; top:var(--matic-ui-s6); }
-.railgroup { display:flex; flex-direction:column; }
-.rbtn {
-  text-align:left; font-size:13px; line-height:1.35; padding:8px 10px; cursor:pointer;
-  background:transparent; color:var(--matic-ui-ink-muted);
-  border:0; border-left:2px solid var(--matic-ui-line); border-radius:0;
-}
-.rbtn:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-.stage { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; overflow-x:auto; padding:8px 8px 8px 0; }
-
-/* active states for every control, driven by the root attributes */
-[data-theme="light"] [data-set="theme:light"], [data-theme="dark"] [data-set="theme:dark"],
-[data-variant="overlay"] [data-set="variant:overlay"], [data-variant="inline"] [data-set="variant:inline"],
-[data-scene="first"] [data-set="scene:first"], [data-scene="capability"] [data-set="scene:capability"],
-[data-scene="offer"] [data-set="scene:offer"], [data-scene="consent"] [data-set="scene:consent"],
-[data-scene="citation"] [data-set="scene:citation"], [data-scene="decline"] [data-set="scene:decline"],
-[data-hub="ok"] [data-set="hub:ok"], [data-hub="unreachable"] [data-set="hub:unreachable"],
-[data-hub="none"] [data-set="hub:none"],
-[data-band="machine"] [data-set="band:machine"], [data-band="tickets"] [data-set="band:tickets"],
-[data-inspector="on"] [data-set="inspector:on"],
-[data-tickets="open"] [data-set="tickets:open"], [data-tickets="closed"] [data-set="tickets:closed"] {
-  background:var(--matic-ui-accent); border-color:var(--matic-ui-accent); color:var(--matic-ui-ground);
-}
-.rbtn[data-set] { }
-[data-scene="first"] .rbtn[data-set="scene:first"], [data-scene="capability"] .rbtn[data-set="scene:capability"],
-[data-scene="offer"] .rbtn[data-set="scene:offer"], [data-scene="consent"] .rbtn[data-set="scene:consent"],
-[data-scene="citation"] .rbtn[data-set="scene:citation"], [data-scene="decline"] .rbtn[data-set="scene:decline"],
-[data-hub="ok"] .rbtn[data-set="hub:ok"], [data-hub="unreachable"] .rbtn[data-set="hub:unreachable"],
-[data-hub="none"] .rbtn[data-set="hub:none"],
-[data-band="machine"] .rbtn[data-set="band:machine"], [data-band="tickets"] .rbtn[data-set="band:tickets"],
-[data-inspector="on"] .rbtn[data-set="inspector:on"] {
-  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink);
-  border:0; border-left:2px solid var(--matic-ui-accent);
-}
-
-/* ── the panel ── */
+/* ── the panel shell ── */
 .window {
   width:1160px; flex:none; height:800px; display:flex; flex-direction:column;
   background:var(--matic-ui-ground); box-shadow:var(--matic-ui-shadow-lg); overflow:hidden;
@@ -180,21 +209,29 @@ a:hover { color:var(--matic-ui-accent); }
   border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface);
 }
 .titlebar .name { font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px; letter-spacing:.04em; color:var(--matic-ui-ink-muted); }
+.titlebar > span:first-child { width:9px; height:9px; flex:none; border:1px solid var(--matic-ui-line-strong); }
+.titlebar > span:last-child { margin-left:auto; display:flex; }
 .wbtn { width:34px; height:36px; display:grid; place-items:center; color:var(--matic-ui-ink-quiet); font-size:12px; }
 .panelbody { flex:1; min-height:0; display:flex; position:relative; }
 
-/* left rail */
+/* ── left rail ─────────────────────────────────────────────────────────
+   §2.1. The wordmark is centred, with everything under it. */
 .rail {
   width:236px; flex:none; padding:22px 20px; gap:18px;
   border-right:var(--matic-ui-hair) solid var(--matic-ui-line);
   display:flex; flex-direction:column;
 }
-.brand { font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px; letter-spacing:.2em; text-transform:uppercase; color:var(--matic-ui-ink-muted); }
+.brand {
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px;
+  letter-spacing:.2em; text-transform:uppercase; color:var(--matic-ui-ink-muted);
+  text-align:center;
+}
 .avatar-mount {
   width:150px; height:150px; display:grid; place-items:center; text-align:center; line-height:1.5;
   border:1px dashed var(--matic-ui-line-strong); color:var(--matic-ui-ink-quiet);
   font-size:10px; letter-spacing:.06em;
 }
+.rail-stack { display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:6px; text-align:center; }
 .status-head { font-family:var(--matic-ui-font-head); font-weight:600; font-size:19px; }
 .status-sub { font-size:12px; color:var(--matic-ui-ink-quiet); margin-top:2px; }
 .dot { width:8px; height:8px; flex:none; margin-top:6px; border-radius:50%; background:var(--matic-ui-ink-quiet); }
@@ -205,91 +242,169 @@ a:hover { color:var(--matic-ui-accent); }
   padding-top:14px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line);
 }
 .service-title { font-size:var(--matic-ui-text-sm); line-height:1.35; }
-.service-detail { font-size:11px; line-height:1.4; color:var(--matic-ui-ink-quiet); margin-top:2px; }
+.service-detail { font-size:11px; line-height:1.45; color:var(--matic-ui-ink-quiet); margin-top:3px; }
 
-/* conversation column */
+/* ── conversation column ── */
 .main { flex:1; min-width:520px; display:flex; flex-direction:column; position:relative; }
 .utility {
-  flex:none; display:flex; align-items:center; gap:8px; height:44px; padding:0 14px 0 20px;
+  flex:none; display:flex; align-items:center; gap:8px; height:46px; padding:0 14px 0 20px;
   border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line);
 }
+
+/* ── disclosure bands ─────────────────────────────────────────────────
+   §3a. One control, one affordance. The bordered square is gone: the
+   glyph is a thin-stroke Lucide mark that cannot read as a checkbox,
+   and the chevron is the only affordance. Keep the aria-expanded you
+   added — it is announced, and these rules only draw it. */
 .band-trigger {
   display:inline-flex; align-items:center; gap:9px; cursor:pointer; padding:6px 10px; border-radius:0;
   background:transparent; color:var(--matic-ui-ink-muted); border:var(--matic-ui-hair) solid transparent;
   font-family:var(--matic-ui-font-body); font-size:13px;
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
 }
 .band-trigger:first-child { margin-left:-10px; }
-.band-trigger:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.band-trigger:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); }
 [data-band="machine"] [data-set="band:machine"].band-trigger,
-[data-band="tickets"] [data-set="band:tickets"].band-trigger {
-  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent);
+[data-band="tickets"] [data-set="band:tickets"].band-trigger,
+.band-trigger[aria-expanded="true"] {
+  background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge);
 }
-.glyph-machine { width:13px; height:11px; border:1px solid currentColor; flex:none; display:block; }
-.glyph-ticket { width:11px; height:13px; border:1px solid currentColor; flex:none; display:block; }
-.count { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.06em; padding:1px 6px; border:1px solid var(--matic-ui-line-strong); }
-.chev { font-size:12px; display:inline-block; transition:transform var(--matic-ui-dur) var(--matic-ui-ease); }
-[data-band="machine"] [data-set="band:machine"] .chev, [data-band="tickets"] [data-set="band:tickets"] .chev { transform:rotate(180deg); }
+/* SVG holders. The border is deliberately gone — see the markup note at
+   the head of this file; these spans need a glyph child. */
+.glyph-machine, .glyph-ticket {
+  width:15px; height:15px; flex:none; display:block; border:0;
+  color:currentColor;
+}
+.glyph-machine svg, .glyph-ticket svg { display:block; width:15px; height:15px; }
+.count {
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.06em;
+  padding:1px 6px; border:1px solid var(--matic-ui-live-edge); color:var(--matic-ui-live-deep);
+}
+.chev { display:inline-block; flex:none; transition:transform var(--matic-ui-dur) var(--matic-ui-ease); }
+.chev svg { display:block; width:11px; height:11px; }
+[data-band="machine"] [data-set="band:machine"] .chev,
+[data-band="tickets"] [data-set="band:tickets"] .chev,
+.band-trigger[aria-expanded="true"] .chev { transform:rotate(180deg); }
+
+/* ── inspector trigger ────────────────────────────────────────────────
+   §3d. A visible label and a glyph that reports rather than adds. The
+   label is the fix; the glyph alone was the problem. */
 .inspector-trigger {
-  margin-left:auto; width:34px; height:34px; display:grid; place-items:center; cursor:pointer; border-radius:0;
-  background:transparent; color:var(--matic-ui-ink-quiet); border:var(--matic-ui-hair) solid transparent;
+  margin-left:auto; display:inline-flex; align-items:center; gap:7px;
+  padding:6px 11px; cursor:pointer; border-radius:0;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.04em;
+  background:transparent; color:var(--matic-ui-ink-muted);
+  border:var(--matic-ui-hair) solid var(--matic-ui-line);
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
 }
-.inspector-trigger:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-[data-inspector="on"] .inspector-trigger { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent); }
+.inspector-trigger:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge); }
+[data-inspector="on"] .inspector-trigger { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); border-color:var(--matic-ui-live-edge); }
+.ins-glyph { width:14px; height:14px; flex:none; display:block; }
+.ins-glyph svg { display:block; width:14px; height:14px; }
+.ins-label { white-space:nowrap; }
+/* Superseded by .ins-glyph + .ins-label. Left in so existing markup does
+   not unstyle; delete the span rather than restyling it. */
 .crosshair { position:relative; width:14px; height:14px; display:block; }
 .crosshair::before { content:""; position:absolute; left:6px; top:0; width:1px; height:100%; background:currentColor; }
 .crosshair::after { content:""; position:absolute; top:6px; left:0; width:100%; height:1px; background:currentColor; }
 
-/* bands */
+/* ── bands ── */
 .band { display:none; flex:none; padding:16px 20px 18px; background:var(--matic-ui-surface); border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
 [data-band="machine"] .band-machine { display:block; }
 [data-band="tickets"] .band-tickets { display:block; }
 .band-head { display:flex; align-items:center; gap:12px; margin-bottom:11px; flex-wrap:wrap; }
 .band-title { font-family:var(--matic-ui-font-head); font-weight:600; font-size:15px; letter-spacing:.02em; }
-.band-note { font-size:11px; color:var(--matic-ui-ink-quiet); }
-.mgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px 28px; }
+.band-note { font-size:11px; line-height:1.5; color:var(--matic-ui-ink-quiet); }
+.mgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px 28px; margin:0; }
 .mrow { display:flex; gap:14px; align-items:baseline; padding:7px 0; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
 .mrow dt { width:126px; flex:none; font-size:var(--matic-ui-text-sm); color:var(--matic-ui-ink-quiet); margin:0; }
 .mrow dd { margin:0; font-size:var(--matic-ui-text-sm); line-height:1.45; overflow-wrap:anywhere; }
 .filter { font-size:12px; padding:5px 12px; cursor:pointer; border-radius:0; margin-left:-1px; background:transparent; color:var(--matic-ui-ink-muted); border:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.filter:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.filter:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); }
 .tset { display:none; }
 [data-tickets="open"] .tset-open { display:block; }
 [data-tickets="closed"] .tset-closed { display:block; }
 [data-tickets="open"] .tickets-title-open, [data-tickets="closed"] .tickets-title-closed { display:inline; }
 .tickets-title-open, .tickets-title-closed { display:none; }
+
+/* ── tickets band ─────────────────────────────────────────────────────
+   §2. The band states two facts on every row and cannot imply a third.
+   .tfiled and .unseen are the two phrases; they are drawn as a matched
+   pair, one in each column, so neither can be dropped without the row
+   looking broken. .unseen is deliberately the quiet token and not the
+   attention one: "progress not visible" is a limit, not a warning. */
 .trow { display:flex; gap:16px; align-items:flex-start; padding:12px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.tref { width:104px; flex:none; }
+.tref { width:118px; flex:none; }
 .tref b { display:block; font-family:var(--matic-ui-font-mono); font-weight:400; font-size:11.5px; color:var(--matic-ui-ink-muted); }
 .tref span { display:block; font-size:11px; color:var(--matic-ui-ink-quiet); margin-top:3px; }
+.tfiled {
+  display:inline-block; margin-top:5px; padding:1px 5px;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:10px;
+  letter-spacing:.08em; text-transform:uppercase;
+  color:var(--matic-ui-ink-muted); border:1px solid var(--matic-ui-line-strong);
+}
 .tbody { flex:1; min-width:0; }
 .tbody b { display:block; font-weight:400; font-size:var(--matic-ui-text-sm); line-height:1.45; }
 .tbody span { display:block; font-size:var(--matic-ui-text-sm); line-height:1.5; color:var(--matic-ui-ink-muted); margin-top:4px; }
 .tstat { width:150px; flex:none; text-align:right; }
-.tstat b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.tstat b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
 .tstat b.you { color:var(--matic-ui-attn); }
 .tstat b.closed { color:var(--matic-ui-ink-quiet); }
+.tstat b.unseen { color:var(--matic-ui-ink-quiet); font-family:var(--matic-ui-font-body); font-weight:400; font-size:11px; letter-spacing:0; text-transform:none; }
 .tstat span { display:block; font-size:11px; color:var(--matic-ui-ink-quiet); margin-top:5px; }
 
-/* transcript */
-.transcript { flex:1; min-height:0; overflow-y:auto; padding:26px 26px 30px; display:flex; flex-direction:column; gap:20px; }
-.scene { display:none; flex-direction:column; gap:20px; }
+/* ── transcript ───────────────────────────────────────────────────────
+   §1. .transcript-turn is the wrapper one turn's parts go in. It is the
+   only thing in the transcript with vertical rhythm of its own: parts
+   inside a turn are close (10px), turns are far apart (22px), so an
+   answer reads as one object without a frame around it. */
+.transcript { flex:1; min-height:0; overflow-y:auto; padding:26px 26px 30px; display:flex; flex-direction:column; gap:22px; }
+.transcript-turn { display:flex; flex-direction:column; gap:10px; }
+.transcript-turn:last-child { padding-bottom:4px; }
+.scene { display:none; flex-direction:column; gap:22px; }
 [data-scene="first"] .scene-first, [data-scene="capability"] .scene-capability,
 [data-scene="offer"] .scene-offer, [data-scene="consent"] .scene-consent,
-[data-scene="citation"] .scene-citation, [data-scene="decline"] .scene-decline { display:flex; }
+[data-scene="citation"] .scene-citation, [data-scene="decline"] .scene-decline,
+[data-scene="review"] .scene-review { display:flex; }
 .scene-first { flex:1; justify-content:center; }
 .said { display:flex; justify-content:flex-end; }
 .said > div {
   max-width:60%; padding:11px 15px; font-size:var(--matic-ui-text-md); line-height:1.5;
-  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink);
-  border:var(--matic-ui-hair) solid var(--matic-ui-accent);
+  background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep);
+  border:var(--matic-ui-hair) solid var(--matic-ui-live-edge);
 }
-.reply { max-width:640px; padding:18px 20px; }
+.reply { max-width:660px; padding:18px 20px; }
 .reply p + p { margin-top:14px; }
-.stack { max-width:640px; display:flex; flex-direction:column; gap:14px; }
+.stack { max-width:660px; display:flex; flex-direction:column; gap:14px; }
 .actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 .actionbar { margin-top:16px; padding-top:15px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
 
-/* hub-dependent copy */
+/* ── turn note ────────────────────────────────────────────────────────
+   §1. A statement of fact about what did or did not happen. Drawn as a
+   margin annotation, not a message: a tick in the gutter, no frame, no
+   surface fill, set in the reply column so it reads as part of the
+   answer above it rather than as a new turn.
+
+   Two flavours and no more. The default states a fact. .unknown states
+   that the fact is not known, and takes the attention token — the only
+   difference between them, because the only difference in meaning is
+   whether the system can vouch for the sentence.
+
+   Sized for two lines at the reply column's 660px, which the longest
+   string in the app reaches. Anything longer is a reply, not a note. */
+.turn-note {
+  display:flex; gap:10px; align-items:baseline; max-width:660px;
+  font-size:var(--matic-ui-text-sm); line-height:1.5; color:var(--matic-ui-ink-muted);
+}
+.turn-note::before {
+  content:""; flex:none; width:10px; height:1px; margin-top:10px;
+  background:var(--matic-ui-line-strong);
+}
+.turn-note.unknown { color:var(--matic-ui-attn); }
+.turn-note.unknown::before { background:var(--matic-ui-attn); }
+.turn-note .ref { font-family:var(--matic-ui-font-mono); font-size:12.5px; }
+
+/* ── hub-dependent copy ── */
 .hubcopy { display:none; }
 [data-hub="ok"] .hub-ok, [data-hub="unreachable"] .hub-unreachable, [data-hub="none"] .hub-none { display:block; }
 .degraded {
@@ -306,40 +421,149 @@ a:hover { color:var(--matic-ui-accent); }
 .no-service { display:none; }
 [data-hub="unreachable"] .no-service-unreachable, [data-hub="none"] .no-service-none { display:block; }
 
-/* composer */
+/* ── composer ── */
 .composer { flex:none; padding:16px 26px 20px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); display:flex; flex-direction:column; gap:8px; }
 .composer .hint { display:none; font-size:11px; color:var(--matic-ui-ink-quiet); }
 [data-scene="offer"][data-offer="pending"] .composer .hint { display:block; }
 .composer .row { display:flex; gap:10px; align-items:stretch; }
 .send { min-height:44px; padding:0 22px; font-size:var(--matic-ui-text-md); }
 
-/* offer answer states */
+/* ── offer answer states ── */
 .offer-pending, .offer-answered, .after-accept, .after-decline { display:none; }
 [data-offer="pending"] .offer-pending { display:flex; }
 [data-offer="accepted"] .offer-answered, [data-offer="declined"] .offer-answered { display:flex; }
 [data-offer="accepted"] .after-accept, [data-offer="declined"] .after-decline { display:block; }
 [data-offer="accepted"] .answer-yes, [data-offer="declined"] .answer-no { display:inline; }
-.answer-yes, .answer-no { display:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.answer-yes, .answer-no { display:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
 
-/* capability answer, laid out */
+/* ── capability answer ── */
 .clause { display:flex; gap:12px; align-items:baseline; padding:9px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
 .clause span:first-child { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; color:var(--matic-ui-accent-deep); width:16px; flex:none; }
 .clause span + span { font-size:var(--matic-ui-text-md); line-height:1.5; }
 .aside-note { border-left:2px solid var(--matic-ui-accent); padding:2px 0 2px 14px; }
 .aside-note p { font-size:var(--matic-ui-text-sm); line-height:1.6; color:var(--matic-ui-ink-muted); }
-.why { display:flex; gap:12px; align-items:baseline; padding:11px 14px; background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-accent); }
+.why { max-width:660px; display:flex; gap:12px; align-items:baseline; padding:11px 14px; background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-accent); }
 .why > span:first-child { flex:none; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); }
 .why > span + span { font-size:var(--matic-ui-text-sm); line-height:1.5; }
 
-/* consent */
-.consent { background:var(--matic-ui-surface); }
+/* ── consent card ─────────────────────────────────────────────────────
+   §3b's answer, applied here. Mono means MACHINE-EXACT — a string a
+   machine would have to match character for character — and not
+   verbatim. So .consent-verbatim's paragraph stays in the body face
+   even though it is verbatim, and the verbatim property is carried
+   structurally instead: the card's frame, its head, and the fixed
+   hairline that marks a thing shown as written.
+
+   §4/D248, drawn as PROPOSED. .call-gloss is the plain-language line,
+   .raw the exact call below it, subordinate by size and position. This
+   needs the new field on the rendered contract. If the answer is no,
+   delete .call-gloss's element; .raw stands on its own. */
+.consent { max-width:660px; background:var(--matic-ui-surface); }
 .consent-head { display:flex; align-items:center; gap:10px; padding:11px 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.consent-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.consent-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
 .consent-head span { margin-left:auto; font-size:11px; color:var(--matic-ui-ink-quiet); }
 .consent-verbatim { padding:18px; }
 .consent-verbatim p { font-size:var(--matic-ui-text-md); line-height:1.6; }
+.consent-call {
+  margin-top:16px; padding-top:14px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line);
+  display:flex; gap:14px; align-items:flex-start;
+}
+.consent-call > .tr-label { padding:0; width:104px; }
+.call-gloss { font-size:var(--matic-ui-text-sm); line-height:1.5; }
+.call-gloss .hint { color:var(--matic-ui-ink-quiet); }
 
-/* citation */
+/* Machine-exact strings. §1's own example, and the one name every
+   mono run in the panel should carry. */
+.raw {
+  font-family:var(--matic-ui-font-mono); font-size:12px; line-height:1.5;
+  color:var(--matic-ui-ink-muted); margin-top:4px; overflow-wrap:anywhere;
+}
+
+/* ── ticket review card ───────────────────────────────────────────────
+   §1's highest-stakes surface. The one screen through which user data
+   leaves the machine.
+
+   §1(a), both halves, drawn with one mark each and stated in a legend
+   in the card head:
+     .tr-field  a filled input box  — the user's, editable
+     .tr-fixed  a 2px left hairline — the model's, sent as written
+   Only the problem description and the contact detail are .tr-field.
+   The case note and the checks are .tr-fixed, which is the answer to
+   the two-authors risk: the user cannot retype the model's words, so
+   the ticket has one author per field and the card says which.
+
+   Every field that will be sent is present. Nothing is hidden to tidy
+   the grid — D128. The card sits on surface-2 so it reads as a
+   document rather than a message, and its ground is why dark's
+   ink-quiet was retuned.
+
+   §1(b). .tr-caveat is the single place the "no email is sent" fact is
+   stated — D245. Restyled here, not removed: it moved to the foot with
+   an attention rule and full-strength ink, so it is the last thing
+   read before the send button. */
+.ticket-review { max-width:660px; background:var(--matic-ui-surface-2); border-color:var(--matic-ui-line-strong); }
+.tr-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:12px 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.tr-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
+.tr-legends { margin-left:auto; display:flex; align-items:center; gap:14px; }
+.tr-legend { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--matic-ui-ink-quiet); }
+.tr-swatch-edit { width:12px; height:12px; flex:none; background:var(--matic-ui-surface); border:1px solid var(--matic-ui-live-edge); }
+.tr-swatch-fixed { width:2px; height:12px; flex:none; background:var(--matic-ui-line-strong); }
+.tr-grid { display:grid; grid-template-columns:118px minmax(0,1fr); gap:0 16px; align-items:start; padding:4px 18px 0; }
+.tr-label {
+  padding:16px 0 0; font-size:11px; line-height:1.4; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--matic-ui-ink-quiet);
+}
+.tr-value { padding:16px 0 0; }
+.tr-value.ruled { border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.tr-field {
+  padding:9px 12px; min-height:44px; font-size:var(--matic-ui-text-md); line-height:1.5;
+  background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-live-edge);
+  caret-color:var(--matic-ui-live);
+}
+.tr-field:hover { border-color:var(--matic-ui-live); }
+.tr-field:focus-visible { border-color:var(--matic-ui-live); outline-offset:0; }
+.tr-hint { margin-top:5px; font-size:11px; color:var(--matic-ui-ink-quiet); }
+.tr-fixed { border-left:2px solid var(--matic-ui-line-strong); padding-left:14px; }
+.tr-fixed p { font-size:var(--matic-ui-text-md); line-height:1.55; }
+.tr-fixed .check { display:flex; gap:10px; align-items:baseline; font-size:var(--matic-ui-text-md); line-height:1.5; padding:2px 0; }
+.tr-fixed .check::before { content:""; flex:none; width:7px; height:1px; margin-top:11px; background:var(--matic-ui-line-strong); }
+.tr-caveat {
+  margin:20px 18px 0; padding:12px 14px;
+  background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-attn);
+}
+.tr-caveat p { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink); }
+.tr-caveat b { font-weight:500; }
+.tr-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:16px 18px 18px; }
+
+/* ── to-do card ───────────────────────────────────────────────────────
+   §1. Checks the USER has to carry out. A user read straight past these
+   when they were grey system text, so they are drawn as an object:
+   framed, numbered, each instruction at body size in full ink with its
+   reason subordinate under it. The numbers are boxed because they are
+   an order to work through, not decoration. */
+.todo-card { max-width:660px; padding:16px 20px 18px; }
+.todo-head { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-live-deep); }
+.todo-note { font-size:12px; color:var(--matic-ui-ink-quiet); margin:4px 0 12px; }
+.todo-row { display:flex; gap:14px; align-items:flex-start; padding:11px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.todo-n {
+  flex:none; width:24px; height:24px; display:grid; place-items:center;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px;
+  color:var(--matic-ui-live-deep); border:1px solid var(--matic-ui-live-edge);
+}
+.todo-body { min-width:0; }
+.todo-do { font-size:var(--matic-ui-text-md); line-height:1.5; }
+.todo-why { font-size:12px; line-height:1.5; color:var(--matic-ui-ink-quiet); margin-top:2px; }
+.todo-next {
+  margin-top:14px; padding-top:13px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line-strong);
+  display:flex; gap:14px; align-items:baseline;
+}
+.todo-next > span:first-child {
+  flex:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet);
+}
+.todo-next > span + span { font-size:var(--matic-ui-text-sm); line-height:1.5; }
+
+/* ── citation ── */
 .citation { padding:16px 20px 18px; background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-line); border-top:0; }
 .citation .from { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-accent-deep); display:block; margin-bottom:10px; }
 .citation .body { font-size:var(--matic-ui-text-md); line-height:1.6; }
@@ -347,7 +571,7 @@ a:hover { color:var(--matic-ui-accent); }
 .citation .src span:last-child { margin-left:auto; }
 .follow { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }
 
-/* inspector */
+/* ── inspector ── */
 .inspector { display:none; flex-direction:column; background:var(--matic-ui-ground); }
 [data-inspector="on"] .inspector { display:flex; }
 [data-variant="overlay"] .inspector {
@@ -355,18 +579,18 @@ a:hover { color:var(--matic-ui-accent); }
   border-left:var(--matic-ui-hair) solid var(--matic-ui-line-strong); box-shadow:var(--matic-ui-shadow-lg);
 }
 [data-variant="inline"] .inspector { width:392px; flex:none; border-left:var(--matic-ui-hair) solid var(--matic-ui-line); }
-.scrim { display:none; position:absolute; inset:0; background:rgba(20,24,28,0.22); }
+.scrim { display:none; position:absolute; inset:0; background:rgba(20,24,28,0.22); z-index:1; }
 [data-inspector="on"][data-variant="overlay"] .scrim { display:block; }
-.ins-head { flex:none; display:flex; align-items:center; gap:10px; height:44px; padding:0 12px 0 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.ins-head { flex:none; display:flex; align-items:center; gap:10px; height:46px; padding:0 12px 0 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
 .ins-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--matic-ui-ink-muted); }
 .ins-body { flex:1; min-height:0; overflow-y:auto; padding:18px; }
 .step { border-top:var(--matic-ui-hair) solid var(--matic-ui-line); padding:14px 0; display:flex; gap:12px; align-items:baseline; }
 .step > b { width:88px; flex:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
 .step > div { flex:1; min-width:0; }
 .step .plain { font-size:var(--matic-ui-text-sm); line-height:1.5; overflow-wrap:anywhere; }
-details > summary { cursor:pointer; list-style:none; font-size:11px; color:var(--matic-ui-accent-deep); padding:4px 0; }
+details > summary { cursor:pointer; list-style:none; font-size:11px; color:var(--matic-ui-live-deep); padding:4px 0; }
 details > summary::-webkit-details-marker { display:none; }
-details > summary:hover { color:var(--matic-ui-accent); }
+details > summary:hover { color:var(--matic-ui-live); }
 details[open] > summary .more, details:not([open]) > summary .less { display:none; }
 pre {
   margin:8px 0 0; padding:12px; font-family:var(--matic-ui-font-mono); font-size:11.5px; line-height:1.6;
@@ -380,16 +604,9 @@ pre {
   font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; color:var(--matic-ui-ink-muted);
   border:var(--matic-ui-hair) solid var(--matic-ui-line); padding:8px 12px;
 }
-.devlog > summary:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
-
-/* per-scene inspector payloads */
+.devlog > summary:hover { background:var(--matic-ui-live-wash); color:var(--matic-ui-live-deep); }
 .ins-set { display:none; }
 [data-scene="consent"] .ins-consent, [data-scene="decline"] .ins-decline { display:block; }
+[data-scene="review"] .ins-review { display:block; }
 [data-scene="first"] .ins-default, [data-scene="capability"] .ins-default,
 [data-scene="offer"] .ins-default, [data-scene="citation"] .ins-default { display:block; }
-
-/* the note */
-.notes { width:1160px; flex:none; padding:20px 22px; }
-.notegrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px 28px; }
-.notegrid h4 { font-size:var(--matic-ui-text-lg); margin-bottom:4px; }
-.notegrid p { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }

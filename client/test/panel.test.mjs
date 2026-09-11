@@ -63,7 +63,15 @@ console.log("\n=== 1. the delivery is intact and self-contained ===");
 // The design handover's own mechanical verification, kept as a test rather than as a claim in a
 // document: a delivery that starts fetching a font or a script is a delivery that stops working
 // on a machine with no network, which is the machine this app is for.
-check("the delivery is one file with one inline <style>", (delivery.match(/<style\b/g) ?? []).length === 1);
+// TWO BLOCKS SINCE THE 2026-09-10 RE-EXPORT, and the delivery labels the one that is not the
+// panel: `<style id="sheet-only">` is the contact sheet's own chrome. The build script takes the
+// unlabelled one. This checks the SHAPE the script depends on rather than a count, because a count
+// was what made this fail on a delivery that had done nothing wrong.
+const styleOpens = delivery.match(/<style\b[^>]*>/g) ?? [];
+const panelStyles = styleOpens.filter((o) => !/\sid=["']sheet-only["']/.test(o));
+check("the delivery has exactly one UNLABELLED <style> — the panel's", panelStyles.length === 1, styleOpens.join(" "));
+check("…and every other <style> it has is labelled sheet-only",
+  styleOpens.length - panelStyles.length === styleOpens.filter((o) => /sheet-only/.test(o)).length);
 for (const forbidden of ['src="http', "href=\"http", "@import", "unpkg", "fonts.googleapis", "<script src", "<link"]) {
   check(`the delivery contains no ${forbidden}`, !delivery.includes(forbidden));
 }
@@ -76,20 +84,35 @@ check("matic-panel.css matches the delivery's <style> block", panelCssIsCurrent(
 check("the generated file says it is generated", panelCss.startsWith("/* GENERATED FILE - DO NOT EDIT."));
 check("regenerating twice is stable", buildPanelCss() === buildPanelCss());
 // The hand-written half is NOT allowed to redefine a DELIVERED token: the values are the design's
-// to retune, and an override here would make the delivery a lie without changing a byte of it. It
-// IS allowed to add new names under the same prefix — the design handover §2 asks for exactly
-// that when the app needs more — so the check is the intersection, not the prefix.
+// to retune, and an override here would make the delivery a lie without changing a byte of it.
+//
+// ONE EXCEPTION, AND THE DELIVERY GRANTS IT IN WRITING. The re-export adopted the four
+// `--matic-ui-live-*` names and declares them as PLACEHOLDERS, because Claude Design does not have
+// `matic-avatar.css` and cannot know the values: *"Substitute the app's values, which are pinned
+// to matic-avatar.css by a test. Only the roles are the delivery's."* So the app declares exactly
+// those four and nothing else — and the check below reads the delivery's own words, so **the
+// exception dies the moment the delivery stops calling them stand-ins** rather than outliving its
+// reason as a hard-coded allow-list.
+const STAND_INS = ["--matic-ui-live", "--matic-ui-live-deep", "--matic-ui-live-wash", "--matic-ui-live-edge"];
 const uiTokensInPanel = new Set([...panelCss.matchAll(/(--matic-ui-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
 const uiTokensInApp = new Set([...appCss.matchAll(/(--matic-ui-[a-z0-9-]+)\s*:\s*[^;]/g)].map((m) => m[1]));
-const redefined = [...uiTokensInApp].filter((t) => uiTokensInPanel.has(t));
-check("the app stylesheet redefines no token the delivery declares", redefined.length === 0,
+const redefined = [...uiTokensInApp].filter((t) => uiTokensInPanel.has(t) && !STAND_INS.includes(t));
+check("the app stylesheet redefines no token the delivery declares, bar the stand-ins", redefined.length === 0,
   redefined.join(", ") || "app-only rules may USE a delivered token and may ADD new ones; they may not redefine one");
+check("the delivery still calls the four live tokens stand-ins — the exception's only justification",
+  /placeholders\.\s*Substitute\s*\n?\s*the app's values/.test(delivery) || /are placeholders/.test(delivery), "if this fails the exception above is no longer granted and must be removed");
+check("…and the app substitutes all four, since the delivery cannot know them",
+  STAND_INS.every((t) => uiTokensInApp.has(t)), STAND_INS.filter((t) => !uiTokensInApp.has(t)).join(", "));
 
 // ==============================================================================================
 console.log("\n=== 3. the token set: 35 names, and no collision with the avatar (acceptance 3) ===");
 const uiTokens = new Set([...panelCss.matchAll(/(--matic-ui-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
 const avatarTokens = new Set([...avatarCss.matchAll(/(--matic-avatar-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
-check(`the delivery declares 35 --matic-ui-* tokens (found ${uiTokens.size})`, uiTokens.size === 35);
+// 35 in September; 39 since the re-export adopted the four live names (§2 of the follow-ups).
+// Pinned as a number because a token quietly disappearing unstyles things nothing else would catch.
+check(`the delivery declares 39 --matic-ui-* tokens (found ${uiTokens.size})`, uiTokens.size === 39);
+check("the four live names are the delivery's now, not the app's additions",
+  STAND_INS.every((t) => uiTokens.has(t)), STAND_INS.filter((t) => !uiTokens.has(t)).join(", "));
 for (const name of ["--matic-ui-ground", "--matic-ui-ink", "--matic-ui-accent", "--matic-ui-attn", "--matic-ui-font-head"]) {
   check(`${name} is present and unrenamed`, uiTokens.has(name));
 }
@@ -132,13 +155,19 @@ check("no inspector-variant control: `variant` is written nowhere in the rendere
   !/dataset\.variant/.test(rendererJs));
 check("the inspector opens as overlay by default (acceptance 2)", /data-variant="overlay"/.test(indexHtml));
 check("the inspector is hidden by default (acceptance 2)", /data-inspector="off"/.test(indexHtml));
-// The delivery's own selectors key off `data-set`, which the app does not have. The open-state
-// wash was re-keyed onto `data-band-key` by 63011a4 and the chevron rotation was missed, so a band
-// opened with its only state indicator inert. Both halves are checked now (2026-09-10).
-check("the open band's trigger is keyed onto the app's own attribute",
-  /\[data-band="machine"\] \[data-band-key="machine"\]\.band-trigger/.test(appCss));
-check("so is the chevron the delivery rotates when a band is open",
-  /\[data-band="machine"\] \[data-band-key="machine"\] \.chev/.test(appCss));
+// THE RE-EXPORT KEYED BOTH HALVES OFF `aria-expanded`, AND THAT IS BETTER THAN WHAT IT REPLACED.
+// The September delivery keyed them off `data-set` — the harness's scene-switcher hook, which the
+// app removed — so app.css had to re-key the wash onto `data-band-key`, and the first version of
+// that missed the chevron entirely: a band opened with its only state indicator inert. Both now
+// hang off the attribute the renderer already maintains for screen readers, **so the visual state
+// and the announced state cannot disagree** — there is only one of them.
+check("the open band's wash is keyed off aria-expanded, in the delivery",
+  /\.band-trigger\[aria-expanded="true"\]\s*\{/.test(panelCss));
+check("…and so is the chevron's rotation",
+  /\.band-trigger\[aria-expanded="true"\] \.chev/.test(panelCss));
+check("…and app.css no longer re-keys either of them", !/data-band-key/.test(appCss));
+check("the renderer keeps aria-expanded true for the open band and false for the other",
+  /setAttribute\("aria-expanded", String\(root\.dataset\.band === btn\.dataset\.bandKey\)\)/.test(rendererCode));
 // Not a checkbox - both are `<button>` and the square beside the words is a decorative span. What
 // the markup did lack is a disclosure state a screen reader can read.
 check("the disclosure triggers are buttons, not inputs",
@@ -182,11 +211,15 @@ for (const member of [...ESCALATION_CATEGORIES, ...ESCALATION_OWNERS]) {
   check(`\`${member}\`'s gloss is not the enum again`, !words || !/_/.test(words), `says "${words}"`);
 }
 check("the card passes the raw category alongside the gloss (D128: the user sees what is sent)",
-  /fixed\("Category",\s*ESCALATION_PLAIN\.category\[[^\]]+\][^,]*,\s*draft\.category\)/.test(rendererCode));
+  /glossed\("Category",\s*ESCALATION_PLAIN\.category\[[^\]]+\][^,]*,\s*draft\.category\)/.test(rendererCode));
 check("the card passes the raw owner alongside the gloss",
-  /fixed\("Goes to",[\s\S]{0,200}?draft\.suggestedOwner \?\? ""\)/.test(rendererCode));
+  /glossed\("Goes to",[\s\S]{0,240}?queue=\$\{draft\.suggestedOwner\}/.test(rendererCode));
+// The delivery draws `.raw` itself now — mono, a step down, under the plain words — so the app
+// supplies the element and no longer carries a rule for it.
 check("the raw value is rendered subordinate, never instead of the gloss",
-  /el\("span", "raw", raw\)/.test(rendererCode) && /\.ticket-review \.fixed \.raw/.test(appCss));
+  /cell\.append\(el\("div", "raw", raw\)\)/.test(rendererCode) && /^\.raw \{/m.test(panelCss));
+check("…and it appears only when it says something the gloss did not",
+  /if \(raw && raw !== value\)/.test(rendererCode));
 check("the owner is no longer de-underscored by regular expression",
   !/suggestedOwner\.replace\(/.test(rendererCode));
 // And the general form of it, over every string the renderer writes at the user.
@@ -277,8 +310,12 @@ check("the broker's message is NOT rewritten to hide the address",
 check("all three are still SHOWN, on the surfaces that carry them",
   /\["This computer", f\.computer\]/.test(rendererCode)
   && /\["Signed in as", f\.user\]/.test(rendererCode)
-  && /fixed\("Machine", draft\.machineName/.test(rendererCode)
   && /\["This machine's address", f\.ip\]/.test(rendererCode));
+// The re-export folds the machine and the account into one row of the review card, which is how it
+// drew them: one line of identity, with the hint under it carrying D215's self-asserted caveat.
+check("…and the review card still carries both, in the row the delivery drew for them",
+  /\$\{draft\.machineName \?\? "-"\} · \$\{r\.osUsername \?\? "unknown"\}/.test(rendererCode)
+  && /self-asserted — not authenticated/.test(rendererCode));
 // D249 item 3, and it is SHOWN rather than spoken, which is why D247's sweep did not catch it.
 //
 // PINNED AS PROPERTIES, NOT AS PHRASING. The first version of these assertions matched the sentence
@@ -322,9 +359,17 @@ check("the consent card renders the broker's title verbatim", /el\("b", "", r\.t
 check("the consent card renders the broker's `what` verbatim", /el\("p", "", r\.what\)/.test(rendererJs));
 // D247: still verbatim, and now carrying a class so it can be set apart. The text is untouched —
 // `el(tag, cls, text)` puts `r.detail` in as textContent exactly as before.
-check("the consent card renders the broker's `detail` verbatim", /el\("p", "exact", r\.detail\)/.test(rendererJs));
-check("…and it is set apart rather than hidden, the way the review card's raw value is (D244/D128)",
-  /\.consent-verbatim p\.exact/.test(appCss) && /font-family: var\(--matic-ui-font-mono\)/.test(appCss));
+check("the consent card renders the broker's `detail` verbatim", /el\("div", "raw", r\.detail\)/.test(rendererCode));
+// The re-export gives it a labelled row of its own rather than a paragraph in the prose, so the
+// treatment is the DELIVERY's now and app.css carries nothing for it.
+check("…in the labelled row the delivery drew for it, not as a paragraph of prose",
+  /el\("div", "consent-call"\)/.test(rendererCode) && /el\("div", "tr-label", "Exactly what runs"\)/.test(rendererCode)
+  && /^\.consent-call \{/m.test(panelCss));
+check("…and app.css no longer restyles a delivered paragraph", !/consent-verbatim p/.test(appCss));
+// D248 IS STILL PROPOSED, so the gloss above the call is NOT drawn: there is no field on the
+// rendered contract to draw it from, and inventing the sentence here is what D130 forbids.
+check("D248's gloss is drawn in the delivery and NOT rendered by the app",
+  /\.call-gloss/.test(panelCss) && !/call-gloss/.test(rendererCode));
 check("nothing in the renderer builds consent text from the catalog",
   !/catalog/i.test(rendererCode) && !/listCapabilities/.test(rendererCode));
 check("the renderer never uses innerHTML (D130's verbatim rule, mechanically)",
@@ -333,7 +378,10 @@ check("the renderer never uses innerHTML (D130's verbatim rule, mechanically)",
 // D86/D213: a filed ticket has reached nobody, and the surface says so. PINNED AS FACTS, NOT AS
 // PHRASING - the wording changed on 2026-09-10 when "the hub" came off the surface (D246), and an
 // assertion that breaks on a rewording is pinning the wrong thing.
-const caveat = rendererCode.match(/el\("div", "caveat", "([^"]*)"\)/)?.[1] ?? "";
+// Built from parts since the re-export, because the delivery bolds the load-bearing clause — so
+// this reads the whole block back rather than one string literal. The assertions below are
+// unchanged: they were already pinned to the FACTS, after being written against the words twice.
+const caveat = rendererCode.match(/const caveat = el\("div", "tr-caveat"\);[\s\S]{0,400}?caveat\.append\(p\);/)?.[0] ?? "";
 const bandRow = elText.find((s) => /No email went out/.test(s)) ?? "";
 // D244/D245: ONCE, though. The card is shown BEFORE the user agrees, so the card is where the fact
 // lives; the post-send line carries the reference and nothing the card already said. Both halves
@@ -345,10 +393,15 @@ check("a filed ticket's row in the band says the same thing in the past tense",
 check("neither of them says it in our words", !/\bhub\b/i.test(caveat) && !/\bhub\b/i.test(bandRow));
 check("an unknown filing outcome is stated as unknown, not as a failure",
   /filed\.filed === null/.test(rendererJs) && /unknown/.test(rendererJs));
-const postSend = rendererCode.match(/if \(!filed\.notified\) note\((`[^`]*`)\)/)?.[1] ?? "";
+const postSend = rendererCode.match(/if \(!filed\.notified\) note\((`[^`]*`)/)?.[1] ?? "";
 check("the post-send line exists and names the reference", /\$\{filed\.reference\}/.test(postSend));
 check("the post-send line does not restate the no-email fact in a second wording",
   Boolean(postSend) && !/email|notif|alert/i.test(postSend), postSend);
+// The delivery sets a reference in mono, because a string somebody has to quote back is one they
+// read character by character.
+check("…and the reference in it is marked as one, for the delivery's mono treatment",
+  /note\(`Stored as \$\{filed\.reference\}[^`]*`, \{ ref: filed\.reference \}\)/.test(rendererCode)
+  && /^\.turn-note \.ref \{/m.test(panelCss));
 
 // D246: a failed filing has two strings with two audiences. `filed.error` is the assistant's
 // sentence and is spoken; `filed.detail` is the URL, the status and the exception, and it goes to
@@ -410,9 +463,20 @@ check("the panel's three hub states are the delivery's three",
   ["hub-ok", "hub-unreachable", "hub-none"].every((c) => indexHtml.includes(c) && delivery.includes(c)));
 check("the renderer maps D49's states onto them and invents no fourth",
   /reachable" \? "ok" : [\s\S]{0,60}"unreachable" : "none"/.test(rendererJs));
-check("the standing degraded sentence is the delivery's, word for word",
-  ["I can't reach your company's guidance or the service desk at the moment",
-   "There's no company guidance or service desk connected here"].every((s) => indexHtml.includes(s) && delivery.includes(s)));
+// THE DELIVERY IS A CONTACT SHEET OF ONE STATE PER SURFACE, so it carries the unreachable band and
+// not the no-service one. The rule is unchanged — the panel and the spoken reply must describe one
+// connection state the same way (700d920) — but it can only be checked against the delivery for the
+// sentences the delivery actually draws.
+const DEGRADED = [
+  ["I can't reach your company's guidance or the service desk at the moment", true],
+  ["There's no company guidance or service desk connected here", false],
+];
+for (const [sentence, inDelivery] of DEGRADED) {
+  check(`the app carries the standing sentence: "${sentence.slice(0, 44)}…"`, indexHtml.includes(sentence));
+  if (inDelivery) check("…and it is the delivery's, word for word", delivery.includes(sentence));
+}
+check("the no-service sentence is the app's alone, because the sheet draws one state",
+  !delivery.includes("There's no company guidance"), "if the delivery gains it, pin it too");
 
 // ==============================================================================================
 console.log("\n=== 7. the tickets band says what it is, and what it is not (D242) ===");
