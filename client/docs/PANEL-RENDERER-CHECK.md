@@ -94,7 +94,7 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | 5.2 | The avatar | `declining` — round eyes, a `?`, no bow. Held while the offer is open |
 | 5.3 | Inside the reply | **Yes, open a ticket** / **No thanks**, and "What would you send?" |
 | 5.4 | Above the composer | "Waiting on your yes or no above — or just type instead." |
-| 5.5 | The rail | "Nothing running". It is waiting on you, and does not imply it is working |
+| 5.5 | The rail | "Nothing in progress". It is waiting on you, and does not imply it is working. **It must not say "Nothing running"** — beside a band listing this machine's services that reads as a claim about them (D244) |
 | 5.6 | Click Yes | "You said yes" stays on the message, the sentence goes through the composer path, and the interview or the review card follows |
 | 5.7 | Instead, type "yes please" | Identical behaviour. The buttons are not a second code path |
 
@@ -103,15 +103,18 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | # | Look at | Pass when |
 |---|---|---|
 | 6.1 | The review card | Every field that will be sent. Your details editable, the case note and category shown and fixed |
-| 6.2 | The caveat on the card | "No email is sent in this build, so nobody is alerted automatically" |
-| 6.3 | Send it | The reference is spoken, and a note repeats that nobody was alerted |
-| 6.4 | The tickets band's count | It has gone up by one |
+| 6.2 | `CATEGORY` and `GOES TO` (D244) | **Plain words as the value** — "needs a person", "a hardware fault" — with the stored value underneath, smaller. **No snake_case anywhere as the value itself**, and the stored value must still be legible: it is what is being sent |
+| 6.3 | The caveat on the card | "No email is sent in this build, so nobody is alerted automatically" |
+| 6.4 | Send it (D245) | The reference is spoken, and the note under it says **"Stored as MD-xxxx. The card above says what that does and does not do."** — the reference and nothing the card already said. **If the no-email fact appears twice in two wordings, that is the defect** |
+| 6.5 | The card, after sending | Still on screen, its caveat unchanged, its heading now "Sent by you" |
+| 6.6 | The tickets band's count | It has gone up by one |
 
 ## 7. The two bands
 
 | # | Do | Pass when |
 |---|---|---|
 | 7.1 | Open "What I can see about this machine" | Your real machine name and user, printing and sound in plain words, the adapter, and the address rows. "Checked just now" |
+| 7.1a | The chevron on the trigger, open and closed | **It points the other way when the band is open.** It did not until 2026-09-10 — the delivery's rule keyed off a markup hook D240 removed, and only the button's highlight had been re-keyed |
 | 7.2 | Stop the spooler, reopen the band | It says Stopped. **The band re-reads the probe when it opens** — if it shows a stale value, that is a finding |
 | 7.3 | Open "Tickets you've opened" | The tickets **this machine** filed, each saying "Filed from here / Progress not visible" |
 | 7.4 | Read the note under them | It says progress cannot be checked in this build, in the same words the spoken answer uses |
@@ -123,6 +126,7 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 |---|---|---|
 | 8.1 | Hub running | Rail: "Everything I need is available". No band across the top |
 | 8.2 | Stop the hub, wait for the link to notice | A line in the transcript saying the connection is lost, a standing band at the top, the rail at "Working with less than usual", and the avatar at `error` if it was idle |
+| 8.2a | That transcript line, word by word (D244/§5.29a) | It names **both** the company's guidance and the service desk, the way the band and the rail do. It does **not** apologise, and it does **not** say anything will "wait" — nothing is queued, so a user who stops re-asking has been misled |
 | 8.3 | Ask something that needs the hub | **The reply must not contradict the band.** Both say it cannot reach the service desk. This is the 700d920 defect and it is the one to hunt |
 | 8.4 | Start the hub again | "The service desk is reachable again", the band goes, the face returns to idle |
 | 8.5 | Run with no hub configured at all | "Working on this machine only", grey, no warning colour. It must read as a configuration, not a fault |

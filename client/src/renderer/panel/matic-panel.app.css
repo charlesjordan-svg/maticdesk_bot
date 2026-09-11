@@ -98,6 +98,15 @@ matic-avatar { display: block; }
   font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
   color: var(--matic-ui-ink-muted); padding-top: 11px; overflow-wrap: anywhere;
 }
+/* A glossed value and the stored value under it (D244). NO NEW FAINT TEXT IS INTRODUCED: the
+   label column beside this is already light grey at small size and is recorded as an open contrast
+   question for the next delivery, so subordination is bought by DARKENING THE GLOSS rather than by
+   fading the raw value, which stays at the colour every other `.fixed` row already uses. Position
+   and size do the rest. */
+.ticket-review .fixed.glossed { color: var(--matic-ui-ink); }
+.ticket-review .fixed .raw {
+  display: block; font-size: 11px; margin-top: 3px; color: var(--matic-ui-ink-muted);
+}
 .ticket-review .caveat {
   font-size: var(--matic-ui-text-sm); line-height: 1.5; color: var(--matic-ui-ink-muted);
   border-top: var(--matic-ui-hair) solid var(--matic-ui-line); padding-top: 13px;
@@ -147,7 +156,10 @@ matic-avatar { display: block; }
 
    The exceptions to this file's opening rule, written down rather than slipped in. Each one is a
    change to the DESIGN, asked for against the running panel, and each belongs in the next
-   delivery rather than in this file for ever.
+   delivery rather than in this file for ever. THE FILE THE NEXT DELIVERY READS IS
+   `docs/handovers/2026-09-10-claude-design-handover-panel-copy-followups.md`; these are its §1,
+   and four more items (the disclosure square, mono for prose, the label column's contrast, the
+   unlabelled crosshair) are its §2 and are deliberately NOT answered anywhere in this file.
 
    1. 2026-09-10 — the wordmark is centred. The delivery left-aligns it against the rail's padding
       while everything under it (avatar, status line, service note) is centred.
@@ -155,7 +167,12 @@ matic-avatar { display: block; }
       What that is describing is real: the delivery's accent is #5980a6, which is the avatar's
       *paper line* — the quietest blue on the chassis — so every button, band and label was drawn
       in the one colour the avatar uses for a drawn line on a sheet of paper. The avatar's own
-      body colours (the pods, the collar, the halo) were on screen beside them and used nowhere. */
+      body colours (the pods, the collar, the halo) were on screen beside them and used nowhere.
+   3. 2026-09-10 — ONE STRING, and it is in `index.html` rather than here: the rail's idle
+      sub-line reads "Nothing in progress" where the delivery says "Nothing running". Beside a band
+      that lists this machine's services, "nothing running" can be read as a claim about them
+      (D244/§5.29a). Copy, not CSS, so there is nothing to override — but it is the same kind of
+      divergence and it is in the same file for the next delivery. */
 .rail .brand { text-align: center; }
 
 /* THE AVATAR'S PALETTE, BORROWED BY NAME AND BY VALUE.
@@ -208,6 +225,15 @@ matic-avatar { display: block; }
   color: var(--matic-ui-live-deep);
   border-color: var(--matic-ui-live);
 }
+/* THE OTHER HALF OF THAT RE-KEYING, MISSED (2026-09-10, found by clicking the check page). The
+   delivery rotates the chevron when a band is open, and its selector needs `data-set` — the
+   harness's markup hook, which D240 removed from `index.html` because it is the scene switcher's.
+   The open-state wash above was re-keyed onto `data-band-key` and this was not, so the band opened
+   and the chevron kept pointing down: a disclosure control whose only state indicator is inert.
+   This restores the delivery's own behaviour on the app's attribute — it is not a design change,
+   and there is nothing here for a delivery to carry. */
+[data-band="machine"] [data-band-key="machine"] .chev,
+[data-band="tickets"] [data-band-key="tickets"] .chev { transform: rotate(180deg); }
 
 /* Buttons. The primary is the one thing on a card that should look like it wants pressing. */
 .btn-primary { background: var(--matic-ui-live); border-color: var(--matic-ui-live); color: var(--matic-ui-ground); }

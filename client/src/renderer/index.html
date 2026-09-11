@@ -56,7 +56,12 @@
           <div class="status-head hubcopy hub-unreachable">Ready, with limits</div>
           <div class="status-head hubcopy hub-none">Ready when you are</div>
           <div class="status-sub-idle">
-            <div class="status-sub hubcopy hub-ok">Nothing running</div>
+            <!-- The delivery's word here is "Nothing running" (D244, 2026-09-10). It means no task
+                 is in progress, and it is the idle counterpart of "Looking at this now" below. On
+                 an IT tool, a few centimetres from a band that lists this machine's services, it
+                 can be read as "no services are running" - alarming, and wrong. A task is what is
+                 "in progress"; a service is not. Recorded for the next delivery. -->
+            <div class="status-sub hubcopy hub-ok">Nothing in progress</div>
             <div class="status-sub hubcopy hub-unreachable">Some help unavailable</div>
             <div class="status-sub hubcopy hub-none">This machine only</div>
           </div>
@@ -95,12 +100,15 @@
     <main class="main">
 
       <div class="utility">
-        <button class="band-trigger" id="machineTrigger" data-band-key="machine">
+        <!-- Both are `<button>`s and the square is a decorative `<span>`, not a checkbox - checked
+             2026-09-10. `aria-expanded` is kept in step by `toggleBand`; the starting value is the
+             closed one because `data-band` starts at "none". -->
+        <button class="band-trigger" id="machineTrigger" data-band-key="machine" aria-expanded="false">
           <span class="glyph-machine"></span>
           <span>What I can see about this machine</span>
           <span class="chev">&#8964;</span>
         </button>
-        <button class="band-trigger" id="ticketsTrigger" data-band-key="tickets">
+        <button class="band-trigger" id="ticketsTrigger" data-band-key="tickets" aria-expanded="false">
           <span class="glyph-ticket"></span>
           <span>Tickets you've opened</span>
           <span class="count" id="ticketCount"></span>

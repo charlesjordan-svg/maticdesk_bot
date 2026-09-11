@@ -21,6 +21,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPanelCss, panelCssIsCurrent } from "../scripts/build-panel-assets.mjs";
+// The enums are the authority on which members exist; the panel only decides how to READ them.
+// Importing them rather than restating them is what makes §5a a real check (D244).
+import { ESCALATION_CATEGORIES, ESCALATION_OWNERS } from "../src/agent/prompt.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RENDERER = resolve(HERE, "../src/renderer");
@@ -129,6 +132,21 @@ check("no inspector-variant control: `variant` is written nowhere in the rendere
   !/dataset\.variant/.test(rendererJs));
 check("the inspector opens as overlay by default (acceptance 2)", /data-variant="overlay"/.test(indexHtml));
 check("the inspector is hidden by default (acceptance 2)", /data-inspector="off"/.test(indexHtml));
+// The delivery's own selectors key off `data-set`, which the app does not have. The open-state
+// wash was re-keyed onto `data-band-key` by 63011a4 and the chevron rotation was missed, so a band
+// opened with its only state indicator inert. Both halves are checked now (2026-09-10).
+check("the open band's trigger is keyed onto the app's own attribute",
+  /\[data-band="machine"\] \[data-band-key="machine"\]\.band-trigger/.test(appCss));
+check("so is the chevron the delivery rotates when a band is open",
+  /\[data-band="machine"\] \[data-band-key="machine"\] \.chev/.test(appCss));
+// Not a checkbox - both are `<button>` and the square beside the words is a decorative span. What
+// the markup did lack is a disclosure state a screen reader can read.
+check("the disclosure triggers are buttons, not inputs",
+  /<button class="band-trigger" id="machineTrigger"/.test(indexHtml) && !/type="checkbox"/.test(indexHtml));
+check("the disclosure state is announced, and kept in step by toggleBand",
+  /id="machineTrigger"[^>]*aria-expanded="false"/.test(indexHtml)
+  && /id="ticketsTrigger"[^>]*aria-expanded="false"/.test(indexHtml)
+  && /setAttribute\("aria-expanded"/.test(rendererCode));
 check("the inspector's payloads wrap rather than clip",
   /pre\s*\{[^}]*white-space:pre-wrap/.test(panelCss) && /pre\s*\{[^}]*overflow-x:hidden/.test(panelCss));
 
@@ -145,6 +163,39 @@ for (const line of surfaceWrites) {
   const hit = line.match(OURS);
   check(`no internal vocabulary in a user-visible string: ${line.slice(0, 52)}…`, !hit, hit ? `says "${hit[0]}"` : "");
 }
+// ----------------------------------------------------------------------------------------------
+console.log("\n--- 5a. no closed enum reaches the user as itself (D244) ---");
+//
+// `CATEGORY  needs_human_judgement` was on the review card: our enum, in snake_case, in front of
+// an office worker. The fix is a GLOSS and not a deletion - the card is the payload view and D128
+// requires the user to see what is being sent - so the checks are that every member of every enum
+// that can reach the card has plain words, and that the raw value is still passed alongside.
+const plainBlock = rendererJs.match(/const ESCALATION_PLAIN = \{[\s\S]*?\n\};/)?.[0] ?? "";
+check("the panel has a plain-words table for the escalation enums", plainBlock.length > 0);
+/** The plain words for one enum member, or undefined. Keys are bare identifiers in that literal. */
+const plainFor = (member) => plainBlock.match(new RegExp(`\\b${member}:\\s*"([^"]+)"`))?.[1];
+for (const member of [...ESCALATION_CATEGORIES, ...ESCALATION_OWNERS]) {
+  const words = plainFor(member);
+  check(`\`${member}\` has plain words on the card`, Boolean(words), "add it to ESCALATION_PLAIN");
+  // A gloss that is still snake_case has glossed nothing. This is the check that would have
+  // failed on 2026-09-10, and it is the one a new enum member trips.
+  check(`\`${member}\`'s gloss is not the enum again`, !words || !/_/.test(words), `says "${words}"`);
+}
+check("the card passes the raw category alongside the gloss (D128: the user sees what is sent)",
+  /fixed\("Category",\s*ESCALATION_PLAIN\.category\[[^\]]+\][^,]*,\s*draft\.category\)/.test(rendererCode));
+check("the card passes the raw owner alongside the gloss",
+  /fixed\("Goes to",[\s\S]{0,200}?draft\.suggestedOwner \?\? ""\)/.test(rendererCode));
+check("the raw value is rendered subordinate, never instead of the gloss",
+  /el\("span", "raw", raw\)/.test(rendererCode) && /\.ticket-review \.fixed \.raw/.test(appCss));
+check("the owner is no longer de-underscored by regular expression",
+  !/suggestedOwner\.replace\(/.test(rendererCode));
+// And the general form of it, over every string the renderer writes at the user.
+for (const line of surfaceWrites) {
+  const hit = line.match(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/);
+  check(`no snake_case value in a user-visible string: ${line.slice(0, 52)}…`, !hit, hit ? `says "${hit[0]}"` : "");
+}
+
+console.log("\n--- 5 (continued) ---");
 check("the state label is gone from the surface", !indexHtml.includes('id="state"'));
 check("the voice pill is gone from the surface", !indexHtml.includes('id="voicePill"'));
 check("the avatar's refusals go to the developer log, not to a label",
@@ -166,6 +217,30 @@ check("the renderer never uses innerHTML (D130's verbatim rule, mechanically)",
 check("the no-notification line survives", /No email was sent/.test(rendererJs));
 check("an unknown filing outcome is stated as unknown, not as a failure",
   /filed\.filed === null/.test(rendererJs) && /unknown/.test(rendererJs));
+// D244: ONCE, though. The card is shown BEFORE the user agrees, so the card is where the fact
+// lives; the post-send line carries the reference and nothing the card already said. Both halves
+// of this matter - deleting it from the card too would re-open D86/D213.
+check("the review card still carries the no-email fact, in full, before the user agrees",
+  /el\("div", "caveat", "[^"]*No email is sent in this build[^"]*"\)/.test(rendererCode));
+const postSend = rendererCode.match(/if \(!filed\.notified\) note\((`[^`]*`)\)/)?.[1] ?? "";
+check("the post-send line exists and names the reference", /\$\{filed\.reference\}/.test(postSend));
+check("the post-send line does not restate the no-email fact in a second wording",
+  Boolean(postSend) && !/email|notif|alert/i.test(postSend), postSend);
+
+// D244: the idle status cannot be read as a claim about this machine's services. "Nothing running"
+// sat a few centimetres from a band listing them.
+check("the idle status says nothing that reads as a machine state",
+  indexHtml.includes("Nothing in progress") && !/>Nothing running</.test(indexHtml));
+
+// D244: entering `unreachable` announces itself in the conversation once, and says the same thing
+// the standing band and agent.js say. `persona.fallback.hubUnreachable` is agent.js's wording.
+const transition = rendererCode.match(/s\.state === "unreachable"\) \{\s*note\((`[^`]*`)/)?.[1] ?? "";
+check("entering unreachable produces one message in the conversation", Boolean(transition));
+check("it names both halves of what was lost, as the band and agent.js do",
+  /guidance/.test(transition) && /service desk/.test(transition), transition);
+check("it does not promise a queue: nothing is held while the hub is away",
+  !/\bwait\b|\bqueue/i.test(transition), transition);
+check("it does not apologise - a limit is not a fault", !/sorry|afraid|apolog/i.test(transition));
 
 // D205 / v7: a decline is a result. No error styling, no apology layout, and the face says so.
 check("the KB decline drives `declining`, not `error`",

@@ -59,13 +59,17 @@
         ok: true,
         facts: FACTS,
         reply: "Before I send it, have a look at what's going — you can change anything in your own words.",
+        // THE DRAFT IS THE SCENARIO THAT ASKED FOR IT. It used to be the dock, which is the ticket
+        // in FILED - so the page offered a mailbox migration and then showed a card about a second
+        // screen, and the one card in the app through which user data leaves the machine was
+        // demonstrating a payload that did not match the conversation above it.
         ticketDraft: {
           machineName: FACTS.computer,
-          description: "The dock stopped driving the second screen after a restart.",
-          category: "hardware",
+          description: "Asked for a mailbox to be moved to the new server.",
+          category: "needs_human_judgement",
           suggestedOwner: "desktop_support",
-          summary: "User reports a docking station driving only one of two external displays.",
-          whatWasChecked: "Display settings and the network adapter both read healthy.",
+          summary: "User asks for their mailbox to be migrated to the new server.",
+          whatWasChecked: "Nothing on this machine is at fault; the request is about a mail server elsewhere.",
           reporter: { firstName: "Placeholder", lastName: "User", location: "Floor 2", contactId: "placeholder@example.com", osUsername: FACTS.user },
         },
       };
@@ -108,7 +112,12 @@
       offered = true;
       return {
         ...say("That one sits outside what I can do on this machine, and your company's guidance doesn't cover it either — so the honest answer is that this needs a person. I can pass it to IT with what I've already checked. Would you like me to?"),
-        escalation: { summary: "User asks for a mailbox migration.", category: "account", suggestedOwner: "desktop_support" },
+        // `needs_human_judgement`, not "account": the reply says in words that this needs a person,
+        // and "account" IS NOT IN `ESCALATION_CATEGORIES` at all - a fixture producing a value no
+        // provider can produce proves the panel handles a shape nothing will ever send it. It is
+        // also the longest member and the one that reached a user as itself (D244), so this is the
+        // scenario worth having on the check page.
+        escalation: { summary: "User asks for a mailbox migration.", category: "needs_human_judgement", suggestedOwner: "desktop_support" },
         canFile: true,
       };
     }

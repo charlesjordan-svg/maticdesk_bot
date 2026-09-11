@@ -333,6 +333,14 @@ let bandBusy = false;
 async function toggleBand(key) {
   const closing = root.dataset.band === key;
   root.dataset.band = closing ? "none" : key;
+  // The open/closed state is announced, not only drawn. Both triggers are real `<button>`s and the
+  // square beside the words is a decorative `<span>` - checked 2026-09-10, because the handover
+  // asked whether it was a checkbox, which would have been announced as one. It is not. What was
+  // genuinely missing is this: a disclosure whose state a screen reader cannot read.
+  for (const id of ["machineTrigger", "ticketsTrigger"]) {
+    const btn = document.getElementById(id);
+    btn.setAttribute("aria-expanded", String(root.dataset.band === btn.dataset.bandKey));
+  }
   if (closing || bandBusy) return;
   bandBusy = true;
   try {
@@ -459,6 +467,45 @@ function attachOffer(box) {
 // ═══ the ticket review card (D213) ════════════════════════════════════════════════════════════
 
 /**
+ * HOW A CLOSED ENUM IS READ, as opposed to how it is stored (D244, 2026-09-10).
+ *
+ * The review card rendered `category` raw, so `needs_human_judgement` — our enum, in snake_case —
+ * was on screen in front of an office worker. Hiding the field would have been the wrong fix: the
+ * card is the payload view and D128 requires the user to see what is being sent, so a field they
+ * are approving cannot be the field that disappears. The value is GLOSSED instead, with the raw
+ * enum kept underneath it and subordinate: the user reads "needs a person", and what will actually
+ * be sent is still on the card.
+ *
+ * THE ENUMS IN `src/agent/prompt.js` ARE THE AUTHORITY; these tables only say how to READ them,
+ * exactly as `SERVICE_PLAIN` does for the service names. `test/panel.test.mjs` reads both enum
+ * lists out of that file and fails if a member has no plain words here — a new category otherwise
+ * reaches the card as itself, which is the defect this table exists to close.
+ *
+ * The owners are NOT `ESCALATION_OWNER_LABELS`, and the difference is deliberate. That table is
+ * the SPOKEN form, so it carries the article the avatar needs ("the identity team"); a label column
+ * on a card does not. It used to be `suggestedOwner.replace(/_/g, " ")`, which is correct English
+ * for all five of today's members and would silently mis-render the first one that is an acronym
+ * (`it_security` → "it security"). A table makes that a decision rather than a coincidence.
+ */
+const ESCALATION_PLAIN = {
+  category: {
+    hardware: "a hardware fault",
+    account_or_licensing: "an account or a licence",
+    server_side_outage: "something is down elsewhere",
+    physical: "something physical",
+    needs_human_judgement: "needs a person",
+    other: "something else",
+  },
+  owner: {
+    desktop_support: "desktop support",
+    network_team: "network team",
+    identity_team: "identity team",
+    vendor: "vendor",
+    facilities: "facilities",
+  },
+};
+
+/**
  * THE TICKET REVIEW CARD (D213, 2026-09-04). Re-dressed in the panel's language on 2026-09-10;
  * every rule about it is unchanged.
  *
@@ -497,9 +544,18 @@ function reviewTicket(draft) {
     fields.append(input);
     return () => input.value;
   };
-  /** One read-only row, in the mono style, so "shown, not editable" is legible at a glance. */
-  const fixed = (labelText, value) => {
-    fields.append(el("label", "", labelText), el("div", "fixed", value));
+  /**
+   * One read-only row, in the mono style, so "shown, not editable" is legible at a glance.
+   * `raw` is the stored value behind a glossed one - shown smaller and underneath, never instead
+   * of, because the user is approving the thing that gets sent (D244, D128).
+   */
+  const fixed = (labelText, value, raw) => {
+    // An unglossed member falls back to showing itself, and showing it twice would be worse than
+    // the defect this replaces - so the raw line appears only when it says something new.
+    const show = Boolean(raw) && raw !== value;
+    const box = el("div", `fixed${show ? " glossed" : ""}`, value);
+    if (show) box.append(el("span", "raw", raw));
+    fields.append(el("label", "", labelText), box);
   };
 
   const r = draft.reporter ?? {};
@@ -512,8 +568,15 @@ function reviewTicket(draft) {
   fixed("OS account", `${r.osUsername ?? "unknown"}  (self-asserted — not authenticated)`);
   fixed("Machine", draft.machineName ?? "-");
   const getDescription = editable("Problem", draft.description, { multiline: true });
-  fixed("Category", draft.category);
-  fixed("Goes to", draft.suggestedOwner ? draft.suggestedOwner.replace(/_/g, " ") : "unrouted — IT will decide");
+  // Both are closed enums and both are glossed. An unknown member falls back to the raw value as
+  // the gloss rather than to nothing: a category the card cannot name is still a category the user
+  // is about to send, and the test that keeps the tables complete is what stops this being seen.
+  fixed("Category", ESCALATION_PLAIN.category[draft.category] ?? draft.category, draft.category);
+  fixed("Goes to",
+    draft.suggestedOwner
+      ? ESCALATION_PLAIN.owner[draft.suggestedOwner] ?? draft.suggestedOwner
+      : "unrouted — IT will decide",
+    draft.suggestedOwner ?? "");
   fixed("Case note", draft.summary);
   if (draft.whatWasChecked) fixed("Already checked", draft.whatWasChecked);
   body.append(fields);
@@ -764,7 +827,16 @@ async function handleTurn(text) {
       // `notified` IS THE HUB'S OWN FIELD AND IT IS REPEATED, NOT INTERPRETED. The hub stores
       // tickets and emails nobody (D86). A user who hears "filed" and assumes someone was paged
       // is the failure this line exists to prevent.
-      if (!filed.notified) note(`${filed.reference} is stored for IT to pick up. No email was sent — this build has no outbound notification.`);
+      //
+      // IT SAYS THE REFERENCE AND NOTHING THE CARD ALREADY SAID (D245). This line used to restate
+      // both halves of the card's caveat — stored for IT to pick up, no email sent — three lines
+      // under the card that had just said them, in different words. The card does not go away when
+      // it is answered, so the two ended up adjacent, and one fact in two wordings reads as anxious
+      // and undercuts the reference it arrives with. The card's wording is the one that survives,
+      // because the card is the one shown BEFORE the user agrees, which is where honesty about
+      // what sending achieves has to be. The transcript still carries the fact: the card is IN the
+      // transcript. Deleting it from BOTH would re-open D86/D213 and is not what this is.
+      if (!filed.notified) note(`Stored as ${filed.reference}. The card above says what that does and does not do.`);
       renderTickets(await window.matic.ticketsFiled());
     } else {
       done("The ticket could not be sent.", { error: filed.error, filed: filed.filed });
@@ -1026,7 +1098,15 @@ function applyHubStatus(s) {
 
   if (lastHubState !== null && s.state !== lastHubState) {
     if (s.state === "unreachable") {
-      note(`I've lost my connection to the service desk. I can still fix what this machine can fix on its own; questions and tickets will wait until it's back.`, { label: "Just now" });
+      // CHECKED AGAINST agent.js, 2026-09-10 (register §5.29a). The reply it gives in this condition is
+      // `persona.fallback.hubUnreachable`, and the standing band under the utility bar is the
+      // delivery's sentence; this line used to disagree with both in two ways. It named only the
+      // service desk, when what is lost is the company's guidance AND the service desk — the same
+      // two things the other two surfaces name. And "questions and tickets will wait until it's
+      // back" implies a queue: nothing is held. `HubClient.fileTicket` returns "nothing was sent"
+      // immediately, and a question gets the fallback reply, not a place in a line. A user who
+      // reads "will wait" and stops re-asking has been told something untrue by inference.
+      note(`I've lost my connection to your company's guidance and the service desk. I can still check and fix things on this machine itself; I can't look anything up or file a ticket until it's back.`, { label: "Just now" });
       if (avatar.state === "idle") setState("error");
     } else if (s.state === "reachable" && lastHubState === "unreachable") {
       note("The service desk is reachable again.", { label: "Just now" });
