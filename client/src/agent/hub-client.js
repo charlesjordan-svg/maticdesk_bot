@@ -26,6 +26,10 @@
  */
 import { validateAgainstSchema } from "../broker/schema.js";
 import { escalationSchema, capabilityToolSchema, escalationReply, ESCALATION_CATEGORIES, ESCALATION_OWNERS } from "./prompt.js";
+// `fileTicket`'s failure sentences are said out loud by the avatar, so they are persona data like
+// every other spoken line (D234/D246). The diagnostic they replaced travels beside them as
+// `detail` and never reaches a person.
+import persona from "../router/persona.json" with { type: "json" };
 
 export class HubClient {
   /**
@@ -304,12 +308,24 @@ export class HubClient {
    * Never throws — a hub that cannot be reached must leave the user knowing nothing was filed,
    * not crash the turn.
    *
+   * **A FAILURE RETURNS TWO STRINGS AND THEY HAVE TWO AUDIENCES (D246, 2026-09-10).** `error` is
+   * what the user is TOLD, from `persona.filing` — the renderer speaks it. `detail` is what WENT
+   * WRONG, which is ours: the URL, the HTTP status, the hub's own error text, the exception
+   * message. It goes to the inspector, the developer log and the egress record, and is never said
+   * out loud. Until this split existed there was one field doing both jobs, so a user whose ticket
+   * had just failed heard *"Could not reach the hub at http://127.0.0.1:8787: fetch failed"* — our
+   * word, our port and Node's phrasing, on the surface D240 cleared. **Nothing was removed:** every
+   * diagnostic that used to be in `error` is in `detail`, and `detail` is now the richer of the two
+   * because it can name the route without having to read well.
+   *
    * @param {object} draft  the POST body: description, summary, whatWasChecked, category,
    *                        suggestedOwner, machineName, reporter
-   * @returns {Promise<{ok:boolean, reference?:string, ticketId?:string, notified?:boolean, notifiedWhy?:string, error?:string, filed?:boolean}>}
+   * @returns {Promise<{ok:boolean, reference?:string, ticketId?:string, notified?:boolean, notifiedWhy?:string, error?:string, detail?:string, filed?:boolean}>}
    */
   async fileTicket(draft) {
-    if (!this.available) return { ok: false, filed: false, error: "No hub URL is configured, so nothing was sent." };
+    if (!this.available) {
+      return { ok: false, filed: false, error: persona.filing.noDestination, detail: "no hub URL is configured on this build" };
+    }
     try {
       const res = await this.fetch(`${this.hubUrl}/v1/ticket`, {
         method: "POST",
@@ -323,11 +339,14 @@ export class HubClient {
         this.onLog(`[hub] filed ${body.reference} (nobody was emailed: notified=${body.notified})`);
         return body;
       }
-      const detail = body?.error ?? `HTTP ${res.status}`;
-      this.onLog(`[hub] /v1/ticket refused: ${detail}`);
+      // THE HUB'S OWN ERROR STRING IS A DIAGNOSTIC AND WAS BEING SPOKEN. It is written for whoever
+      // reads a log, not for the person whose ticket just failed, and when the body carries no
+      // `error` at all the fallback was a bare `HTTP 503` — a status code, read aloud.
+      const why = body?.error ?? `HTTP ${res.status}`;
+      this.onLog(`[hub] /v1/ticket refused: ${why}`);
       // `filed: false` explicitly, so the caller says "nothing was filed" as a fact rather than as
       // an inference from `ok` being false.
-      return { ok: false, filed: false, error: detail };
+      return { ok: false, filed: false, error: persona.filing.refused, detail: `POST ${this.hubUrl}/v1/ticket refused: ${why}` };
     } catch (err) {
       this.link?.noteFailure(`POST /v1/ticket: ${err.name}`);
       const timedOut = err.name === "TimeoutError" || err.name === "AbortError";
@@ -336,11 +355,14 @@ export class HubClient {
         ok: false,
         // A TIMEOUT IS THE ONE CASE WE GENUINELY DO NOT KNOW. The request may have been stored
         // before the answer was lost. Saying "nothing was filed" would be a guess, and a confident
-        // wrong one is how a user ends up with two tickets or none.
+        // wrong one is how a user ends up with two tickets or none. **That distinction is carried
+        // by `filed`, not by the sentence** — the renderer's note is what states it, and the spoken
+        // line only has to not contradict it (D245).
         filed: timedOut ? null : false,
-        error: timedOut
-          ? `The hub did not answer within ${Math.round(this.timeoutMs / 1000)}s, so I cannot tell you whether the ticket was stored. Check with IT before opening another.`
-          : `Could not reach the hub at ${this.hubUrl}: ${err.message}. Nothing was sent.`,
+        error: timedOut ? persona.filing.timeout : persona.filing.unreachable,
+        detail: timedOut
+          ? `POST ${this.hubUrl}/v1/ticket timed out after ${Math.round(this.timeoutMs / 1000)}s; it may or may not have been stored`
+          : `POST ${this.hubUrl}/v1/ticket failed: ${err.message}`,
       };
     }
   }

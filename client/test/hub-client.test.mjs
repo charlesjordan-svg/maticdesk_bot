@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { HubClient } from "../src/agent/hub-client.js";
 import { Agent } from "../src/agent/agent.js";
+import persona from "../src/router/persona.json" with { type: "json" };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const catalog = JSON.parse(readFileSync(join(ROOT, "src/broker/catalog.json"), "utf8"));
@@ -255,6 +256,52 @@ console.log("\n=== ask(): POST /v1/ask, and the platform bug that only an end-to
   const none = new HubClient({ hubUrl: "", capabilities, onLog: () => {} });
   const r = await none.ask("x");
   check("no hub URL configured -> ok:false without a call", r.ok === false && /No hub URL/.test(r.error));
+}
+
+// ==============================================================================================
+console.log("\n=== fileTicket(): what the user is TOLD and what WENT WRONG are two fields (D246) ===");
+//
+// `error` is spoken aloud by the avatar. Until 2026-09-10 it was the transport diagnostic, so a
+// user whose ticket had just failed heard "Could not reach the hub at http://127.0.0.1:8787: fetch
+// failed". These checks are the mechanical form of that rule: nothing our side of the screen may
+// appear in `error`, and nothing may be lost — it all has to be in `detail`.
+{
+  const DRAFT = { description: "d", summary: "s", whatWasChecked: "w", category: "other", suggestedOwner: "desktop_support", machineName: "PC", reporter: { firstName: "A" } };
+  /** Our vocabulary, an address, a status code, a Node error — none of it may be said out loud. */
+  const OURS = /\bhub\b|https?:\/\/|\bHTTP \d|\b\d{2,5}\/v1|fetch failed|TimeoutError|127\.0\.0\.1/i;
+
+  const cases = [
+    ["no hub URL configured", new HubClient({ hubUrl: "", capabilities, onLog: () => {} }), false],
+    ["the hub refuses with its own error string", client(stubHub([{ status: 400, body: { ok: false, error: "tenant devco does not exist" } }])), false],
+    ["the hub refuses with no body at all (a bare status code)", client(stubHub([{ status: 503, body: {} }])), false],
+    ["the hub is unreachable", client(stubHub([{ throws: "fetch failed" }])), false],
+    ["the request times out", client(stubHub([{ throws: "t", errorName: "TimeoutError" }])), null],
+  ];
+  for (const [label, c, expectedFiled] of cases) {
+    const r = await c.fileTicket(DRAFT);
+    check(`${label} -> ok:false, never throws`, r.ok === false);
+    check(`${label} -> nothing ours in the spoken line: "${String(r.error).slice(0, 46)}…"`,
+      typeof r.error === "string" && !OURS.test(r.error), r.error);
+    check(`${label} -> the spoken line is persona data, not written here`,
+      Object.values(persona.filing).includes(r.error), r.error);
+    check(`${label} -> the diagnostic survives, in detail`, typeof r.detail === "string" && r.detail.length > 0, r.detail);
+    // `false` is "nothing was stored"; `null` is "we genuinely do not know". The renderer's note
+    // reads this, not the sentence, so the sentence is free to be short (D213, D245).
+    check(`${label} -> filed is ${expectedFiled === null ? "null (unknown)" : "false (nothing stored)"}`,
+      r.filed === expectedFiled, String(r.filed));
+  }
+
+  // The two that matter most are the two a user cannot tell apart from the outside.
+  const unreachable = await client(stubHub([{ throws: "fetch failed" }])).fileTicket(DRAFT);
+  const timedOut = await client(stubHub([{ throws: "t", errorName: "TimeoutError" }])).fileTicket(DRAFT);
+  check("a timeout and an unreachable hub do NOT say the same thing", unreachable.error !== timedOut.error);
+  check("the URL and the route are in `detail` on both, so a log still answers the question",
+    /\/v1\/ticket/.test(unreachable.detail) && /\/v1\/ticket/.test(timedOut.detail));
+  check("the hub's own error text reaches `detail` and stops there",
+    await (async () => {
+      const r = await client(stubHub([{ status: 400, body: { ok: false, error: "tenant devco does not exist" } }])).fileTicket(DRAFT);
+      return r.detail.includes("tenant devco does not exist") && !r.error.includes("tenant");
+    })());
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

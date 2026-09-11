@@ -43,6 +43,22 @@ for (const k of ["intro", "consent", "noticeOne", "noticeSome", "boundary", "noC
 check("capability.intro carries the {abilities} placeholder", persona.capability.intro.includes("{abilities}"));
 check("noticeOne/noticeSome carry the {disruptive} placeholder", persona.capability.noticeOne.includes("{disruptive}") && persona.capability.noticeSome.includes("{disruptive}"));
 check("fallback has hubUnreachable and hubNoAnswer, and they differ", typeof persona.fallback.hubUnreachable === "string" && typeof persona.fallback.hubNoAnswer === "string" && persona.fallback.hubUnreachable !== persona.fallback.hubNoAnswer);
+// D246. Five outcomes `fileTicket` can have, five sentences, and none of them may name the thing on
+// the other end of the wire — the spoken one used to be "Could not reach the hub at http://…".
+const FILING_KEYS = ["noDestination", "badDraft", "unreachable", "refused", "timeout"];
+check("filing has a line for every outcome fileTicket can return (D246)",
+  FILING_KEYS.every((k) => typeof persona.filing?.[k] === "string" && persona.filing[k].length > 20),
+  FILING_KEYS.filter((k) => typeof persona.filing?.[k] !== "string").join(","));
+check("the five filing lines are five different sentences", new Set(FILING_KEYS.map((k) => persona.filing[k])).size === 5);
+for (const k of FILING_KEYS) {
+  check(`filing.${k} names nothing on our side of the screen`,
+    !/\bhub\b|https?:\/\/|\bHTTP\b|\bAPI\b|\b\d{4,5}\b/i.test(persona.filing[k]), persona.filing[k]);
+}
+// The one that is a claim rather than a word: a timeout means we do not know, so the line must not
+// assert either outcome. The `.turn-note` beside it is what states the uncertainty (D213/D245).
+check("filing.timeout claims neither that it was filed nor that it was not",
+  !/nothing was (filed|sent|stored)|has been (filed|sent|stored)|didn't send|did not send/i.test(persona.filing.timeout),
+  persona.filing.timeout);
 
 // ==============================================================================================
 console.log("\n=== 2. RULE 1: no persona line names a capability (checked against the catalog's own words) ===");
@@ -61,6 +77,9 @@ const socialLines = [
   ...Object.values(persona.social).flat(),
   persona.capability.consent, persona.capability.boundary, persona.capability.noCatalog,
   ...Object.values(persona.fallback),
+  // D246: the filing failures are spoken by the avatar, so they are subject to both rules below
+  // like every other spoken line. `$comment` is documentation and is not one of them.
+  ...Object.entries(persona.filing).filter(([k]) => k !== "$comment").map(([, v]) => v),
   persona.tickets.some, persona.tickets.none, persona.tickets.unavailable,
 ];
 check("tickets.some/none/unavailable/item exist (D235)", ["some", "none", "unavailable", "item"].every((k) => typeof persona.tickets[k] === "string"));

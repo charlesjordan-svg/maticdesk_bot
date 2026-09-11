@@ -310,7 +310,10 @@ function renderTickets(status) {
       el("b", "", t.description || "a problem you described"),
       el("span", "", t.notified
         ? "The service desk was notified when this was filed."
-        : "Stored on the hub for IT to pick up. No email was sent, so nobody was alerted automatically."),
+        // Same fact as the card's caveat, in the past tense, and it loses "the hub" for the same
+        // reason (D246). The two have to keep agreeing: one describes a ticket about to be sent
+        // and the other one already sent, and a user who reads both should not meet two vocabularies.
+        : "Stored for the service desk to pick up. No email went out, so nobody was alerted automatically."),
     );
     const stat = el("div", "tstat");
     stat.append(el("b", "", "Filed from here"), el("span", "", "Progress not visible"));
@@ -583,7 +586,13 @@ function reviewTicket(draft) {
 
   // The standing caveat, in the card rather than only in a log line: this is where a user decides
   // whether to send, so it is where the limits of what sending achieves have to be readable.
-  body.append(el("div", "caveat", "This is stored on the hub for IT to pick up. No email is sent in this build, so nobody is alerted automatically."));
+  // "THE HUB" IS OUR WORD AND IT WAS ON THE CARD (D246). The panel calls it the service desk
+  // everywhere else — the rail, the standing band, every persona line — and this was the one place
+  // a user was asked to approve an egress while reading our name for the thing it goes to. "In
+  // this build" went with it, for the same reason. **Every fact is still here**: it is stored,
+  // someone has to come and get it, and no email goes out (D86/D213). This is the single place
+  // that fact is stated (D245), so it is the one string that may not lose any of it.
+  body.append(el("div", "caveat", "This is stored for the service desk to pick up. No email goes out, so nobody is alerted automatically — someone has to come and look."));
 
   const row = el("div", "actions");
   const send = el("button", "btn btn-primary", "Send it");
@@ -839,13 +848,23 @@ async function handleTurn(text) {
       if (!filed.notified) note(`Stored as ${filed.reference}. The card above says what that does and does not do.`);
       renderTickets(await window.matic.ticketsFiled());
     } else {
-      done("The ticket could not be sent.", { error: filed.error, filed: filed.filed });
-      // A ticket that could not be sent is a fault on OUR side - the hub, the network - not
-      // something the assistant tried and could not help with, so `error`, not `apologising`.
+      // TWO STRINGS, TWO AUDIENCES (D246). `filed.error` is the assistant's sentence and comes from
+      // `persona.filing`; `filed.detail` is the transport diagnostic - the URL, the status, the
+      // exception - and it goes HERE and to the developer log, never through `say()`. One field
+      // used to do both, so the avatar read a URL and a Node error message aloud.
+      done("The ticket could not be sent.", { error: filed.error, detail: filed.detail, filed: filed.filed });
+      devlog(`[ticket] filing failed: ${filed.detail ?? "(no detail reported)"}`);
+      // A ticket that could not be sent is a fault on OUR side - the service desk, the network -
+      // not something the assistant tried and could not help with, so `error`, not `apologising`.
       setState("error");
       await say(filed.error, "error");
       // `filed: null` means a TIMEOUT — we genuinely do not know. Saying "nothing was filed" there
       // would be a confident guess, and the wrong one leaves a user opening a second ticket.
+      //
+      // THE SPOKEN LINE AND THIS NOTE DIVIDE THE TWO HALVES AND DO NOT OVERLAP (D245). The spoken
+      // line is what the assistant could or could not do; this is what it means for the ticket,
+      // which is the D86/D213 class of fact and the one that has to survive. They said the timeout
+      // fact twice in two wordings until 2026-09-10 - the same defect the review card had.
       note(filed.filed === null
         ? "The service desk did not answer in time, so whether the ticket was stored is unknown. Quote nothing and tell me if you want to try again."
         : "Nothing was filed.", { unknown: filed.filed === null });

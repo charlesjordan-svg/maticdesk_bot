@@ -19,6 +19,9 @@ import { Agent } from "../agent/agent.js";
 import { ProfileStore } from "../profile/profile.js";
 import { TicketIntake } from "../ticket/intake.js";
 import { EgressAudit } from "../ticket/egress-audit.js";
+// The two ways this handler can refuse a ticket are both SPOKEN by the avatar, so their wording is
+// persona data (D234/D246) and the reason they failed travels beside it as `detail`.
+import persona from "../router/persona.json" with { type: "json" };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
@@ -216,11 +219,14 @@ app.whenReady().then(async () => {
   // sent. It is re-checked here rather than trusted: the renderer is presentation only, and a
   // draft that arrives with a missing reporter is a bug worth catching before it becomes a 400.
   ipcMain.handle("ticket:file", async (_e, draft) => {
+    // Both refusals are SPOKEN, so both say it in the user's words and keep the reason in `detail`
+    // for the inspector and the egress record (D246). "No hub provider is configured" was the old
+    // sentence, and it named a thing the person on the other side of it has never heard of.
     if (typeof cloud?.fileTicket !== "function") {
-      return { ok: false, filed: false, error: "This build cannot file tickets - no hub provider is configured." };
+      return { ok: false, filed: false, error: persona.filing.noDestination, detail: "no hub provider is configured on this build" };
     }
     if (!draft || typeof draft !== "object" || !draft.reporter) {
-      return { ok: false, filed: false, error: "The draft was incomplete, so nothing was sent." };
+      return { ok: false, filed: false, error: persona.filing.badDraft, detail: "the draft arrived without a reporter" };
     }
 
     // Persist any edit the user made on the card, so the next ticket does not ask again for a
@@ -237,7 +243,9 @@ app.whenReady().then(async () => {
       egress?.record("ticket.filed", { reference: res.reference, ticketId: res.ticketId, notified: res.notified });
       log(`[ticket] ${res.reference} filed. notified=${res.notified} - do not tell the user IT has been contacted`);
     } else {
-      egress?.record("ticket.failed", { error: res.error, filed: res.filed });
+      // `detail` is the half worth having here: "POST http://… failed: fetch failed" is what makes
+      // this row answerable six weeks later, and `error` on its own is a sentence about feelings.
+      egress?.record("ticket.failed", { error: res.error, detail: res.detail, filed: res.filed });
     }
     return res;
   });

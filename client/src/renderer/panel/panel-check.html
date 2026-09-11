@@ -43,6 +43,12 @@
   <button data-say="where's my ticket">tickets filed from here</button>
   <button data-hub="unreachable">service desk: lost</button>
   <button data-hub="reachable">service desk: back</button>
+  <!-- One-shot, and they arm the NEXT filing only. The point of having them is that the spoken
+       line on this path used to be a URL and a Node error message (D246) - it is the one branch
+       nobody drives, because getting to it needs a hub that is up enough to offer and down enough
+       to refuse. "not stored" and "unknown" are different outcomes and must read differently. -->
+  <button data-filing="unreachable">next filing: fails</button>
+  <button data-filing="timeout">next filing: times out</button>
   <button data-reload="1">reload</button>
   <span>The bridge is FAKE. Nothing below talks to a broker, a hub or a model.</span>
 </div>
@@ -58,6 +64,7 @@
     if (!b) return;
     if (b.dataset.reload) { frame.contentWindow.location.reload(); return; }
     if (b.dataset.hub) { frame.contentWindow.__maticCheck?.hub(b.dataset.hub); return; }
+    if (b.dataset.filing) { frame.contentWindow.__maticCheck?.filing(b.dataset.filing); b.blur(); return; }
     const doc = frame.contentDocument;
     doc.getElementById("input").value = b.dataset.say;
     doc.getElementById("send").click();

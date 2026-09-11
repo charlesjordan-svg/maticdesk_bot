@@ -202,11 +202,14 @@ list now.
   "something is down elsewhere", "an account or a licence", "something physical", "something else".
   Nobody has been asked whether those are the right words for an office worker; the test enforces
   that each member HAS words, not that they are good ones.
-- **One thing seen and deliberately left, because it is out of this pass's scope.**
-  `HubClient.fileTicket()`'s failure string is spoken to the user and says *"Could not reach the hub
-  at http://…"* — **"the hub" is our word and the URL is an internal**, on the same end-user surface
-  D240 cleared. It is not snake_case so acceptance item 1 does not catch it, and it is agent-side
-  prose rather than panel copy. **It is a defect of the same family and it is unfixed.**
+- **One thing was seen and left here, then fixed the same evening when Charles asked (D246).**
+  `HubClient.fileTicket()`'s failure string was spoken to the user and said *"Could not reach the hub
+  at http://…"* — our word and our port number, on the same end-user surface D240 cleared. It is not
+  snake_case, so acceptance item 1 did not catch it. **It now returns two fields, `error` (persona
+  data, spoken) and `detail` (ours, to the inspector and the log), and the same sweep found "the
+  hub" on the review card and in the tickets band as well.** Register §5.30,
+  [`2026-09-10-claude-code-handover-panel-vocabulary-built.md`](2026-09-10-claude-code-handover-panel-vocabulary-built.md).
+  **Everything else in this ledger still stands as written.**
 - **§4a's fix is in `matic-panel.app.css`**, which the rule says is for app glue and not for design.
   The argument for it being glue is in the comment at the rule: the delivery's intent is unchanged
   and only the attribute it keys off differs, because the app removed a developer control. If that

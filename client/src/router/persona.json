@@ -69,5 +69,14 @@
   "fallback": {
     "hubUnreachable": "I'm sorry — I can't reach the service desk just now, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one, and I'll keep trying to reconnect.",
     "hubNoAnswer": "I'm sorry — the service desk answered, but its model didn't give me anything I can act on, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one."
+  },
+
+  "filing": {
+    "$comment": "D246. WHAT THE USER IS TOLD when filing a ticket fails - as opposed to WHAT WENT WRONG, which travels as `detail` on the same result and goes to the inspector, the developer log and the egress record, and is never spoken. Five outcomes, and each line is the ASSISTANT'S half: what it could or could not do. The SYSTEM'S half - whether anything was filed - is the `.turn-note` beside it in the renderer, and the two must not say one fact twice (D245). These lines existed as transport diagnostics until 2026-09-10: the spoken one was `Could not reach the hub at http://127.0.0.1:8787: fetch failed`, so the avatar read a URL and a Node error message aloud to someone whose ticket had not been sent.",
+    "noDestination": "I can't open a ticket from this machine — there's no service desk connected to it.",
+    "badDraft": "Something was missing from that ticket, so I stopped rather than send half of one.",
+    "unreachable": "I couldn't reach the service desk just now. Tell me if you'd like me to try again.",
+    "refused": "The service desk turned that one down. Tell me if you'd like me to try again.",
+    "timeout": "I'm not sure that one got through."
   }
 }

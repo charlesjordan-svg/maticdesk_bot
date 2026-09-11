@@ -11,6 +11,17 @@
  * and `client/test/agent.test.mjs` is what keeps those honest), not the production of them.
  */
 (function () {
+  /* THE FAILURE SENTENCES ARE THE REAL ONES, not copies (D246). `window.matic`'s methods are all
+     async, so this only has to resolve before one is CALLED - not before the renderer's modules
+     load, which is what the classic-script trick above is actually for. A check page that carried
+     its own copy of these lines would keep passing on the day the real ones changed. */
+  const personaPromise = fetch("../../router/persona.json").then((r) => r.json());
+
+  /* The next filing attempt fails this way, once, then goes back to succeeding. One-shot rather
+     than a mode, because the failure path is something you drive THROUGH (offer -> yes -> card ->
+     send) and a sticky toggle makes the next run confusing. */
+  let nextFilingFails = null;
+
   const FACTS = {
     computer: "PLACEHOLDER-PC",
     user: "placeholder.user",
@@ -152,6 +163,18 @@
     }),
     execute: async () => ({ ok: true, message: "Printing is running again. Try sending your document once more.", auditId: "placeholder-audit" }),
     fileTicket: async (draft) => {
+      // The failure shapes are HubClient.fileTicket's, field for field: a user sentence in
+      // `error`, the diagnostic in `detail`, and `filed` carrying the one distinction that matters
+      // - `false` is "nothing was stored" and `null` is "we do not know" (D246, D213).
+      const mode = nextFilingFails;
+      nextFilingFails = null;
+      if (mode) {
+        const persona = await personaPromise;
+        if (mode === "timeout") {
+          return { ok: false, filed: null, error: persona.filing.timeout, detail: "POST http://127.0.0.1:8787/v1/ticket timed out after 30s; it may or may not have been stored (canned)" };
+        }
+        return { ok: false, filed: false, error: persona.filing.unreachable, detail: "POST http://127.0.0.1:8787/v1/ticket failed: fetch failed (canned)" };
+      }
       FILED.unshift({ ...draft, reference: "PLACEHOLDER-0001", ticketId: "placeholder", filedAt: new Date().toISOString(), notified: false });
       return { ok: true, reference: "PLACEHOLDER-0001", ticketId: "placeholder", notified: false, notifiedWhy: "this build has no outbound notification" };
     },
@@ -175,6 +198,10 @@
         lastOkAt: state === "reachable" ? new Date().toISOString() : hub.lastOkAt,
       };
       for (const cb of hubListeners) cb(hub);
+    },
+    /** Arm the NEXT filing attempt to fail: "unreachable" (nothing stored) or "timeout" (unknown). */
+    filing(mode) {
+      nextFilingFails = mode === "none" ? null : mode;
     },
   };
 })();

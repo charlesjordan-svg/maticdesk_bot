@@ -195,6 +195,49 @@ for (const line of surfaceWrites) {
   check(`no snake_case value in a user-visible string: ${line.slice(0, 52)}…`, !hit, hit ? `says "${hit[0]}"` : "");
 }
 
+// ----------------------------------------------------------------------------------------------
+console.log("\n--- 5b. \"the hub\" is our name for it, and the user has another one (D246) ---");
+//
+// The panel says "the service desk" everywhere a person can read — the rail, the standing band,
+// every persona line — and said "the hub" in three places: the review card's caveat, the tickets
+// band's row, and the spoken line when filing failed. The last one also carried the URL.
+//
+// `el(tag, cls, text)` is the ONLY way this file puts a string in front of a user; the inspector is
+// filled by `step()` onto elements that already exist, and the developer log by `devlog()`. So the
+// third argument of every `el()` call is the surface, and it is checkable.
+// Three shapes reach a person from this file, and all three are scanned: a literal third argument
+// to `el()`, a ternary of two literals in that position (the tickets band picks its row's sentence
+// that way), and a literal assigned to `.textContent` (the band notes). **What this cannot see is a
+// string built at run time from a variable** - so it is a net, not a proof, and `surfaceWrites`
+// above is the other half of it.
+const elText = [
+  ...[...rendererCode.matchAll(/\bel\(\s*"[a-z]+"\s*,\s*(?:"[^"]*"|`[^`]*`)\s*,\s*(["`])((?:(?!\1).)*)\1/gs)].map((m) => m[2]),
+  ...[...rendererCode.matchAll(/\bel\(\s*"[a-z]+"\s*,\s*"[^"]*"\s*,[^)]*?\?\s*"([^"]*)"\s*:\s*"([^"]*)"/gs)].flatMap((m) => [m[1], m[2]]),
+  // A whole `.textContent = …;` statement, then every literal in it - the band notes are a nested
+  // ternary and only the first branch would be seen otherwise.
+  ...[...rendererCode.matchAll(/\.textContent\s*=\s*([^;]+);/g)]
+    .flatMap((m) => [...m[1].matchAll(/"([^"]{12,})"/g)].map((q) => q[1])),
+];
+// DELIBERATELY NOT SCANNED: object-literal values. Those are the INSPECTOR's payloads
+// (`proposed(…, { note: "…a hub-side lookup is not built…" })`) and the `SOURCE_NOTE` table that
+// feeds `devlog`, and both are where these words are supposed to be.
+check(`every user-visible string this can see is found (${elText.length} of them)`, elText.length >= 24);
+check("the tickets band's row sentence is in the scanned set", elText.some((s) => /Stored for the service desk/.test(s)));
+check("the band notes are in the scanned set", elText.some((s) => /isn't connected to a service desk/.test(s)));
+// "In this build" is NOT on this list, and that is a decision. It is jargon-adjacent, but it is the
+// honest temporal qualifier D235/D242 chose, and `persona.tickets.some` says it in exactly the same
+// words on purpose - the band and the spoken answer must not describe one ticket two ways. Changing
+// it here would silently break that pairing.
+const THEIRS = /\bhubs?\b|https?:\/\//i;
+for (const s of elText) {
+  const hit = s.match(THEIRS);
+  check(`no internal name on the surface: "${s.slice(0, 48)}…"`, !hit, hit ? `says "${hit[0]}"` : "");
+}
+// The inspector and the developer log are where those words belong, and they still have them —
+// this is a routing rule, not a ban.
+check("`hub` still appears in the renderer, in the inspector and the developer log",
+  /devlog\(`\[hub\]/.test(rendererCode) && /hub: "  \(sent to the hub/.test(rendererCode));
+
 console.log("\n--- 5 (continued) ---");
 check("the state label is gone from the surface", !indexHtml.includes('id="state"'));
 check("the voice pill is gone from the surface", !indexHtml.includes('id="voicePill"'));
@@ -213,19 +256,44 @@ check("nothing in the renderer builds consent text from the catalog",
 check("the renderer never uses innerHTML (D130's verbatim rule, mechanically)",
   !/innerHTML/.test(rendererCode));
 
-// D86/D213: a filed ticket has reached nobody, and the surface says so.
-check("the no-notification line survives", /No email was sent/.test(rendererJs));
-check("an unknown filing outcome is stated as unknown, not as a failure",
-  /filed\.filed === null/.test(rendererJs) && /unknown/.test(rendererJs));
-// D244: ONCE, though. The card is shown BEFORE the user agrees, so the card is where the fact
+// D86/D213: a filed ticket has reached nobody, and the surface says so. PINNED AS FACTS, NOT AS
+// PHRASING - the wording changed on 2026-09-10 when "the hub" came off the surface (D246), and an
+// assertion that breaks on a rewording is pinning the wrong thing.
+const caveat = rendererCode.match(/el\("div", "caveat", "([^"]*)"\)/)?.[1] ?? "";
+const bandRow = elText.find((s) => /No email went out/.test(s)) ?? "";
+// D244/D245: ONCE, though. The card is shown BEFORE the user agrees, so the card is where the fact
 // lives; the post-send line carries the reference and nothing the card already said. Both halves
 // of this matter - deleting it from the card too would re-open D86/D213.
 check("the review card still carries the no-email fact, in full, before the user agrees",
-  /el\("div", "caveat", "[^"]*No email is sent in this build[^"]*"\)/.test(rendererCode));
+  /\bstored\b/i.test(caveat) && /no email/i.test(caveat) && /nobody is alerted/i.test(caveat), caveat);
+check("a filed ticket's row in the band says the same thing in the past tense",
+  /\bstored\b/i.test(bandRow) && /no email/i.test(bandRow) && /nobody was alerted/i.test(bandRow), bandRow);
+check("neither of them says it in our words", !/\bhub\b/i.test(caveat) && !/\bhub\b/i.test(bandRow));
+check("an unknown filing outcome is stated as unknown, not as a failure",
+  /filed\.filed === null/.test(rendererJs) && /unknown/.test(rendererJs));
 const postSend = rendererCode.match(/if \(!filed\.notified\) note\((`[^`]*`)\)/)?.[1] ?? "";
 check("the post-send line exists and names the reference", /\$\{filed\.reference\}/.test(postSend));
 check("the post-send line does not restate the no-email fact in a second wording",
   Boolean(postSend) && !/email|notif|alert/i.test(postSend), postSend);
+
+// D246: a failed filing has two strings with two audiences. `filed.error` is the assistant's
+// sentence and is spoken; `filed.detail` is the URL, the status and the exception, and it goes to
+// the inspector and the developer log. The renderer must not put the second one on the surface.
+check("the failed-filing branch speaks `error` and never `detail`",
+  /say\(filed\.error, "error"\)/.test(rendererCode) && !/say\(filed\.detail/.test(rendererCode));
+check("`detail` reaches the inspector", /done\("The ticket could not be sent\.", \{ error: filed\.error, detail: filed\.detail/.test(rendererCode));
+check("`detail` reaches the developer log", /devlog\(`\[ticket\] filing failed: \$\{filed\.detail/.test(rendererCode));
+// D245 again, on this path: the spoken line and the note beside it divide the two halves. The
+// timeout fact used to be stated twice, three lines apart, in two wordings.
+check("the note states what it means for the ticket, which is the half that must survive",
+  /whether the ticket was stored is unknown/.test(rendererCode) && /"Nothing was filed\."/.test(rendererCode));
+check("the check page can actually drive the failed-filing branch",
+  /data-filing="unreachable"/.test(readFileSync(join(PANEL, "panel-check.html"), "utf8"))
+  && /data-filing="timeout"/.test(readFileSync(join(PANEL, "panel-check.html"), "utf8")));
+// The fake bridge reads the REAL persona lines rather than carrying copies, or it keeps passing on
+// the day the real ones change.
+check("the fake bridge reads persona.json rather than copying the sentences",
+  /fetch\("\.\.\/\.\.\/router\/persona\.json"\)/.test(readFileSync(join(PANEL, "panel-check-bridge.js"), "utf8")));
 
 // D244: the idle status cannot be read as a claim about this machine's services. "Nothing running"
 // sat a few centimetres from a band listing them.
