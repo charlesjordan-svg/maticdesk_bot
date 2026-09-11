@@ -232,7 +232,7 @@ function renderMachine(facts) {
   const f = facts;
   // Learned here because this is the one place the probe's facts arrive, and re-learned every time
   // the band re-reads them. See `spokenForm()`: shown, never said (D249).
-  rememberMachineName(f.computer);
+  rememberEnvironment(f);
   const rows = [
     ["This computer", f.computer],
     ["Signed in as", f.user],
@@ -373,8 +373,13 @@ for (const id of ["machineTrigger", "ticketsTrigger"]) {
  * and the edge cases are in `spoken-form.js`, which is separate and pure so that a headless test
  * can reach it; this file only learns the name and applies it at the funnel.
  */
-let machineName = null;
-function rememberMachineName(name) { machineName = name ?? null; }
+/** What the probe reported about THIS environment. Shown everywhere; said nowhere. */
+let spokenEnv = {};
+function rememberEnvironment(facts) {
+  // The addresses are THIS machine's own two, not a pattern for anything address-shaped: a hub
+  // answer may legitimately tell someone to try 8.8.8.8, and redacting that destroys the answer.
+  spokenEnv = { machine: facts?.computer, user: facts?.user, addresses: [facts?.ip, facts?.gateway] };
+}
 
 /**
  * Speaks with real Piper audio + viseme sync. Degrades to mouth-only, never to
@@ -385,8 +390,8 @@ async function say(text, endState = "idle") {
   const box = reply(text);
   // Shown above, said below. The mouth is driven by the timeline the SPOKEN text produced, so the
   // visemes match what is heard rather than what is on screen.
-  const heard = spokenForm(text, machineName);
-  if (heard !== text) devlog(`[tts] the machine's name is shown, not spoken (D249)`);
+  const heard = spokenForm(text, spokenEnv);
+  if (heard !== text) devlog(`[tts] this machine's name, account or address is shown, not spoken (D249)`);
   if (!voiceReady) {
     // Cut-order item 3: text only, keep the mouth moving. The 'speaking' state's own
     // mouth animation runs without a phoneme timeline.
@@ -1186,7 +1191,13 @@ async function submit(text) {
   try {
     await handleTurn(sentence);
   } catch (err) {
-    note(`Something went wrong inside the panel and this turn stopped: ${err.message}`, { unknown: true });
+    // D249: `err.message` is a JavaScript exception — "TypeError: Cannot read properties of
+    // undefined (reading 'ok')" — and it was in the note, at the user. Found by tripping it with a
+    // malformed stub while checking the machine-name rule; D247's sweep missed it because this is
+    // SHOWN rather than spoken. The stack was already going to the developer log, so nothing here
+    // is new information and nothing is lost. **`unknown: true` stays**: a turn that stopped
+    // half-way is exactly the case where the user must not assume nothing happened.
+    note("Something went wrong inside the panel and this turn stopped. I can't tell you how far it got, so check before you try the same thing again.", { unknown: true });
     devlog(`[panel] ${err.stack ?? err.message}`);
     setState("error");
   } finally {

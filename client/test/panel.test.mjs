@@ -239,18 +239,35 @@ check("`hub` still appears in the renderer, in the inspector and the developer l
   /devlog\(`\[hub\]/.test(rendererCode) && /hub: "  \(sent to the hub/.test(rendererCode));
 
 // ----------------------------------------------------------------------------------------------
-// D249: this machine's name is SHOWN and never SAID. `spoken-form.js` holds the rule and
-// `spoken-form.test.mjs` exercises its edge cases; what can only be checked here is the WIRING —
-// that `say()` renders one string and speaks another, and that nothing else reaches the voice.
+// D249: this environment's own identifiers are SHOWN and never SAID. `spoken-form.js` holds the
+// rule and `spoken-form.test.mjs` exercises its edge cases; what can only be checked here is the
+// WIRING — that `say()` renders one string and speaks another, and that nothing else reaches the
+// voice. **That last one is what makes "the funnel" true rather than asserted.**
 check("the transcript gets the text as written", /async function say\(text[\s\S]{0,120}const box = reply\(text\);/.test(rendererCode));
 check("the VOICE gets the redacted form", /window\.matic\.speak\(heard\)/.test(rendererCode) && !/window\.matic\.speak\(text\)/.test(rendererCode));
-check("…which is computed from the machine name the probe reported", /const heard = spokenForm\(text, machineName\);/.test(rendererCode));
-check("the name is learned where the probe's facts arrive, so the band's re-read refreshes it",
-  /function renderMachine\([\s\S]{0,200}rememberMachineName\(f\.computer\)/.test(rendererCode));
+check("…computed from what the probe reported about this environment", /const heard = spokenForm\(text, spokenEnv\);/.test(rendererCode));
 check("`say()` is the only thing in the renderer that reaches the voice",
   [...rendererCode.matchAll(/matic\.speak\(/g)].length === 1);
-check("the machine name is still SHOWN, on both surfaces that carry it",
-  /\["This computer", f\.computer\]/.test(rendererCode) && /fixed\("Machine", draft\.machineName/.test(rendererCode));
+check("all three identifiers are learned where the probe's facts arrive, so a re-read refreshes them",
+  /function renderMachine\([\s\S]{0,300}rememberEnvironment\(f\)/.test(rendererCode)
+  && /machine: facts\?\.computer, user: facts\?\.user, addresses: \[facts\?\.ip, facts\?\.gateway\]/.test(rendererCode));
+// The addresses are THIS machine's two, not a pattern for anything address-shaped: a hub answer may
+// legitimately say "try 8.8.8.8", and redacting that destroys the answer rather than protecting
+// anyone. `spoken-form.test.mjs` asserts the behaviour; this asserts the renderer supplies literals.
+check("…and the addresses handed over are literals from the probe, not a pattern",
+  !/\\d\{1,3\}\\\./.test(rendererCode) && !/addresses: \[.*RegExp/.test(rendererCode));
+check("all three are still SHOWN, on the surfaces that carry them",
+  /\["This computer", f\.computer\]/.test(rendererCode)
+  && /\["Signed in as", f\.user\]/.test(rendererCode)
+  && /fixed\("Machine", draft\.machineName/.test(rendererCode)
+  && /\["This machine's address", f\.ip\]/.test(rendererCode));
+// D249 item 3, and it is SHOWN rather than spoken, which is why D247's sweep did not catch it.
+check("the panel's own crash note does not put a JavaScript exception at the user",
+  /note\("Something went wrong inside the panel and this turn stopped\./.test(rendererCode)
+  && !/Something went wrong inside the panel[^"]*\$\{err/.test(rendererCode));
+check("…and the exception still reaches the developer log, in full", /devlog\(`\[panel\] \$\{err\.stack \?\? err\.message\}`\)/.test(rendererCode));
+check("…and it stays flagged `unknown`, because a turn that stopped half-way is exactly that",
+  /this turn stopped[\s\S]{0,200}\{ unknown: true \}/.test(rendererCode));
 
 // D247: the renderer must not interpolate a BROKER diagnostic into speech either. Those strings
 // name capability ids, adapter GUIDs, Win32 control masks and the Service Control Manager.
