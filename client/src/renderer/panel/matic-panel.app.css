@@ -53,7 +53,7 @@ matic-avatar { display: block; }
 
 /* ── (b) what the delivery still does not draw ───────────────────────────────────────────────
 
-   Two things, and one of them is only a label.
+   Three things, and one of them is only a label.
 
    1. `.turn-note b` — the "JUST NOW" chip on a connectivity transition. The delivery draws the
       note (a tick in the gutter, no frame) and has no label in its artwork, because none of the
@@ -61,7 +61,14 @@ matic-avatar { display: block; }
       coming back, where WHEN it happened is half the message.
    2. The two idle/busy rail sub-lines. `.status-sub` is the delivery's; which of the two is shown
       is the app's business, because `data-busy` is set by the renderer and the harness had no
-      equivalent. Display only — nothing here says how either looks. */
+      equivalent. Display only — nothing here says how either looks.
+   3. `code.code` - a quoted string INSIDE a sentence the assistant says (D255). The delivery has
+      `.raw` for a block of machine text and `.turn-note .ref` for a reference, and no inline
+      treatment at all, for the same reason it drew no "JUST NOW" label: **none of the strings it
+      was given contained one.** The hub's answers do - a model writes `Ctrl + Y` in backticks -
+      and an unstyled `<code>` falls back to the BROWSER's mono face at the browser's size, which
+      is the same defect as the textarea in D252 §7. **This is the one to put in the next design
+      ask so section (b) can shrink again.** */
 .turn-note b {
   flex: none;
   font-family: var(--matic-ui-font-head);
@@ -84,6 +91,31 @@ matic-avatar { display: block; }
    them at once. The root attribute is kept for ONE thing - the composer's hint - so that rule is
    restated without the delivery's `[data-scene="offer"]` qualifier. */
 [data-offer="pending"] .composer .hint { display: block; }
+
+/* Inline, and NOT de-emphasised: on a "what is the shortcut" answer the quoted string IS the
+   answer, so it keeps the paragraph's ink and only changes face. `.92em` because mono at the same
+   nominal size reads larger than the body face beside it. The ground is the delivery's own
+   `surface-2`, the lift it uses everywhere for quoted material, so the pairing follows the theme
+   in both directions with nothing declared here.
+
+   THE BORDER IS WRITTEN IN THE DELIVERY'S OWN IDIOM, and the first attempt was not.
+   `--matic-ui-hair` is a WIDTH (`1px`) and `--matic-ui-line` is the COLOUR: the delivery's `.bp`
+   rule is `border: var(--matic-ui-hair) solid var(--matic-ui-line)`. Guessing from the name gave
+   `1px solid var(--matic-ui-hair)`, i.e. `1px solid 1px` - an INVALID SHORTHAND, which CSS drops
+   whole, so the chip had its tint and no hairline at all. Worth knowing exactly which failure it
+   was: reading `borderColor` alone says `rgb(29,31,32)` and looks like a black box was drawn, and
+   only `border` shows `0px none`. Measured on the real window, not reasoned about. **No radius either: `--matic-ui-radius` is `0px` - this design has square
+   corners and a rounded chip would be the app overruling it.** */
+.reply code.code,
+.aside-note code.code {
+  font-family: var(--matic-ui-font-mono);
+  font-size: .92em;
+  color: inherit;
+  background: var(--matic-ui-surface-2);
+  border: var(--matic-ui-hair) solid var(--matic-ui-line);
+  padding: 0 4px;
+  overflow-wrap: anywhere;   /* a long path must wrap inside the bubble, never widen it */
+}
 
 .status-sub-busy { display: none; }
 [data-busy="on"] .status-sub-busy { display: block; }

@@ -91,7 +91,9 @@ export function answerToolSchema() {
           reply: {
             type: "string",
             description:
-              "What to say to the user. When answered is true, the answer, drawn only from the "
+              "What to say to the user, in PLAIN SENTENCES: no markdown, no backticks, no asterisks, "
+              + "no headings or bullets. It is read aloud by a speech synthesiser as well as shown, so a "
+              + "marker is either a stumble or nothing. When answered is true, the answer, drawn only from the "
               + "supplied articles. When answered is false, say plainly that you do not have "
               + "company guidance covering this and offer to raise a ticket. Never guess.",
           },

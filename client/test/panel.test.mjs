@@ -278,7 +278,48 @@ check("`hub` still appears in the renderer, in the inspector and the developer l
 // voice. **That last one is what makes "the funnel" true rather than asserted.**
 check("the transcript gets the text as written", /async function say\(text[\s\S]{0,120}const box = reply\(text\);/.test(rendererCode));
 check("the VOICE gets the redacted form", /window\.matic\.speak\(heard\)/.test(rendererCode) && !/window\.matic\.speak\(text\)/.test(rendererCode));
-check("…computed from what the probe reported about this environment", /const heard = spokenForm\(text, spokenEnv\);/.test(rendererCode));
+check("…computed from what the probe reported about this environment",
+  /const heard = spokenForm\([a-z]+, spokenEnv\);/.test(rendererCode));
+
+// ── D255: THE MARKERS COME OFF BEFORE ANY OF THAT, AND THE D249 LOG STILL MEANS WHAT IT SAYS ──
+//
+// The hub's answers are written by a model and models emit markdown: a real answer reached the
+// screen as "…is \`Ctrl + Y\`." (found in Electron, §5.37). The panel may not fix that with
+// `innerHTML` — D130 — so `model-prose.js` returns RUNS and the renderer builds a node per run.
+//
+// **The order matters and so does what the log line compares against.** Stripping runs first, so
+// D249's redaction sees the sentence a person would read. And the log fires on
+// `heard !== said` — if it compared against `text`, then ANY answer containing a backtick would
+// announce a redaction that never happened, and a log line that cries wolf is worse than no line.
+check("the spoken string has its markers removed before the D249 redaction runs",
+  /const said = plainProse\(text\);[\s\S]{0,80}const heard = spokenForm\(said, spokenEnv\);/.test(rendererCode));
+check("…and the D249 log compares against the STRIPPED string, not the original",
+  /if \(heard !== said\) devlog/.test(rendererCode) && !/if \(heard !== text\) devlog/.test(rendererCode));
+check("the reply builds nodes from runs rather than setting one string",
+  /box\.append\(prose\("p", "", para\)\)/.test(rendererCode));
+check("…and `prose` never reaches for innerHTML (D130)",
+  /function prose\(tag, cls, text\)[\s\S]{0,400}?createTextNode/.test(rendererCode)
+  && !/innerHTML/.test(rendererCode));
+// The consent card is the one surface where verbatim is the whole guarantee. Only the model's own
+// line may be transformed; the four `consentRendered` clauses are compared field for field on
+// screen by the D130 click-through and must stay exactly as the broker retained them.
+check("on the consent card ONLY the model's own clause goes through prose()",
+  /\["Why this, here", proposal\.reasoning, true\]/.test(rendererCode)
+  && /\["What you will notice", r\.notice, false\]/.test(rendererCode)
+  && /modelWrote \? prose\("p", "", bodyText\) : el\("p", "", bodyText\)/.test(rendererCode));
+// The delivery draws no inline treatment, for the same reason it drew no "JUST NOW" label: none of
+// the strings it was given carried one. So the app draws it, in section (b), and says so.
+// AND THE CASE NOTE IS NOT TRANSFORMED EITHER, for a stronger reason than the consent card's.
+// It is model-written, so it is tempting - but the card labels it "Sent exactly as it reads." and
+// D128 requires the user to see WHAT IS BEING SENT. The sent value is the raw string, so dropping
+// a marker from the display would make the card's own promise false. A marker visible there is
+// honest; a tidied one is not.
+check("the review card's case note is shown verbatim, markers and all",
+  rendererCode.includes('fixedProse("Case note", draft.summary, "Written by me. Sent exactly as it reads.")')
+  && !rendererCode.includes('prose("p", "", draft.summary'));
+check("the app draws the inline-code treatment the delivery has no rule for",
+  /\.reply code\.code/.test(appCss) && /--matic-ui-font-mono/.test(appCss));
+check("…using only delivered tokens, declaring none", !/^\s*--matic-ui-(?!live)/m.test(appCss.split("(c) the four live values")[0]));
 check("`say()` is the only thing in the renderer that reaches the voice",
   [...rendererCode.matchAll(/matic\.speak\(/g)].length === 1);
 check("all three identifiers are learned where the probe's facts arrive, so a re-read refreshes them",

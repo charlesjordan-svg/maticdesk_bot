@@ -33,6 +33,7 @@ import persona from "../router/persona.json" with { type: "json" };
 // D249: what the VOICE gets when that differs from what the screen gets. Pure and separate so a
 // headless test can reach it - renderer.js touches `document` at module scope and no test can.
 import { spokenForm } from "./spoken-form.js";
+import { proseSegments, plainProse } from "./model-prose.js";
 
 const root = document.documentElement;
 const avatar = document.getElementById("avatar");
@@ -65,6 +66,26 @@ function el(tag, cls, text) {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+/**
+ * MODEL PROSE INTO AN ELEMENT: real nodes, never markup (D255).
+ *
+ * The hub's answers are written by a language model and language models emit markdown, so a real
+ * answer reached the screen as "…is \`Ctrl + Y\`." with the backticks showing. The fix cannot be
+ * `innerHTML` — D130 forbids it and the consent surface rests on that — so `model-prose.js`
+ * returns RUNS and this builds a node per run. Nothing is parsed as HTML and nothing can inject.
+ *
+ * **Use this for text a MODEL wrote and `el()` for everything else.** Our own strings and the
+ * broker's `consentRendered` fields are shown verbatim on purpose (D128/D130): running them
+ * through a transform would mean the card no longer displays exactly what was retained.
+ */
+function prose(tag, cls, text) {
+  const n = el(tag, cls);
+  for (const run of proseSegments(text)) {
+    n.append(run.code ? el("code", "code", run.text) : document.createTextNode(run.text));
+  }
   return n;
 }
 
@@ -107,7 +128,8 @@ function said(text) {
 /** One thing the assistant says. Returns the element so a caller can hang an offer off it. */
 function reply(text) {
   const box = framed(el("div", "reply bp"));
-  for (const para of String(text).split(/\n{2,}/)) box.append(el("p", "", para));
+  // `prose`, not `el`: this is the assistant's voice and on the hub path a model wrote it (D255).
+  for (const para of String(text).split(/\n{2,}/)) box.append(prose("p", "", para));
   turn().append(box);
   scrollDown();
   return box;
@@ -424,8 +446,13 @@ async function say(text, endState = "idle") {
   const box = reply(text);
   // Shown above, said below. The mouth is driven by the timeline the SPOKEN text produced, so the
   // visemes match what is heard rather than what is on screen.
-  const heard = spokenForm(text, spokenEnv);
-  if (heard !== text) devlog(`[tts] this machine's name, account or address is shown, not spoken (D249)`);
+  // MARKERS OFF FIRST, THEN D249's REDACTION. Piper reads a backtick as a stumble or as nothing,
+  // and neither is what the sentence meant. The comparison below is against `said`, NOT `text`:
+  // comparing against `text` would make the D249 line fire on any answer that merely contained
+  // markdown, and a log line that cries redaction when nothing was redacted is worse than none.
+  const said = plainProse(text);
+  const heard = spokenForm(said, spokenEnv);
+  if (heard !== said) devlog(`[tts] this machine's name, account or address is shown, not spoken (D249)`);
   if (!voiceReady) {
     // Cut-order item 3: text only, keep the mouth moving. The 'speaking' state's own
     // mouth animation runs without a phoneme timeline.
@@ -866,18 +893,23 @@ function askConsent(request, proposal) {
     const inner = el("div");
     inner.style.cssText = "margin-top:12px; display:flex; flex-direction:column; gap:12px";
     // `proposal.reasoning` is the only part that is specific to THIS problem, so it goes first.
-    for (const [heading, bodyText] of [
-      ["Why this, here", proposal.reasoning],
-      ["What you will notice", r.notice],
-      ["Can it be undone", r.undo],
-      ["Why it usually helps", r.why],
-      ["Risk level", r.risk],
+    // THE THIRD COLUMN IS WHO WROTE IT, and it decides which builder runs. "Why this, here" is the
+    // model's own sentence — the one exception D130 allows on this card — so it goes through
+    // `prose()` and loses any markers (D255). **The other four come from `consentRendered` and are
+    // shown VERBATIM**: they are the broker's retained catalog text, the D130 click-through compares
+    // them field for field on screen, and putting them through a transform would end that.
+    for (const [heading, bodyText, modelWrote] of [
+      ["Why this, here", proposal.reasoning, true],
+      ["What you will notice", r.notice, false],
+      ["Can it be undone", r.undo, false],
+      ["Why it usually helps", r.why, false],
+      ["Risk level", r.risk, false],
     ]) {
       if (!bodyText) continue;
       const clause = el("div", "aside-note");
       const h = el("div", "", heading);
       h.setAttribute("style", "font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:4px");
-      clause.append(h, el("p", "", bodyText));
+      clause.append(h, modelWrote ? prose("p", "", bodyText) : el("p", "", bodyText));
       inner.append(clause);
     }
     details.append(summary, inner);

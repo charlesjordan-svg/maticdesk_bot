@@ -109,9 +109,16 @@
         validation: { ok: true, capability: { id: "restart_service", title: "Restart a Windows service", tier: "R1", rollback: "restart_service" } },
       };
     }
+    // THIS CANNED ANSWER CARRIES MARKDOWN ON PURPOSE (D255). Every fixture on this page used to be
+    // clean prose, which is exactly why the markers reached a real screen before anyone saw them:
+    // the hub's answers are written by a model, models emit markdown, and no canned reply modelled
+    // that. The firmware version is in backticks and one clause is bolded, so a person opening this
+    // page sees what the renderer does with both. **If it ever shows a backtick or an asterisk, the
+    // D255 path is broken** - and note the file name below, which must survive intact: a naive
+    // underscore rule would eat it.
     if (/dock|screen|display/.test(t)) {
       return {
-        ...say("Docks that drop a second screen are usually a firmware level thing rather than anything on this machine, and your company has written guidance for exactly this. It says the dock has to be on firmware 1.4 or later to drive two external displays, and that the update comes through the software centre with the dock left connected while it runs."),
+        ...say("Docks that drop a second screen are usually a firmware level thing rather than anything on this machine, and your company has written guidance for exactly this. It says the dock has to be on firmware `1.4` or later to drive two external displays, and that **the dock must stay connected while the update runs**. The log it writes is called `dock_update_log.txt` if you need to send it on."),
         answer: { answered: true, citedArticleIds: ["placeholder-docking-stations"], retrieval: { legs: "canned", fused: "canned" } },
       };
     }
