@@ -1,10 +1,22 @@
 /* Matic Desk panel — the APP-ONLY half of the stylesheet. Hand-written, loaded after
    matic-panel.css (which is generated from the delivery and must not be edited).
 
-   EVERYTHING HERE IS EITHER (a) the harness stage becoming a real Electron window, or (b) a
-   surface the delivery did not draw. Nothing here restyles something the delivery did draw:
-   if a colour, a size or a spacing looks wrong on screen, it is a note for the next delivery,
-   not an override to add below. The tokens are used as delivered and none is redefined.
+   FOUR SECTIONS, AND ONLY THE LAST ONE MAY TOUCH SOMETHING THE DELIVERY DREW. (a) the harness
+   stage becoming a real Electron window; (b) surfaces the delivery did not draw; (c) two attribute
+   hooks the app drives differently from the harness; (d) knowingly different from the delivery,
+   each item written down and carried to the next delivery.
+
+   **If a colour, a size or a spacing looks wrong on screen, it is a note for the next delivery,
+   not an override to add below** - and if it genuinely cannot wait, it goes in (d) with the reason,
+   never quietly into (a) or (b). That header used to say "nothing here restyles something the
+   delivery did draw", which stopped being true on 2026-09-10 when (d) item 4 was added; a rule
+   stated as absolute and then broken in silence is worse than one stated with its exceptions. The
+   tokens are used as delivered and none is redefined - THAT one is still absolute, and a test
+   enforces it.
+
+   The file the next delivery reads is
+   `docs/handovers/2026-09-10-claude-design-handover-panel-copy-followups.md`. Section (b) is its
+   §1 and section (d) is its §2 and §4.
 
    Integrated 2026-09-10 (D240/D241). */
 
@@ -103,16 +115,6 @@ matic-avatar { display: block; }
    question for the next delivery, so subordination is bought by DARKENING THE GLOSS rather than by
    fading the raw value, which stays at the colour every other `.fixed` row already uses. Position
    and size do the rest. */
-/* The consent card's exact call — `restart_service(serviceName=spooler)` (D247). The delivery draws
-   `.consent-verbatim p` as body prose, and this field is not prose: it is the machine-readable form
-   of what will run, and D130 requires it on screen. Same treatment as the glossed rows below —
-   mono, a step down, subordinate by size and position — and NOT hidden, because a user approving an
-   action is entitled to see the exact thing being approved. The TEXT is the broker's, verbatim. */
-.consent-verbatim p.exact {
-  font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
-  color: var(--matic-ui-ink-muted); margin-top: 6px; overflow-wrap: anywhere;
-}
-
 .ticket-review .fixed.glossed { color: var(--matic-ui-ink); }
 .ticket-review .fixed .raw {
   display: block; font-size: 11px; margin-top: 3px; color: var(--matic-ui-ink-muted);
@@ -162,14 +164,19 @@ matic-avatar { display: block; }
    as a broken counter. The trigger stays, because the band explains what it can and cannot see. */
 .count:empty { display: none; }
 
-/* ── (d) knowingly different from the delivery, because Charles asked ─────────────────────────
+/* ── (d) knowingly different from the delivery ────────────────────────────────────────────────
 
    The exceptions to this file's opening rule, written down rather than slipped in. Each one is a
-   change to the DESIGN, asked for against the running panel, and each belongs in the next
-   delivery rather than in this file for ever. THE FILE THE NEXT DELIVERY READS IS
-   `docs/handovers/2026-09-10-claude-design-handover-panel-copy-followups.md`; these are its §1,
-   and four more items (the disclosure square, mono for prose, the label column's contrast, the
-   unlabelled crosshair) are its §2 and are deliberately NOT answered anywhere in this file.
+   change to the DESIGN and each belongs in the next delivery rather than in this file for ever.
+   Items 1-3 were asked for against the running panel; item 4 is a delivered element carrying a
+   kind of content the delivery did not anticipate. THE FILE THE NEXT DELIVERY READS IS
+   `docs/handovers/2026-09-10-claude-design-handover-panel-copy-followups.md`, rewritten end of day
+   as the complete brief. Items 1-2 below are its §2 and item 4 is its §4; its §1 is the bigger ask,
+   which is that section (b) of THIS file draws four surfaces the delivery never drew at all
+   (`.turn-note`, `.ticket-review`, `.todo-card`, `.transcript-turn`) and they should stop being
+   our approximations. Four further items - the disclosure square, mono for prose, the label
+   column's contrast, the unlabelled crosshair - are its §3 and are deliberately NOT answered
+   anywhere in this file.
 
    1. 2026-09-10 — the wordmark is centred. The delivery left-aligns it against the rail's padding
       while everything under it (avatar, status line, service note) is centred.
@@ -182,7 +189,23 @@ matic-avatar { display: block; }
       sub-line reads "Nothing in progress" where the delivery says "Nothing running". Beside a band
       that lists this machine's services, "nothing running" can be read as a claim about them
       (D244/§5.29a). Copy, not CSS, so there is nothing to override — but it is the same kind of
-      divergence and it is in the same file for the next delivery. */
+      divergence and it is in the same file for the next delivery.
+   4. 2026-09-10 — THE CONSENT CARD'S EXACT CALL IS SET APART (D247). This is the one rule in this
+      file that restyles something the delivery DID draw, and it is here rather than in (b) for
+      that reason. `.consent-verbatim p` is drawn as body prose; one of those paragraphs is
+      `rendered.detail` — `restart_service(serviceName=spooler)`, the machine-readable form of what
+      will run, which `broker.d.ts` defines and `docs/D130-RENDERER-CHECK.md` checks by name. Set at
+      body size beside the plain sentence it belongs to, it reads as prose that has gone wrong. It
+      is given the review card's raw-value treatment instead — mono, a step down, subordinate by
+      size and position — and is NOT hidden, because a person approving an action is entitled to
+      see the exact thing being approved (D128/D244). **The TEXT is the broker's, verbatim; only
+      the presentation is ours.** Whether it should also be GLOSSED is D248, proposed, awaiting
+      Charles — and that one needs a new field on the rendered contract, so it is a decision rather
+      than a patch. */
+.consent-verbatim p.exact {
+  font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
+  color: var(--matic-ui-ink-muted); margin-top: 6px; overflow-wrap: anywhere;
+}
 .rail .brand { text-align: center; }
 
 /* THE AVATAR'S PALETTE, BORROWED BY NAME AND BY VALUE.
