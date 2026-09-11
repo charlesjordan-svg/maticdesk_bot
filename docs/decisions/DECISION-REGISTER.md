@@ -2554,8 +2554,28 @@ severity?* — gets sent **when there are enough rows to answer it against somet
 machine the band is now **15 rows**: nine, plus memory, plus one per fixed volume. The delivery's
 two-column grid absorbs them and nothing is broken, but five near-identical disk rows reading
 "Plenty of room" is exactly the case the question was recorded for, and the row count is now a
-function of the machine rather than of the design. **The Design handover is warranted and is the
-next thing to write.**
+function of the machine rather than of the design. **The Design handover is WRITTEN and awaits a
+delivery:** `docs/handovers/2026-09-11-claude-design-handover-machine-band-rows.md`, in the
+ONE-PAGE form that got a buildable export out of the last request rather than the long brief that
+did not. **Its whole argument is the number: the delivery's own mock draws SIX `.mrow` and the band
+now renders fifteen**, so the count is a property of the machine rather than of the design — a
+two-drive laptop gets twelve, and two of the conditional rows drop out on a machine with no address.
+
+It asks three things — **grouping**, **severity**, and what five healthy drives should look like —
+and **severity is the one worth most**, because nothing in the band currently distinguishes
+`Printing — Stopped` from `Printing — Running normally`: on six rows you read them all, on fifteen
+you scan, and scanning finds nothing. It also carries the constraint that makes severity hard, which
+is this feature's own finding turned back on the design: **two of this machine's drives sit at 17.5%
+free with 163 GB each**, so a design that colours a percentage reintroduces exactly the false alarm
+the dual threshold exists to prevent. **Severity must key off the app's verdict, never off the number
+in the string** — and a row may signal "this one" and may never signal "do something", because the
+recommendation is a conversational moment and a row that argues argues every time the band opens.
+
+Every factual claim in it was checked against the files before it was committed — the delivery's six
+rows, app.css's 155 lines, the `.mgrid` rule quoted verbatim, and every value string it promises the
+app can supply (46 assertions, scratch). **Sending it is Charles's act, not a session's.** Nothing is
+grouped or coloured in `matic-panel.app.css` meanwhile: that is the inversion D241 exists to prevent,
+and app.css's empty "knowing exceptions" section is how anyone can tell the arrangement still works.
 
 ---
 
