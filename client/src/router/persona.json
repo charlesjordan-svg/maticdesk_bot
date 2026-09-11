@@ -67,7 +67,8 @@
   },
 
   "fallback": {
-    "hubUnreachable": "I'm sorry — I can't reach the service desk just now, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one, and I'll keep trying to reconnect.",
+    "$comment": "D244/§5.29a's vocabulary rule, completed 2026-09-11 after the Electron click-through found the gap. THE DEGRADED REPLY MUST NAME BOTH the company's guidance and the service desk, because the rail, the standing band and the transcript's own loss note all name both and this reply lands directly under them. It named only the service desk - and the question that reaches this line is very often exactly the kind the GUIDANCE would have answered, so the user was told the one thing they did not need to know and not the one they did. hubNoAnswer names only the service desk on purpose: if the hub answered at all, nothing was unreachable.",
+    "hubUnreachable": "I'm sorry — I can't reach your company's guidance or the service desk just now, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one, and I'll keep trying to reconnect.",
     "hubNoAnswer": "I'm sorry — the service desk answered, but its model didn't give me anything I can act on, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one."
   },
 

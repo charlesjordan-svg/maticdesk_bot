@@ -1348,7 +1348,12 @@ function applyHubStatus(s) {
       note(`I've lost my connection to your company's guidance and the service desk. I can still check and fix things on this machine itself; I can't look anything up or file a ticket until it's back.`, { label: "Just now" });
       if (avatar.state === "idle") setState("error");
     } else if (s.state === "reachable" && lastHubState === "unreachable") {
-      note("The service desk is reachable again.", { label: "Just now" });
+      // THE SAME RULE AS THE BRANCH ABOVE, AND IT WAS MISSED BY THE SWEEP THAT WROTE THAT COMMENT
+      // (found in Electron, 2026-09-11). The loss line names the company's guidance AND the service
+      // desk, because that is what the rail and the standing band name and both are lost. This line
+      // named only the service desk — so a user watched two things go and one come back, and the
+      // one not mentioned is the one that answers questions.
+      note("Your company's guidance and the service desk are reachable again.", { label: "Just now" });
       if (avatar.state === "error") setState("idle");
     }
   }

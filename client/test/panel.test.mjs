@@ -501,6 +501,45 @@ check("it does not promise a queue: nothing is held while the hub is away",
   !/\bwait\b|\bqueue/i.test(transition), transition);
 check("it does not apologise - a limit is not a fault", !/sorry|afraid|apolog/i.test(transition));
 
+// ── EVERY STRING THAT DESCRIBES THE CONNECTION STATE NAMES BOTH HALVES ────────────────────────
+//
+// The assertion above says the loss note names both "as the band and agent.js do" — and when the
+// ELECTRON click-through was finally run (2026-09-11) neither of the other two did. Two strings had
+// been missed by D244's sweep and nothing failed, because each was pinned on its own:
+//
+//   · `persona.fallback.hubUnreachable` — the reply a QUESTION gets while the hub is away. It said
+//     only "the service desk", and the question that lands here is very often exactly the kind the
+//     GUIDANCE would have answered.
+//   · the recovery note — "The service desk is reachable again." So a user watched two things go
+//     and one come back, directly under a band that names both.
+//
+// Enumerated rather than pinned one at a time, so a new connectivity string joins the list or is
+// missing from it. **Scoped to strings about the STATE**, which is why the exclusions below are
+// named rather than implied: `persona.filing.*` and `fallback.hubNoAnswer` describe an ACTION
+// against the service desk, and naming the guidance in those would be wrong, not generous.
+const persona = JSON.parse(readFileSync(new URL("../src/router/persona.json", import.meta.url), "utf8"));
+const recovery = rendererCode.match(/lastHubState === "unreachable"\) \{[\s\S]{0,600}?note\("([^"]*)"/)?.[1] ?? "";
+const CONNECTION_STATE_STRINGS = [
+  ["the loss note", transition],
+  ["the recovery note", recovery],
+  ["the degraded reply (persona.fallback.hubUnreachable)", persona.fallback.hubUnreachable],
+  // The rail has SEVERAL hub-unreachable elements: the heading ("Ready, with limits") is a status
+  // word and names nothing, which is right. The line that describes the STATE is the service-detail.
+  ["the rail's unreachable detail", (indexHtml.match(/service-detail hubcopy hub-unreachable">([^<]*)/) ?? [])[1] ?? ""],
+  ["the standing band", (indexHtml.match(/I can't reach your company's guidance[^<]*/) ?? [])[0] ?? ""],
+];
+for (const [what, sentence] of CONNECTION_STATE_STRINGS) {
+  check(`${what} exists to check`, Boolean(sentence), what);
+  check(`…and it names BOTH the company's guidance and the service desk`,
+    /guidance/i.test(sentence) && /service desk/i.test(sentence), `${what}: ${sentence.slice(0, 130)}`);
+}
+// The named exclusions, asserted so that "it only says service desk" stays a DECISION here rather
+// than becoming the next thing a sweep misses.
+check("a FILING failure names only the service desk, because filing is a service-desk action",
+  Object.values(persona.filing).filter((v) => typeof v === "string" && /guidance/i.test(v)).length === 0);
+check("…and so does hubNoAnswer: if the hub answered at all, nothing was unreachable",
+  !/guidance/i.test(persona.fallback.hubNoAnswer));
+
 // D205 / v7: a decline is a result. No error styling, no apology layout, and the face says so.
 check("the KB decline drives `declining`, not `error`",
   /if \(answered\)[\s\S]*?setState\("declining"\);[\s\S]{0,120}?say\(res\.reply, "declining"\)/.test(rendererCode));

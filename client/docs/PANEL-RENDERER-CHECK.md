@@ -1,4 +1,4 @@
-# Panel renderer check — for Charles to run
+# Panel renderer check — RUN 2026-09-11, and what is still Charles's
 
 **Written 2026-09-10 with the panel integration (D240–D243); revised the same day for the
 re-export (D252), which redrew most of what is described below.** Same shape as
@@ -13,16 +13,24 @@ band, the inspector overlay with its payloads wrapped, dark mode, the escalation
 with its own buttons, the ticket review card, a filed ticket, a citation, and a hub transition
 from reachable to unreachable. §7 of the handover says what that does and does not establish.
 
-**What nobody has seen: the panel in Electron, against a real broker, a real probe and a real
-hub.** That is this document, and it is the acceptance item the design handover refused to make
-optional. Six of the last seven click-throughs on this project found something.
+**MOST OF THIS WAS RUN ON 2026-09-11 (D254, register §5.37)** — in Electron, against the real
+broker, the real probe and a real hub on `mistral-small:24b`, driven over the Chrome DevTools
+Protocol with screenshots of the actual window. **Seven straight click-throughs on this project have
+now found something and this one found six things**, two of which are fixed. What it established
+and what it could not are in
+[`docs/handovers/2026-09-11-claude-code-handover-panel-electron-click-through.md`](../../docs/handovers/2026-09-11-claude-code-handover-panel-electron-click-through.md).
 
-**This document is now unrun against THREE deliveries.** The panel on disk is Claude Design's
-re-export (D252): the review card, the todo card, the turn notes and the transcript turns are its
-drawings rather than the app's approximations, `matic-panel.app.css` is 123 lines where it was 280,
-and the two band glyphs and the inspector's control are new markup. **The steps below are written
-against the current build**, so a step that does not match what you see is a finding, not a stale
-document — say which, and it will be chased.
+**THREE ITEMS ARE STILL YOURS, AND THEY ARE THE ONES A PERSON HAS TO DO.** They are marked
+**[CHARLES]** below:
+
+| | Why a session could not do it |
+|---|---|
+| **§3a — anything HEARD** | Every D249/D250 check about the VOICE. The redaction was proved to fire at the boundary (the app's own log says so, §3a.6) and the strings were read, but **nobody has listened to the audio.** |
+| **§1.1 — the first frame** | Whether the window flashes light-before-dark on launch. The mechanism is right in code (`show: false` + `ready-to-show` + a painted `backgroundColor`) and a screenshot cannot catch a frame that is not meant to exist. |
+| **§4 — the todo card** | It comes from `diagnoseOffline(probe)`, so it needs THIS MACHINE genuinely offline. A session will not disconnect your network to see a card. It has still only ever been seen against canned data. |
+
+**The panel on disk is Claude Design's re-export (D252).** The steps below are written against the
+current build, so a step that does not match what you see is a finding, not a stale document.
 
 ## 0. Before starting
 
@@ -53,7 +61,7 @@ layout, never behaviour.
 
 | # | Look at | Pass when |
 |---|---|---|
-| 1.1 | The first frame after launch | No flash of a light window before a dark one (or vice versa). The window is not shown until it has painted |
+| 1.1 | **[CHARLES]** The first frame after launch | No flash of a light window before a dark one (or vice versa). The window is not shown until it has painted. **Not verifiable by a session:** `main.js` does the right thing (`show: false`, shown on `ready-to-show`, an opaque `backgroundColor`) but a screenshot cannot catch a frame that is not supposed to exist. Launch it in dark and watch |
 | 1.2 | The whole window | The panel fills it. No stage padding, no drop shadow, no registration marks clipped at the edges |
 | 1.3 | The left rail | The avatar at 150px, the brand, and **no state name, no voice pill, no facts table** |
 | 1.4 | The transcript | "Tell me what's gone wrong", three openers, and Matic's spoken greeting below them |
@@ -78,7 +86,13 @@ layout, never behaviour.
 | 3.5 | Expand the developer log | `[router]`, `[hub]`, `[tts]`, `[avatar]` lines — ours, and only here |
 | 3.6 | Close it, look at the conversation | Nothing has moved. Nothing was reserved for it |
 
-## 3a. Name, account and address: on screen, not in the voice (D249)
+## 3a. Name, account and address: on screen, not in the voice (D249) — **[CHARLES] for the audio**
+
+**What was established on 2026-09-11 without hearing anything:** the reply to "where's my ticket?"
+carried this machine's real name AND its real address on screen, and the app's own developer log
+then printed `[tts] this machine's name, account or address is shown, not spoken (D249)` — so the
+string that went to the voice was rewritten and the string on screen was not. **That is the
+mechanism proved end to end in the product for the first time.** What is left is listening to it.
 
 **This one needs the voice working**, so it is the check that `panel-check.html` cannot do at all —
 it has no Piper, so `speak()` is never called there. Run the app on a machine whose hostname is
@@ -107,7 +121,15 @@ Hard to provoke deliberately, so this is a "if you ever see it" check rather tha
 | 3b.2 | Its styling | The attention colour (`unknown`), because a turn that stopped half-way is exactly the case where you must not assume nothing happened |
 | 3b.3 | The developer log | The full stack, unchanged |
 
-## 4. A real fix, with consent (the D130 comparison, again)
+## 4. A real fix, with consent (the D130 comparison, again) — **[CHARLES] for the elevated half**
+
+**Run unelevated on 2026-09-11**, which exercised the refusal rather than the success:
+`restart_service` came back *"I couldn't do that one from here."* with
+`OpenServiceW(spooler, STOP|START) failed (Win32 error 5)` on `detail` in the inspector and nowhere
+else — **D247 confirmed against a real Win32 failure.** `flush_dns` DID run for real and reported
+*"Emptied this machine's memory of recent website lookups."*, the catalog's own `plain.what` words
+rather than "Flushed the DNS resolver cache" — **D250 confirmed against a real execution.** The
+elevated success path of `restart_service` still needs an Administrator window.
 
 Ask it something a capability covers — "my printer won't print" with the spooler stopped
 (`npm.cmd run inject-fault`).
