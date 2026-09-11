@@ -26,7 +26,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const AUDIT = join(ROOT, "audit", "audit.jsonl");
 
 /** The eight fields the renderer displays, in the order they appear on the card. */
-const DISPLAYED = ["title", "what", "detail", "rollbackNote", "notice", "undo", "why", "risk"];
+// `detailPlain` is D248's gloss and sits ABOVE `detail` on the card, so it is listed in the order
+// the card draws them. It was missing here until 2026-09-11, which mattered: §4.3 of the renderer
+// check compares the card against THIS output field for field, so a field the script does not print
+// is a field a wrong value could not be caught in. A record written before D248 has no such key and
+// prints as absent, which is the honest reading of an older card.
+const DISPLAYED = ["title", "what", "detailPlain", "detail", "rollbackNote", "notice", "undo", "why", "risk"];
 
 if (!existsSync(AUDIT)) {
   console.log(`No audit log at ${AUDIT}.`);

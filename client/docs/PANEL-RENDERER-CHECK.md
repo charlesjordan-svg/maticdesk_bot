@@ -30,6 +30,29 @@ and what it could not are in
 | **§4 — the todo card** | It comes from `diagnoseOffline(probe)`, so it needs THIS MACHINE genuinely offline. A session will not disconnect your network to see a card. It has still only ever been seen against canned data. |
 | **§8a.14 — the restart sentence, HEARD** | Same class as §3a. The sentence was read on screen and the day count was checked as a numeral; whether Piper says "forty days" or stumbles on it is not something a session can hear. |
 
+**RUN AGAIN, END TO END, ON 2026-09-11 AFTER THE DAY'S FIVE DECISIONS** (D255–D258 and D248, and
+Claude Design's new export). **39 checks in the real app over the DevTools Protocol, plus the seven
+branches only the check page can drive.** Everything below passed except what is marked [CHARLES].
+Recorded in the register at **§10.3b**, which is the second entry in "verified on a screen" and the
+first a session ran rather than the founder.
+
+**The ninth straight click-through found something, and it was in a tool rather than the panel:**
+`npm.cmd run show-consent` — the thing
+§4.3 tells you to compare the card against, field for field — **did not print `detailPlain`**, the
+field D248 added hours earlier. A field the script does not print is a field a wrong value could not
+be caught in. Fixed; it now prints it in the order the card draws it.
+
+**One thing that could not be observed rather than passed:** §6.5's *"Sending…"* head. On the check
+page the canned bridge resolves within a frame, so the intermediate state is replaced before it can
+be sampled. The two outcomes either side of it were confirmed ("Not sent", "Sent, not confirmed"),
+and the contract is tested headlessly — but nobody has yet *seen* "Sending…" on screen.
+
+**Three failures in the run were the driver's, not the panel's**, and they are worth knowing because
+the next session will hit them too: `querySelector` returns the FIRST match and an earlier turn's
+consent card is still in the transcript (§10.5's trap, hit twice); and **an unanswered consent card
+keeps the turn in flight**, so every later step silently does nothing until it is answered — the
+composer is correctly disabled throughout, which is how you can tell.
+
 **§8a IS NEW AND WAS RUN ON 2026-09-11 (D256, register §5.39)** — in Electron over the DevTools
 Protocol against the real broker and the real probe, with the policy temporarily lowered so this
 machine would fire. **Twenty-three checks, and it found one defect: the evidence clause named the
