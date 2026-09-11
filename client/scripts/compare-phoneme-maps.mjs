@@ -26,7 +26,7 @@ import { compareWithManifest } from "../src/renderer/avatar/viseme-map.js";
 import { escalationReply } from "../src/agent/prompt.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MODEL = process.env.MATIC_VOICE_MODEL || join(ROOT, "voices/en_US-amy-low.onnx");
+const MODEL = process.env.MATIC_VOICE_MODEL || join(ROOT, "voices/en_US-amy-medium.onnx");
 
 /** Real product strings: what the avatar actually says, not lorem ipsum. */
 const STRINGS = [

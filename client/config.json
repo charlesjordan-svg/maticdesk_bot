@@ -1,5 +1,5 @@
 {
-  "voiceModelPath": "voices/en_US-amy-low.onnx",
+  "voiceModelPath": "voices/en_US-amy-medium.onnx",
   "_voiceModelNote": "Relative to the app root. The model is 63 MB and never committed: run 'npm run fetch-voice' to download it and its .onnx.json sidecar into voices/. MATIC_VOICE_MODEL overrides this path for one machine without editing this file.",
   "pythonCommand": "py",
   "pythonArgs": [

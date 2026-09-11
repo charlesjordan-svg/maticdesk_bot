@@ -15,7 +15,7 @@ import { join, resolve, isAbsolute } from "node:path";
 export class TtsService {
   /**
    * @param rootDir Directory a relative `voiceModelPath` is resolved against - the app root, so
-   *   `voices/en_US-amy-low.onnx` in config.json means the same file on every machine. Without it
+   *   `voices/en_US-amy-medium.onnx` in config.json means the same file on every machine. Without it
    *   a relative path would resolve against whatever the current directory happened to be.
    */
   constructor(config, { onLog = () => {}, rootDir = process.cwd() } = {}) {
@@ -135,6 +135,6 @@ export class TtsService {
  * @param {string} rootDir
  */
 export function resolveVoiceModelPath(config, rootDir) {
-  const p = process.env.MATIC_VOICE_MODEL || config.voiceModelPath || "voices/en_US-amy-low.onnx";
+  const p = process.env.MATIC_VOICE_MODEL || config.voiceModelPath || "voices/en_US-amy-medium.onnx";
   return isAbsolute(p) ? p : resolve(rootDir, p);
 }

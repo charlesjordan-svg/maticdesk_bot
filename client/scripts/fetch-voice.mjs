@@ -6,7 +6,12 @@
  * .onnx and reads the .onnx.json sidecar from the same path with ".json" appended.
  *
  * Source: the public Piper voices repository on Hugging Face (rhasspy/piper-voices), pinned to the
- * v1.0.0 tag so the bytes cannot change under us. Voice: en_US-amy-low, 16 kHz.
+ * v1.0.0 tag so the bytes cannot change under us. Voice: en_US-amy-medium, 22.05 kHz.
+ *
+ * 2026-09-11: moved from en_US-amy-low (16 kHz) to the same speaker's medium model. Same voice,
+ * same dataset (MycroftAI/mimic3-voices), higher quality. Nothing reads the sample rate from a
+ * constant - piper_worker.py reports voice.config.sample_rate and the WAV carries its own header -
+ * so the rate change needs no other edit.
  *
  * Usage:  npm run fetch-voice          (skips files that are already present and the right size)
  *         npm run fetch-voice -- --force
@@ -19,12 +24,12 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VOICES = join(ROOT, "voices");
-const BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/low/";
+const BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/medium/";
 // Known sizes at tag v1.0.0. The sidecar is served compressed, so its HEAD carries no usable
 // content-length; the pinned sizes are what the check falls back to.
 const FILES = [
-  { name: "en_US-amy-low.onnx", size: 63104526 },
-  { name: "en_US-amy-low.onnx.json", size: 4164, json: true },
+  { name: "en_US-amy-medium.onnx", size: 63201294 },
+  { name: "en_US-amy-medium.onnx.json", size: 4882, json: true },
 ];
 const force = process.argv.includes("--force");
 
@@ -61,4 +66,4 @@ for (const { name, size, json } of FILES) {
   renameSync(tmp, dest);
   console.log(`done  ${name}`);
 }
-console.log(`\nVoice files are in ${VOICES}. config.json already points there (voices/en_US-amy-low.onnx).`);
+console.log(`\nVoice files are in ${VOICES}. config.json already points there (voices/en_US-amy-medium.onnx).`);

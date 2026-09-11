@@ -31,9 +31,9 @@ as a user error — which is the behaviour the real fleet needs (§12).
 
 - **Node** (built on v24) and **`py -3`** (Python 3.11; `python` is not on PATH on this machine)
 - **Piper voice model** — 63 MB, not committed. Fetch it once with `npm run fetch-voice`, which
-  downloads `en_US-amy-low.onnx` and its `.onnx.json` sidecar into `voices/` from the public
+  downloads `en_US-amy-medium.onnx` and its `.onnx.json` sidecar into `voices/` from the public
   Piper voices repository (Hugging Face `rhasspy/piper-voices`, tag `v1.0.0`). `config.json`
-  points at `voices/en_US-amy-low.onnx`, relative to the app root; set `MATIC_VOICE_MODEL` to use
+  points at `voices/en_US-amy-medium.onnx`, relative to the app root; set `MATIC_VOICE_MODEL` to use
   a model elsewhere. Without it the app runs text-only and says so.
 - **`ANTHROPIC_API_KEY`** for cloud reasoning. Without it the app still runs: the tier-0 router
   handles the printer and network scenarios locally and the UI says the cloud is unavailable.
