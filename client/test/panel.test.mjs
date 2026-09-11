@@ -238,6 +238,20 @@ for (const s of elText) {
 check("`hub` still appears in the renderer, in the inspector and the developer log",
   /devlog\(`\[hub\]/.test(rendererCode) && /hub: "  \(sent to the hub/.test(rendererCode));
 
+// ----------------------------------------------------------------------------------------------
+// D249: this machine's name is SHOWN and never SAID. `spoken-form.js` holds the rule and
+// `spoken-form.test.mjs` exercises its edge cases; what can only be checked here is the WIRING —
+// that `say()` renders one string and speaks another, and that nothing else reaches the voice.
+check("the transcript gets the text as written", /async function say\(text[\s\S]{0,120}const box = reply\(text\);/.test(rendererCode));
+check("the VOICE gets the redacted form", /window\.matic\.speak\(heard\)/.test(rendererCode) && !/window\.matic\.speak\(text\)/.test(rendererCode));
+check("…which is computed from the machine name the probe reported", /const heard = spokenForm\(text, machineName\);/.test(rendererCode));
+check("the name is learned where the probe's facts arrive, so the band's re-read refreshes it",
+  /function renderMachine\([\s\S]{0,200}rememberMachineName\(f\.computer\)/.test(rendererCode));
+check("`say()` is the only thing in the renderer that reaches the voice",
+  [...rendererCode.matchAll(/matic\.speak\(/g)].length === 1);
+check("the machine name is still SHOWN, on both surfaces that carry it",
+  /\["This computer", f\.computer\]/.test(rendererCode) && /fixed\("Machine", draft\.machineName/.test(rendererCode));
+
 // D247: the renderer must not interpolate a BROKER diagnostic into speech either. Those strings
 // name capability ids, adapter GUIDs, Win32 control masks and the Service Control Manager.
 check("the broker's gate message is not spoken", !/say\([^)]*validation\.errors/.test(rendererCode));

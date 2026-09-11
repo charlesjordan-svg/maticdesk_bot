@@ -110,6 +110,19 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | 6.6 | The tickets band's count | It has gone up by one |
 | 6.7 | The new row in the band | Same fact as the card, in the past tense, and also not "the hub" |
 
+## 3a. The machine's name: on screen, not in the voice (D249)
+
+**This one needs the voice working**, so it is the check that `panel-check.html` cannot do at all.
+Run the app on a machine whose hostname is distinctive and listen.
+
+| # | Look at / listen for | Pass when |
+|---|---|---|
+| 3a.1 | The machine band, "This computer" | Your real hostname. **Shown is correct** |
+| 3a.2 | The review card's "Machine" row | The same. It goes on the ticket, and IT needs it |
+| 3a.3 | Anything the avatar SAYS that mentions the machine | It says **"this PC"**. Never the hostname, never spelled out |
+| 3a.4 | The developer log | `[tts] the machine's name is shown, not spoken (D249)` — the line only appears when a redaction actually happened, so its absence means no spoken string contained the name |
+| 3a.5 | The transcript, for that same turn | **The hostname is still there on screen.** Shown and said are two different strings, and only one of them changed |
+
 ## 4a. A fix that does NOT work (D247) — three branches nobody had run
 
 The fake bridge returned success and only success until 2026-09-10, so none of these had been seen.

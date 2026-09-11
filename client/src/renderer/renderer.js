@@ -30,6 +30,9 @@ import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
 // The boot line comes from the same persona file as every other social line (D234), so the name
 // and the tone are decided in one place. A JSON module, like the avatar manifest.
 import persona from "../router/persona.json" with { type: "json" };
+// D249: what the VOICE gets when that differs from what the screen gets. Pure and separate so a
+// headless test can reach it - renderer.js touches `document` at module scope and no test can.
+import { spokenForm } from "./spoken-form.js";
 
 const root = document.documentElement;
 const avatar = document.getElementById("avatar");
@@ -227,6 +230,9 @@ function serviceWords(stateName) {
 function renderMachine(facts) {
   if (!facts) return;
   const f = facts;
+  // Learned here because this is the one place the probe's facts arrive, and re-learned every time
+  // the band re-reads them. See `spokenForm()`: shown, never said (D249).
+  rememberMachineName(f.computer);
   const rows = [
     ["This computer", f.computer],
     ["Signed in as", f.user],
@@ -363,12 +369,24 @@ for (const id of ["machineTrigger", "ticketsTrigger"]) {
 // ═══ speech ═══════════════════════════════════════════════════════════════════════════════════
 
 /**
+ * THIS MACHINE'S NAME IS SHOWN AND NEVER SAID (D249, 2026-09-10, Charles). The rule, the reasoning
+ * and the edge cases are in `spoken-form.js`, which is separate and pure so that a headless test
+ * can reach it; this file only learns the name and applies it at the funnel.
+ */
+let machineName = null;
+function rememberMachineName(name) { machineName = name ?? null; }
+
+/**
  * Speaks with real Piper audio + viseme sync. Degrades to mouth-only, never to
  * silence-with-no-signal. Returns the element it wrote, so a caller can hang an offer off the
  * message that made it.
  */
 async function say(text, endState = "idle") {
   const box = reply(text);
+  // Shown above, said below. The mouth is driven by the timeline the SPOKEN text produced, so the
+  // visemes match what is heard rather than what is on screen.
+  const heard = spokenForm(text, machineName);
+  if (heard !== text) devlog(`[tts] the machine's name is shown, not spoken (D249)`);
   if (!voiceReady) {
     // Cut-order item 3: text only, keep the mouth moving. The 'speaking' state's own
     // mouth animation runs without a phoneme timeline.
@@ -377,7 +395,7 @@ async function say(text, endState = "idle") {
     setState(endState);
     return box;
   }
-  const r = await window.matic.speak(text);
+  const r = await window.matic.speak(heard);
   if (!r.ok) {
     devlog(`[tts] ${r.error}`);
     setState("speaking");
