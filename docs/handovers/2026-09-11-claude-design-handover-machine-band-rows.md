@@ -2,6 +2,26 @@
 
 **Date:** 2026-09-11. **One question, and it is a real one rather than a tidy-up.**
 
+> **THE VERSION CLAUDE DESIGN ACTUALLY RECEIVES IS THE FULL ONE:**
+> [`2026-09-11-claude-design-handover-machine-band-rows-FULL.md`](2026-09-11-claude-design-handover-machine-band-rows-FULL.md).
+> Design does not have this repo, so the full brief is **self-contained** — it restates the export
+> rules rather than linking to a file they may not hold, and it ships with everything they need.
+>
+> **`node tools/build-design-bundle.mjs`** assembles the bundle into
+> `Downloads\matic-design-handover-2026-09-11\`: the full brief, their own last delivery byte for
+> byte, the app markup and renderer that define the class contract, the 155 lines the app adds, a
+> generated class list, a screenshot of the real thing — and **`band-at-four-sizes.html`**, a
+> self-contained page rendering the band at 11, 12, 15 and 20 rows plus one machine in trouble,
+> using their own stylesheet inlined.
+>
+> **Every disk string on that page is produced by `describeVolume()` rather than typed**, because
+> typing them by hand put *"Plenty of room — 47 GB free"* on it and the real rule calls anything
+> under 50 GB "Getting full" — the same reason the check page's fake bridge imports the real
+> sentence generator. And the generator **copies** the full brief rather than holding a second copy
+> of the argument: two copies drift, and the drift is invisible until Design answers the older one.
+>
+> This file is the repo's short record of the same ask.
+
 **You drew six rows. The band now renders fifteen, and the count changes from machine to machine.**
 
 Nothing below says the design is wrong. It says the design was drawn against a fixed list and the
