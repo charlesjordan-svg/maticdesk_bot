@@ -1069,8 +1069,14 @@ async function handleTurn(text) {
   }
 
   // `||` rather than `??`: a provider that returns an empty `reasoning` gives an empty `reply`, and
-  // `??` would have spoken silence. The title is the capability's own name and is fine to say.
-  await say(replyText || `I think this is the fix. ${validation.capability.title}.`, "listening");
+  // `??` would have spoken silence.
+  //
+  // THE TITLE IS NO LONGER SPOKEN (D250). It is the catalog's name for the MECHANISM — "Flush the
+  // DNS resolver cache", "Release and renew the DHCP lease" — which is right for the inspector,
+  // where `proposed()` still puts it, and wrong in the avatar's mouth. Nothing is lost by dropping
+  // it here: the consent card is the very next thing on screen and it describes the action in the
+  // catalog's plain words, which is what this sentence was gesturing at.
+  await say(replyText || "I think this is the fix — have a look at what it would do.", "listening");
 
   // The evidence, at the moment it matters, rather than as a row in a band nobody opens - the
   // design's single largest change to how a proposal reads.

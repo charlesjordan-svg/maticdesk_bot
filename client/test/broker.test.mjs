@@ -8,7 +8,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InProcessBroker } from "../src/broker/in-process-broker.js";
 import { Agent } from "../src/agent/agent.js";
-import { probeMachine } from "../src/broker/capabilities/index.js";
+import { probeMachine, describeAddress } from "../src/broker/capabilities/index.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -220,6 +220,31 @@ console.log("=== 11. WHAT THE BROKER SAYS OUT LOUD, and what it keeps for the re
   for (const [label, line] of spoken) {
     check(`${label}: the spoken line names nothing of ours — "${String(line).slice(0, 44)}…"`,
       typeof line === "string" && line.length > 0 && !OURS.test(line), line);
+  }
+
+  // D250: the mechanism's NAME belongs to the catalog title and the inspector, not to the report a
+  // user hears. "Flushed the DNS resolver cache" and "Renewed the DHCP lease" were the two, and the
+  // catalog already had the user's version of each in `plain.what` — which is the text on the card
+  // they read before agreeing, so the report now echoes what they approved.
+  const JARGON = /\bDHCP\b|\bDNS\b|\bresolver\b|\blease\b|\bTCP\b|\bIP address\b|\bAPIPA\b/;
+  {
+    const flushed = await (async () => {
+      const r = broker.prepareConsent({ capabilityId: "flush_dns", parameters: {}, reasoning: "r", confidence: 1, source: "tier0" }, { locale: "en" });
+      return broker.execute(r.nonce);
+    })();
+    check("a successful flush is reported without naming the mechanism",
+      !JARGON.test(flushed.message), flushed.message);
+    check("…and it echoes the catalog's plain description, which is what the user approved",
+      /website lookups|website-name lookups/i.test(flushed.message), flushed.message);
+  }
+  {
+    // describeAddress feeds BOTH network capabilities' reports; all three of its phrases are spoken.
+    const phrases = [
+      describeAddress({ hasIp: true, isApipa: false, ip: "192.168.50.223" }).phrase,
+      describeAddress({ hasIp: true, isApipa: true, ip: "169.254.17.252" }).phrase,
+      describeAddress({ hasIp: false }).phrase,
+    ];
+    for (const p of phrases) check(`no mechanism named in: "${p.slice(0, 44)}…"`, !JARGON.test(p), p);
   }
 
   // And the service name: `spooler` is a registry key, and the report of a restart is spoken.

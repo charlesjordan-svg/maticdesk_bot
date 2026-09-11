@@ -1,11 +1,11 @@
-# Claude Code handover — shown, not spoken: name, account, address (D249)
+# Claude Code handover — shown, not spoken (D249), and reports in the user's words (D250)
 
 **Asked for** by Charles, against the running panel: *"Speaking computer names could be tricky
 especially in a corp environment. Ok to display computername but it should say this pc."* Then, on
 being shown what else was in the same class: *"do the username too"*, and *"fix 2 and 3 as well"*.
 
-**Repo:** `main`. **Register:** §5.32, **D249**.
-**Client tests: 1107 assertions across 17 files, all green** (was 1048 / 16; the new file is
+**Repo:** `main`. **Register:** §5.32 (**D249**) and §5.33 (**D250**).
+**Client tests: 1113 assertions across 17 files, all green** (was 1048 / 16; the new file is
 `test/spoken-form.test.mjs`, 36 of them).
 
 ---
@@ -133,9 +133,36 @@ longer than that on real hardware), and the broker already knows the answer.
 rather than replaced, because *"a self-assigned address (an address)"* is worse said aloud than
 either the digits or nothing.
 
-**Still not changed, and still yours:** "DHCP lease" and "DNS resolver cache" as spoken vocabulary.
-They are Microsoft's names for real things and the catalog's own titles say the same, so they are a
-product-copy question rather than a defect — flagged in D247's audit and unanswered.
+## 5b. "DHCP lease" and "DNS resolver cache" — answered (D250, register §5.33)
+
+Left open above; Charles closed it the same day: *"fix the dhcp lease and dns resolver cache wording
+too."*
+
+| before | now |
+|---|---|
+| `Flushed the DNS resolver cache.` | `Emptied this machine's memory of recent website lookups.` |
+| `Renewed the DHCP lease — this machine now has 10.0.0.42.` | `Handed the old address back and asked for a new one — this machine now has 10.0.0.42.` |
+| `…but it has no IP address yet` | `…but it has no address yet` |
+| `…which means DHCP has not answered yet` | `…which means the network has not given it a real one yet` |
+
+**The new wording is not invented — it is the catalog's.** `plain.what` already said *"Empties this
+machine's memory of recent website-name lookups"* and *"Hands back this machine's network address and
+asks the network for a new one"*, and that is the text on the consent card. So the report now echoes
+**the description the user approved**, which is worth more than merely being plainer: they can match
+what they were told happened to what they agreed to.
+
+**The catalog TITLES are unchanged** — "Flush the DNS resolver cache", "Release and renew the DHCP
+lease". A title is the capability's identity, it is the model's handle on it, and it is what the
+inspector and the audit record should say. What changed is which of the two a user hears; the last
+place a title reached `say()` (the `I think this is the fix. ${title}.` fallback) no longer names it.
+
+**Also unchanged, deliberately:** `validate().errors` still say things like *"…has a static address,
+so there is no DHCP lease to renew"*. That is the gate explaining itself, D247 routed it to the
+inspector, and it is not spoken.
+
+**The address in the self-assigned phrase is untouched**, for the reason in §5a — it is the evidence,
+`probe.test.mjs` requires it, and D249 keeps it off the voice. `client/docs/DEMO-RUNBOOK.md` quotes
+that line and has been updated with it.
 
 ## 6. Verified
 

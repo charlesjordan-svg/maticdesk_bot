@@ -188,8 +188,16 @@ so **APIPA is the normal outcome of a reset, not an edge case.**
 Since 2026-09-02 the app says so rather than claiming success:
 
 > Reset the Intel(R) Ethernet Controller (2) I225-V adapter — it is back up, but so far only a
-> self-assigned address (169.254.17.252), which means DHCP has not answered yet — that usually
-> settles within a few seconds.
+> self-assigned address (169.254.17.252), which means the network has not given it a real one yet —
+> that usually settles within a few seconds.
+
+**The wording changed on 2026-09-10 (D250)** — it said "which means DHCP has not answered yet", and
+the mechanism's name belongs to the catalog title and the inspector rather than to a line said out
+loud. **The address itself is unchanged and deliberately still there**: a self-assigned `169.254`
+reading as success is the defect this whole section is about, and the value is the evidence.
+**It is shown and not spoken** (D249) — the avatar says "…only a self-assigned address, which means
+the network has not given it a real one yet", with the digits on screen where you can read them out
+if the room needs them.
 
 That is the honest message, and it is also the line that buys you the wait. **Say something during
 it** — silence reads as a crash:

@@ -33,21 +33,26 @@ export const EXECUTORS = {
     };
   },
 
+  // THESE REPORTS ECHO THE CONSENT TEXT THE USER JUST APPROVED (D250). They used to say "Flushed
+  // the DNS resolver cache" and "Renewed the DHCP lease" - Microsoft's names for the mechanisms,
+  // which is what the catalog's TITLES are for and what the inspector still shows. The catalog
+  // already had the user's version of each, in `plain.what`, and it is the text on the card they
+  // read before agreeing: "Empties this machine's memory of recent website-name lookups", "Hands
+  // back this machine's network address and asks the network for a new one". A report that echoes
+  // the description someone approved is a report they can match to what they agreed to.
   async flush_dns() {
     const detail = flushDnsCache();
-    return { message: "Flushed the DNS resolver cache.", detail };
+    return { message: "Emptied this machine's memory of recent website lookups.", detail };
   },
 
   async renew_dhcp({ adapterIndex }) {
     const detail = renewDhcp(adapterIndex);
     const after = listAdapters().find((a) => a.index === adapterIndex);
+    const addr = describeAddress(after);
     return {
-      message: (() => {
-        const addr = describeAddress(after);
-        return addr.ok
-          ? `Renewed the DHCP lease — this machine now has ${after.ip}.`
-          : `Renewed the DHCP lease, ${addr.phrase}.`;
-      })(),
+      message: addr.ok
+        ? `Handed the old address back and asked for a new one — this machine now has ${after.ip}.`
+        : `Handed the old address back and asked for a new one, ${addr.phrase}.`,
       detail: { ...detail, ipAfter: after?.ip ?? null, gatewayAfter: after?.gateway ?? null },
     };
   },
@@ -117,11 +122,14 @@ export function describeServiceRestart(serviceName, detail) {
  * @returns {{ok: boolean, phrase: string}} `ok` means a real, routable-looking lease.
  */
 export function describeAddress(after) {
-  if (!after?.hasIp) return { ok: false, phrase: "but it has no IP address yet" };
+  // D250: "IP" and "DHCP" came out of both phrases. **The ADDRESS stays**, and the check below this
+  // one is why: a self-assigned 169.254 address reading as success is a defect found on real
+  // hardware, and the value is the evidence. It is shown and not spoken (D249).
+  if (!after?.hasIp) return { ok: false, phrase: "but it has no address yet" };
   if (after.isApipa) {
     return {
       ok: false,
-      phrase: `but so far only a self-assigned address (${after.ip}), which means DHCP has not answered yet - that usually settles within a few seconds`,
+      phrase: `but so far only a self-assigned address (${after.ip}), which means the network has not given it a real one yet - that usually settles within a few seconds`,
     };
   }
   return { ok: true, phrase: `on ${after.ip}` };
