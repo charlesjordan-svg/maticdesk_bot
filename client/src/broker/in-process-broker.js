@@ -41,6 +41,29 @@ function sortKeys(obj) {
   return Object.fromEntries(Object.keys(obj).sort().map((k) => [k, sortKeys(obj[k])]));
 }
 
+/**
+ * How a validated parameter VALUE is said in plain words (D248).
+ *
+ * Three named resolvers, and **the catalog says which one each parameter uses** (`plain.callParams`)
+ * rather than this file guessing from the parameter's name. That keeps the mapping reviewable
+ * alongside the text it feeds, which is the same argument that puts `plain.serviceNames` in the
+ * catalog rather than in code (D247).
+ *
+ * **EVERY UNKNOWN FALLS BACK TO THE RAW VALUE, never to silence and never to an invention.** An
+ * adapter that has gone away between the probe and the render, a service with no mapping, a
+ * resolver name nobody implemented: each yields the value the call actually carries. That is the
+ * honest answer, and a gloss reading "Switch the {45f2…} connection off and on again" is no worse
+ * than the raw line directly beneath it — whereas a gloss naming the WRONG adapter would be.
+ */
+const CALL_PARAM_RESOLVERS = {
+  /** A static catalog map on the capability, e.g. `plain.serviceNames.spooler` -> "Print Spooler". */
+  serviceNames: (value, { capability }) => capability.plain?.serviceNames?.[value],
+  /** The live adapter list, by interface index. */
+  adapterByIndex: (value, { probe }) => probe?.adapters?.find((a) => a.index === value)?.description,
+  /** The live adapter list, by GUID - the parameter that would otherwise put a GUID on the card. */
+  adapterByGuid: (value, { probe }) => probe?.adapters?.find((a) => a.guid === value)?.description,
+};
+
 /** Stable hash over the parts that decide what actually runs. Key order cannot change it. */
 function proposalHash(proposal) {
   const canonical = JSON.stringify({
@@ -112,6 +135,47 @@ export class InProcessBroker {
    *   (prepareConsent, execute), so one refusal is not logged twice under two different gates.
    * @returns {ValidationResult}
    */
+  /**
+   * The plain-language line above the exact call, or null (D248).
+   *
+   * Null rather than an empty string, and the renderer draws no element at all for null — an empty
+   * labelled row is worse than no row.
+   *
+   * The probe is read ONCE, and only when a resolver actually needs live state: a capability whose
+   * parameters are all static-mapped never touches it.
+   *
+   * @param {Capability} capability @param {Proposal} proposal
+   * @returns {string | null}
+   */
+  renderCallGloss(capability, proposal) {
+    const template = capability.plain?.call;
+    if (typeof template !== "string" || !template) return null;
+
+    const params = proposal.parameters ?? {};
+    const resolvers = capability.plain?.callParams ?? {};
+    const needsProbe = Object.values(resolvers).some((r) => r === "adapterByIndex" || r === "adapterByGuid");
+    let probe = null;
+    if (needsProbe) {
+      try {
+        probe = this.probe();
+      } catch {
+        /* No probe means every adapter lookup falls back to the raw value, which is the honest
+           answer and is what the raw line beneath the gloss already says. */
+      }
+    }
+
+    // `{param}` is substituted only for parameters the proposal actually carries, so a template
+    // naming one that is absent leaves the placeholder visible rather than printing "undefined":
+    // visible and obviously wrong beats invisible and wrong on the screen where someone consents.
+    return template.replace(/\{(\w+)\}/g, (whole, name) => {
+      if (!Object.hasOwn(params, name)) return whole;
+      const value = params[name];
+      const resolver = CALL_PARAM_RESOLVERS[resolvers[name]];
+      const plain = resolver ? resolver(value, { capability, probe }) : undefined;
+      return String(plain ?? value);
+    });
+  }
+
   validate(proposal, { audit = true } = {}) {
     const { failures, capability } = this.checkProposal(proposal);
     if (failures.length === 0) return { ok: true, errors: [], capability };
@@ -361,6 +425,32 @@ export class InProcessBroker {
     const plain = capability.plain ?? {};
     const params = Object.entries(proposal.parameters ?? {}).map(([k, v]) => `${k}=${v}`).join(", ");
 
+    // ── D248: THE EXACT CALL, GLOSSED ────────────────────────────────────────────────────────
+    //
+    // `detail` is `capabilityId(param=value)` and it stays exactly as it was — D130's verbatim
+    // rule, `broker.d.ts`'s contract, and the field `docs/D130-RENDERER-CHECK.md` checks by name.
+    // What is added is a plain-language line ABOVE it, which is D244's answer for the review card
+    // applied one screen over: **a closed value on a user surface is GLOSSED, never hidden**, and
+    // this is the screen where a person grants permission.
+    //
+    // BUILT HERE AND NOT IN THE RENDERER, because consent text is the broker's to render and the
+    // catalog's to author (D130). The renderer inventing this sentence is precisely what that
+    // decision forbids, which is why the field had to exist before the line could be drawn.
+    //
+    // WHAT IT SAYS THAT NOTHING ELSE ON THE CARD DOES: `plain.what` describes the ACTION and never
+    // names its target — "Stops one background Windows program and starts it again" never says
+    // WHICH, and "Switches the network adapter off" never says which adapter. The exact call is the
+    // only thing on the card carrying that, and it carries it as `serviceName=spooler` (our
+    // registry key) or `adapterId=<GUID>`. So the gloss's whole job is to say what the PARAMETERS
+    // point at, in the words Windows itself uses.
+    //
+    // A CAPABILITY WITH NO PARAMETERS GETS NO GLOSS, and that is deliberate rather than an
+    // omission: `flush_dns()` has nothing to point at, so a gloss there could only restate
+    // `plain.what` two lines below `plain.what` — which is D245's defect, one fact in two wordings,
+    // adjacent. `plain.call` is simply absent for it and the raw line stands on its own, which is
+    // also the delivery's own fallback for this row.
+    const detailPlain = this.renderCallGloss(capability, proposal);
+
     let rollbackNote = null;
     if (capability.rollback !== null && capability.rollback !== undefined) {
       // `capability.rollback` IS A CAPABILITY ID and this sentence is on the consent card, so the
@@ -382,6 +472,7 @@ export class InProcessBroker {
       // the person whose machine it is.
       what: plain.what ?? capability.description,
       detail: `${capability.id}(${params})`,
+      detailPlain,
       rollbackNote,
       notice: plain.notice ?? null,
       undo: plain.undo ?? null,

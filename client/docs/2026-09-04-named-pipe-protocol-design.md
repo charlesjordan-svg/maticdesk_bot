@@ -72,6 +72,26 @@ whole point of that interface is that call sites do not change when `InProcessBr
 | `prepareConsent` | `{ proposal, locale }` | `{ ok: true, request }` or `{ ok: false, error }` |
 | `execute` | `{ nonce }` | `ExecutionResult` |
 
+### `ConsentRequest.rendered` grew one field on 2026-09-11 (D248)
+
+`rendered.detailPlain: string | null` — the plain-language gloss of `rendered.detail`, e.g.
+*"Restart the Print Spooler service."* above `restart_service(serviceName=spooler)`.
+
+**It is listed here because D200/D201 make the wire format a contract**, and D248 is a change to the
+rendered contract rather than a patch — which is the whole reason it waited for a founder decision
+instead of being done when it was noticed. `consent-surface.test.mjs` §4c asserts the field arriving
+**over the pipe**, not just out of the in-process broker, so the serialisation is what is checked.
+
+Three properties that matter to an implementer of this transport:
+
+- **It is authored in the catalog and assembled by the broker** (`plain.call` template,
+  `plain.callParams` naming a resolver per parameter), exactly like `title` and `rollbackNote`. The
+  agent must not construct it: D130.
+- **`null` is a real value and must survive the wire as `null`**, not as `""` or a missing key. A
+  capability with no parameters has no target to name, and the renderer draws no element for null.
+- **`detail` is unchanged.** The gloss is a line above it, never a replacement — the exact call
+  remains the disclosure `docs/D130-RENDERER-CHECK.md` compares on screen field for field.
+
 **`execute` takes a nonce and there is no field to put a proposal in.** That is the D130 contract on
 the wire: the demonstration this whole design answers
 (`CONSENT-SURFACE-2026-09-03.md`) was an agent showing one card and sending a different proposal

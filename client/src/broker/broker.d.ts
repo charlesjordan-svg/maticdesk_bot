@@ -183,6 +183,27 @@ export interface ConsentRequest {
     what: string;
     /** "flush_dns()" - capabilityId(param=value), built from the VALIDATED parameters. */
     detail: string;
+    /**
+     * D248. The plain-language gloss of `detail`, or null.
+     *
+     * "Restart the Print Spooler service." above "restart_service(serviceName=spooler)". D244's
+     * rule for the review card, applied to the screen where a person grants permission: a closed
+     * value is GLOSSED, never hidden. `detail` is unchanged and is still shown verbatim; this is a
+     * line above it.
+     *
+     * It says the one thing nothing else on the card does: WHICH thing the call acts on.
+     * `plain.what` describes the action and never names its target, so the exact call is the only
+     * field carrying that - and it carries it as a registry key or a GUID.
+     *
+     * **Authored in the catalog** (`plain.call`, a template; `plain.callParams` names the resolver
+     * for each parameter) and assembled by the broker, like `title` and `rollbackNote`. The agent
+     * MUST NOT construct it: that is D130.
+     *
+     * **NULL when the capability has no parameters** - `flush_dns()` has nothing to point at, and a
+     * gloss there could only restate `plain.what` two lines below `plain.what`, which is D245's
+     * defect. The renderer draws no element for null.
+     */
+    detailPlain: string | null;
     /** Present when capability.rollback !== null. R2 wording is a warning. */
     rollbackNote: string | null;
     /** catalog plain.notice - what the user will notice. */

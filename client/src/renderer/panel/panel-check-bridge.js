@@ -251,6 +251,10 @@
           // around it stay placeholder on purpose (see this file's header); a call signature is not
           // prose and cannot be mistaken for product copy.
           detail: "restart_service(serviceName=spooler)",
+          /* D248, ratified 2026-09-11. The broker assembles this from the catalog's `plain.call`
+             and `plain.serviceNames`; the value here is what the real broker produces for this
+             proposal, and a capability with no parameters would carry null. */
+          detailPlain: "Restart the Print Spooler service.",
           rollbackNote: "It can be undone by restarting the service again.",
           notice: "Printing will pause for a few seconds.",
           undo: "Yes — restarting the service again puts it back.",

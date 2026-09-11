@@ -297,6 +297,59 @@ console.log("=== 4b. the consent gate's refusals are SPOKEN, and the protocol's 
   }
 }
 
+console.log("=== 4c. the exact call is GLOSSED as well as shown (D248, ratified 2026-09-11) ===");
+//
+// The card carries `restart_service(serviceName=spooler)` — our identifier and a registry key, in a
+// function-call signature, on the one screen where a person grants permission. D244 refused to hide
+// the equivalent on the review card and glossed it instead; this is the same answer, and it waited
+// for a decision because it is a change to the rendered contract rather than a patch.
+//
+// THE ASSERTIONS THAT MATTER ARE ABOUT PROVENANCE. A gloss the renderer invented would be exactly
+// what D130 forbids, so the field is built by the broker from catalog text.
+{
+  const OURS = /\bcapabilityId\b|restart_service|reset_adapter|renew_dhcp|flush_dns|serviceName=|adapterId=|adapterIndex=|\{[0-9A-Fa-f-]{8,}/;
+
+  const spooler = await agent.prepareConsent(spoolerProposal);
+  const r = spooler.request.rendered;
+  check("the rendered contract carries the gloss", typeof r.detailPlain === "string" && r.detailPlain.length > 0,
+    JSON.stringify(r.detailPlain));
+  check(`…and it names the service as WINDOWS calls it: "${r.detailPlain}"`,
+    r.detailPlain.includes("Print Spooler"), r.detailPlain);
+  check("…never as our registry key", !/spooler\b/.test(r.detailPlain), r.detailPlain);
+  check("…and carries no capability id, parameter syntax or GUID", !OURS.test(r.detailPlain), r.detailPlain);
+  check("…and reads as a sentence, not a fragment", /^[A-Z].*\.$/.test(r.detailPlain), r.detailPlain);
+
+  // THE EXACT CALL IS UNCHANGED. The gloss is an addition, not a replacement: `broker.d.ts` defines
+  // `detail` as the exact call and `docs/D130-RENDERER-CHECK.md` compares it on screen by name.
+  check("the exact call is still there, byte for byte",
+    r.detail === "restart_service(serviceName=spooler)", r.detail);
+  check("…and the gloss is a different string from it", r.detailPlain !== r.detail);
+
+  // IT SAYS THE ONE THING NOTHING ELSE ON THE CARD DOES. `plain.what` never names the target.
+  check("`what` does not name which service — which is why the gloss exists",
+    !/Print Spooler|spooler/i.test(r.what), r.what);
+
+  // IT CROSSES THE WIRE. D248 is a change to the rendered contract, and this test talks to the
+  // broker over the pipe exactly as the renderer does — so the field arriving here is the proof
+  // that the protocol carries it (D200/D201: the wire format is a contract).
+  check("the gloss survives the pipe, which is what makes it a contract change",
+    typeof spooler.request.rendered.detailPlain === "string");
+
+  // THE AUDIT RECORD SAYS WHAT WAS SHOWN, including the new line. `consentRendered` is the whole
+  // rendered object, so this needs no separate plumbing — and must not lose the field.
+  await agent.execute(spooler.request.nonce);
+  const last = (await auditRecords()).at(-1);
+  check("the audit record keeps the gloss it displayed",
+    Object.hasOwn(last?.consentRendered ?? {}, "detailPlain"),
+    JSON.stringify(Object.keys(last?.consentRendered ?? {})));
+  check("…and it is the same string the card was given",
+    last?.consentRendered?.detailPlain === spooler.request.rendered.detailPlain);
+
+  // The null case, the unresolvable parameter and the missing placeholder are broker UNIT behaviour
+  // and are asserted in `broker.test.mjs` §12, against an injectable probe. They cannot be driven
+  // from here: `flush_dns` is refused by precondition on this test's deliberately offline machine.
+}
+
 console.log("=== 5. what D130 does not fix, and what it leaves in the trail (design §5, attack notes F2) ===");
 {
   // A compromised agent can render X, paint X, and at the click render Y and approve Y. The broker

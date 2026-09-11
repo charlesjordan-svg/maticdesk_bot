@@ -255,6 +255,79 @@ console.log("=== 11. WHAT THE BROKER SAYS OUT LOUD, and what it keeps for the re
     JSON.stringify(cap.plain?.serviceNames));
 }
 
+console.log("\n=== 12. the exact call, GLOSSED — the unit rules (D248) ===");
+//
+// `consent-surface.test.mjs` §4c asserts the gloss over the PIPE, which is what makes D248 a
+// contract change. These are the rules that need an injectable probe and a capability the
+// precondition gates would refuse there.
+{
+  const catalog = JSON.parse(readFileSync(join(ROOT, "src/broker/catalog.json"), "utf8"));
+  const capOf = (id) => catalog.capabilities.find((c) => c.id === id);
+  const GUID = "{45F2A1C0-1111-2222-3333-444455556666}";
+  // A broker whose probe reports one adapter we can name, so the two live resolvers are exercised.
+  const named = new InProcessBroker({
+    catalogPath: join(ROOT, "src/broker/catalog.json"),
+    auditPath: join(ROOT, "audit/audit.jsonl"),
+    probe: () => ({
+      services: {}, primary: [], actionable: [], online: true,
+      adapters: [{ index: 12, guid: GUID, description: "Intel(R) Ethernet Controller (2) I225-V" }],
+    }),
+    onLog: () => {},
+  });
+  const gloss = (id, parameters) => named.renderCallGloss(capOf(id), { capabilityId: id, parameters });
+
+  // A CAPABILITY WITH NO PARAMETERS HAS NOTHING TO POINT AT, so it gets no gloss rather than a
+  // restatement of `plain.what` two lines below `plain.what` — which is D245's defect.
+  check("flush_dns() has no parameters and therefore no gloss", gloss("flush_dns", {}) === null);
+  check("…and the catalog simply omits `plain.call` for it, rather than carrying an empty one",
+    capOf("flush_dns").plain.call === undefined);
+
+  // THE TWO LIVE RESOLVERS. A GUID is the parameter that would otherwise put a GUID on the screen
+  // where a person grants permission.
+  check("an adapter index resolves to the adapter's description",
+    gloss("renew_dhcp", { adapterIndex: 12 }) === "Renew the address on the Intel(R) Ethernet Controller (2) I225-V connection.",
+    gloss("renew_dhcp", { adapterIndex: 12 }));
+  check("an adapter GUID resolves too, so no GUID reaches the card",
+    !/\{[0-9A-Fa-f-]{8,}/.test(gloss("reset_adapter", { adapterId: GUID })),
+    gloss("reset_adapter", { adapterId: GUID }));
+
+  // THE HONEST FALLBACK. An adapter gone between probe and render yields the raw value, which is no
+  // worse than the exact call printed directly beneath it — and far better than naming the WRONG
+  // adapter, which is the one outcome a gloss must never produce.
+  const gone = gloss("reset_adapter", { adapterId: "{NOT-A-REAL-GUID}" });
+  check("an unresolvable parameter falls back to the raw value", gone.includes("{NOT-A-REAL-GUID}"), gone);
+  check("…and never to \"undefined\" or to silence", !/undefined/.test(gone) && gone.length > 0, gone);
+  const unmapped = gloss("restart_service", { serviceName: "not_in_the_map" });
+  check("an unmapped service name falls back to itself", unmapped.includes("not_in_the_map"), unmapped);
+
+  // A probe that throws must not take the card down with it.
+  {
+    const blind = new InProcessBroker({
+      catalogPath: join(ROOT, "src/broker/catalog.json"),
+      auditPath: join(ROOT, "audit/audit.jsonl"),
+      probe: () => { throw new Error("no probe"); },
+      onLog: () => {},
+    });
+    const g = blind.renderCallGloss(capOf("reset_adapter"), { capabilityId: "reset_adapter", parameters: { adapterId: GUID } });
+    check("a probe that throws still yields a gloss, falling back to the raw value",
+      typeof g === "string" && g.includes(GUID), String(g));
+  }
+  // A placeholder with no matching parameter stays VISIBLE: obviously wrong beats invisibly wrong.
+  check("a placeholder naming an absent parameter is left in place",
+    named.renderCallGloss({ id: "x", plain: { call: "Do it to {nothing}." } }, { capabilityId: "x", parameters: {} })
+      === "Do it to {nothing}.");
+  // And every capability that HAS a gloss declares a resolver for each placeholder it uses.
+  for (const c of catalog.capabilities) {
+    if (typeof c.plain?.call !== "string") continue;
+    const placeholders = [...c.plain.call.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    check(`${c.id}: every placeholder is a real parameter`,
+      placeholders.every((p) => Object.hasOwn(c.parameters?.properties ?? {}, p)), placeholders.join(", "));
+    check(`${c.id}: every placeholder declares a resolver`,
+      placeholders.every((p) => typeof c.plain?.callParams?.[p] === "string"), JSON.stringify(c.plain?.callParams));
+    check(`${c.id}: the gloss itself names no capability id`, !c.plain.call.includes(c.id));
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 console.log("\n--- broker log ---");
 for (const l of lines) console.log(l);

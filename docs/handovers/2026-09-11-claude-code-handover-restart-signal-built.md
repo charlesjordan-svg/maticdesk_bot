@@ -502,3 +502,79 @@ are still fifteen, in five sets — but the eye now goes to the set before the r
 to one track when the window is narrow, which the flat grid never did.
 
 **D248 is still proposed and still awaits Charles**, untouched by any of this.
+
+---
+
+## 14. D248, ratified and built: the exact call is glossed (register §5.42)
+
+Charles: *"do d248."* Proposed 2026-09-10, left open for a day because it is a change to the
+**rendered contract** rather than a patch. **No new ID was taken** — the decision is D248 as
+proposed, and nothing about it changed on ratification.
+
+### What the card says now
+
+```
+EXACTLY WHAT RUNS   Restart the Print Spooler service.
+                    restart_service(serviceName=spooler)
+```
+
+The gloss at 13px in the body face at full ink; the exact call beneath it at 12px, mono, muted.
+A plain-language line above, the exact call below and subordinate — D248's proposal in its own words.
+
+### It says the one thing nothing else on the card did
+
+`plain.what` describes the **action** and never names its **target**: *"Stops one background Windows
+program and starts it again"* never says which, and *"Switches the network adapter off and straight
+back on"* never says which adapter. **The exact call was the only field on the card carrying that —
+and it carried it as `serviceName=spooler`, our registry key, or as a raw GUID for `reset_adapter`.**
+
+So the gloss is not a restatement. It is the missing half, in the words Windows itself uses.
+
+### Why it needed a decision rather than a patch
+
+`rendered.detailPlain` is a new field, and the **broker** assembles it from catalog text —
+`plain.call` (a template) plus `plain.callParams` (naming one of three resolvers per parameter),
+exactly as `title` and `rollbackNote` are already assembled. **The renderer could not have done
+this:** a renderer authoring consent wording is precisely what D130 forbids, which is why the line
+sat undrawn in the delivery for a day with a comment in `renderer.js` explaining why.
+
+The three resolvers are declared **in the catalog** rather than guessed from a parameter's name, so
+the mapping stays reviewable beside the text it feeds — the same argument that put
+`plain.serviceNames` in the catalog rather than in code (D247).
+
+### Every unknown falls back to the raw value
+
+An adapter gone between probe and render, a service with no mapping, a probe that throws, a resolver
+nobody implemented — each yields the value the call actually carries. **That is no worse than the
+exact call printed directly beneath it, and far better than naming the wrong adapter**, which is the
+one outcome a gloss must never produce. A placeholder naming an absent parameter is left **visible**:
+obviously wrong beats invisibly wrong on this screen.
+
+### A capability with no parameters gets no gloss, and that is a decision
+
+`flush_dns()` has nothing to point at, so a gloss there could only restate `plain.what` two lines
+below `plain.what` — **D245's defect exactly: one fact, two wordings, adjacent.** `plain.call` is
+absent for it, `detailPlain` is `null`, and the renderer draws **no element at all** rather than an
+empty labelled row. That is also the delivery's own written fallback for this row.
+
+### What did not change
+
+**`detail` is byte-identical**, still verbatim, still the field `docs/D130-RENDERER-CHECK.md`
+compares on screen. D244's rule is that a closed value reaching the user is **glossed, never
+hidden** — the same reasoning that kept `needs_human_judgement` on the review card keeps the call
+signature here. The four `consentRendered` prose clauses stay verbatim (D255). **And no spoken line
+changed:** the gloss is a shown string, and `say()` never reads it.
+
+### Verified
+
+**1724 assertions across 21 files**, up from 1691. `consent-surface.test.mjs` §4c asserts the field
+**over the pipe** — D200/D201 make the wire format a contract, so what is checked is the
+serialisation, and the audit record is asserted to keep the same string the card was given.
+`broker.test.mjs` §12 holds the unit rules, including a probe that throws and a scan that every
+placeholder in every template is a real parameter with a declared resolver.
+
+`client/docs/2026-09-04-named-pipe-protocol-design.md` names the field for a transport implementer,
+including that **`null` must survive as `null`**. `D130-RENDERER-CHECK.md` has a row for it.
+
+**Nothing in D248 is now open.** D242 (the tickets band) remains the one proposed decision awaiting
+Charles.

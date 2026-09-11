@@ -420,10 +420,25 @@ check("…in the labelled row the delivery drew for it, not as a paragraph of pr
   /el\("div", "consent-call"\)/.test(rendererCode) && /el\("div", "tr-label", "Exactly what runs"\)/.test(rendererCode)
   && /^\.consent-call \{/m.test(panelCss));
 check("…and app.css no longer restyles a delivered paragraph", !/consent-verbatim p/.test(appCss));
-// D248 IS STILL PROPOSED, so the gloss above the call is NOT drawn: there is no field on the
-// rendered contract to draw it from, and inventing the sentence here is what D130 forbids.
-check("D248's gloss is drawn in the delivery and NOT rendered by the app",
-  /\.call-gloss/.test(panelCss) && !/call-gloss/.test(rendererCode));
+// D248 IS RATIFIED AND BUILT (2026-09-11). The gloss is drawn — and the assertions that matter are
+// about WHERE THE SENTENCE COMES FROM, because the whole reason this waited for a decision is that
+// the renderer is not allowed to author it.
+check("D248's gloss is drawn, in the class the delivery drew for it",
+  /\.call-gloss/.test(panelCss) && /el\("div", "call-gloss", r\.detailPlain\)/.test(rendererCode));
+check("…from the broker's field, never assembled in the renderer",
+  /r\.detailPlain/.test(rendererCode)
+  && !/detailPlain\s*=|detailPlain\s*\+|serviceNames/.test(rendererCode),
+  "the sentence is catalog text the broker assembled — D130 forbids the renderer writing it");
+check("…ABOVE the exact call, which stays subordinate by position", (() => {
+  const cell = rendererCode.match(/const cell = el\("div"\);[\s\S]*?verbatim\.append\(call\);/)?.[0] ?? "";
+  return cell.indexOf("call-gloss") > 0 && cell.indexOf("call-gloss") < cell.indexOf('"raw", r.detail');
+})());
+check("…and a null gloss draws no element at all, not an empty row",
+  /if \(r\.detailPlain\) cell\.append/.test(rendererCode));
+// The exact call itself is untouched: D130's verbatim rule, and the field the D130 click-through
+// compares on screen. A gloss that replaced it would be hiding the disclosure D244 refused to hide.
+check("the exact call is still rendered verbatim beneath the gloss",
+  /el\("div", "raw", r\.detail\)/.test(rendererCode) && !/r\.detail\.replace|r\.detail\.slice/.test(rendererCode));
 check("nothing in the renderer builds consent text from the catalog",
   !/catalog/i.test(rendererCode) && !/listCapabilities/.test(rendererCode));
 check("the renderer never uses innerHTML (D130's verbatim rule, mechanically)",

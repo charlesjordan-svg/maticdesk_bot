@@ -42,6 +42,8 @@
         "why": "Background services get stuck. Starting one again clears the stuck state, without restarting the whole machine.",
         "notice": "Whatever that service does pauses for a second or two. For the print spooler, anything waiting to print stays waiting until it is back.",
         "undo": "Yes - it can simply be restarted again.",
+        "call": "Restart the {serviceName} service.",
+        "callParams": { "serviceName": "serviceNames" },
         "serviceNames": {
           "spooler": "Print Spooler",
           "audiosrv": "Windows Audio",
@@ -109,6 +111,8 @@
       "plain": {
         "helpsWith": "the network connection has dropped out or this machine has lost its address",
         "what": "Hands back this machine's network address and asks the network for a new one.",
+        "call": "Renew the address on the {adapterIndex} connection.",
+        "callParams": { "adapterIndex": "adapterByIndex" },
         "why": "If the machine never got a proper address, or is holding one that no longer works, asking again is usually all that is needed.",
         "notice": "The network drops for a few seconds while the new address arrives. Anything downloading or any call in progress may be interrupted.",
         "undo": "It can be run again, but the address you get back may not be the one you had before."
@@ -141,6 +145,8 @@
       "plain": {
         "helpsWith": "the network adapter itself needs switching off and on again",
         "what": "Switches the network adapter off and straight back on - the software equivalent of unplugging the network cable and plugging it back in.",
+        "call": "Switch the {adapterId} connection off and on again.",
+        "callParams": { "adapterId": "adapterByGuid" },
         "why": "When an adapter has an address but nothing is getting through, the adapter itself is often stuck. Turning it off and on clears that.",
         "notice": "EVERY network connection on this machine drops for several seconds, including any remote session, call or download. It can take 10 to 30 seconds to come back, and it may have no address at first while the network gives it a new one.",
         "undo": "The adapter is switched back on automatically. If it does not come back, it can be re-enabled from Network Connections (ncpa.cpl)."

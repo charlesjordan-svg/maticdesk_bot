@@ -25,7 +25,8 @@ The broker builds nine fields in `renderConsent()`
 |---|---|
 | `title` | The headline — *"Permission needed — …"* |
 | `what` | The line under the headline |
-| `detail` | The `capabilityId(param=value)` line |
+| `detail` | The `capabilityId(param=value)` line, in mono and subordinate |
+| `detailPlain` | **D248, added 2026-09-11.** The plain-language line ABOVE `detail` — "Restart the Print Spooler service." It is catalog text the broker assembled, so it is compared field for field like the rest. **Null for a capability with no parameters (`flush_dns`), and then no element is drawn at all** — an empty labelled row would be a finding |
 | `rollbackNote` | Its own line. Styled as a **warning box** on R2, as quiet text on R1 |
 | `notice` | Explain panel → *"What you will notice"* |
 | `undo` | Explain panel → *"Can it be undone"* |
@@ -106,6 +107,7 @@ only if the strings match **character for character**.
 | `title` | | | ☐ |
 | `what` | | | ☐ |
 | `detail` | | | ☐ |
+| `detailPlain` | | | ☐ |
 | `rollbackNote` | | | ☐ |
 | `notice` | | | ☐ |
 | `undo` | | | ☐ |

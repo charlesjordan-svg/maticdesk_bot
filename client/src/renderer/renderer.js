@@ -938,15 +938,22 @@ function askConsent(request, proposal) {
   // hide on the review card.
   //
   // The delivery gives it a labelled row of its own (`.consent-call`) rather than a paragraph in
-  // the prose, which is what it had been reading as. **D248'S GLOSS IS NOT RENDERED**: the
-  // delivery draws a `.call-gloss` line above the call and marks it proposed, and it stays
-  // undrawn here because there is no field on the rendered contract to draw it FROM — inventing
-  // the sentence in the renderer is exactly what D130 forbids. When Charles ratifies D248 and the
-  // broker gains the field, the line goes in above the `.raw`.
+  // the prose, which is what it had been reading as.
+  //
+  // **D248 IS RATIFIED AND THE GLOSS IS DRAWN (2026-09-11).** `r.detailPlain` is the broker's
+  // plain-language line — "Restart the Print Spooler service." — and it goes ABOVE the exact call,
+  // which stays subordinate by size and position exactly as it was. The sentence is NOT invented
+  // here and could not be: it is catalog text assembled by the broker, because a renderer authoring
+  // consent wording is what D130 forbids, and that is why the field had to exist before the line
+  // could be drawn.
+  //
+  // **Null draws nothing at all**, not an empty row. `flush_dns()` has no parameters, so it has no
+  // target to name and a gloss there would only restate `plain.what` two lines below it (D245).
   if (r.detail) {
     const call = el("div", "consent-call");
     const cell = el("div");
     cell.style.cssText = "min-width:0";
+    if (r.detailPlain) cell.append(el("div", "call-gloss", r.detailPlain));
     cell.append(el("div", "raw", r.detail));
     call.append(el("div", "tr-label", "Exactly what runs"), cell);
     verbatim.append(call);
