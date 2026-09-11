@@ -578,3 +578,75 @@ including that **`null` must survive as `null`**. `D130-RENDERER-CHECK.md` has a
 
 **Nothing in D248 is now open.** D242 (the tickets band) remains the one proposed decision awaiting
 Charles.
+
+---
+
+## 15. D242, ratified: the tickets band is permanent (register §5.43)
+
+Charles: *"do d242."* Proposed and **built reversibly** on 2026-09-10, held for the founder because
+the design handover's §4 asked him directly. **No new ID** — the decision is D242 as proposed.
+
+### What ratification actually settles
+
+The escape hatch was that the band's trigger and markup came out of `index.html` if the answer was
+no, with the IPC channel and the egress read staying because the spoken answer (D235) already used
+them. **The answer is yes, so the escape is spent and the band is permanent** — which changes what
+the tests owe. It had five assertions, four of them single regexes over renderer source. It has
+**twenty**.
+
+### The invariants were re-checked before the status moved
+
+The band has been through two design deliveries since it was built — D252's re-export and D258's
+grouped band — so ratifying on the strength of a day-old decision would have been careless. Driven
+on the check page and read back from the DOM:
+
+```
+PLACEHOLDER-0000   Dock stopped driving the second screen        Filed from here
+Filed yesterday    Stored for the service desk to pick up.       Progress not visible
+at 9:18 AM         No email went out, so nobody was alerted…
+```
+
+All three of D242's clauses hold.
+
+### The pairing is mechanical now, and it was not before
+
+D242 requires the band's note to state the limit *"in the same words `persona.tickets.some`
+speaks"*, so the band and the voice cannot describe one ticket two ways. That was two independent
+regexes — `/Progress not visible/` and `/isn't something I can do in this build/` — **either of
+which would have gone on passing while the other string was edited.** The shared clause is now
+extracted from the persona file and matched character for character:
+
+> checking a ticket's progress with the service desk isn't something I can do in this build
+
+Probed in both directions. There is also a check that the band does not state the same fact a
+**second, different** way — D245's rule applied inside one surface.
+
+### "No channel that could become a hub lookup" is a check rather than a sentence
+
+`canQueryHub` is carried so the inspector can disclose it, and a lookup keyed on the self-asserted
+`osUsername` would be D54's user identity through the back door. The rule: **it may appear in an
+inspector payload and may never appear in a condition.** A probe that made it gate a branch was
+caught. The preload is scanned too — exactly two ticket channels exist, and **a third is how a
+status lookup arrives.**
+
+### The three note branches, and the worse outcome D242 names
+
+*"The user reads 'no news' where the truth is 'no lookup'."* So the cannot-file case and the empty
+case are asserted to be **distinct** strings, and all three are scanned for status vocabulary —
+`in progress`, `being worked`, `assigned`, `open`, `closed`, `resolved`. A probe that changed one to
+*"They are being worked on"* was caught.
+
+### Five mutation probes, all five caught
+
+Two were caught by the **adjacent** assertion rather than the one predicted, which is correct rather
+than a miss: a persona edit fails "the spoken answer carries the limit clause" before it can fail
+the pairing, and a trigger edit fails the sharper of the two trigger checks. Tree reverted and the
+baseline re-run green after each.
+
+**1739 assertions across 21 files**, up from 1724.
+
+### And that clears the queue
+
+**With D248 built the same day, no decision in the register is waiting on Charles.** D202 and
+D130–D150 remain proposed, but those are design-review and identity-model items rather than
+anything built and held for a yes or no.

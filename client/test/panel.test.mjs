@@ -640,15 +640,79 @@ check("the no-service sentence is the app's alone, because the sheet draws one s
   !delivery.includes("There's no company guidance"), "if the delivery gains it, pin it too");
 
 // ==============================================================================================
-console.log("\n=== 7. the tickets band says what it is, and what it is not (D242) ===");
+console.log("\n=== 7. the tickets band says what it is, and what it is not (D242, RATIFIED 2026-09-11) ===");
+//
+// D242 was built REVERSIBLY and waited for Charles: if the answer had been no, the trigger and
+// markup came out of `index.html`. The answer is yes, so the band is permanent — and these
+// assertions are what ratification buys. Three of D242's clauses were true only by inspection
+// before; they are mechanical now.
 check("the band exists", indexHtml.includes("band-tickets"));
 check("the band is fed by a local read, not a hub lookup", /ticketsFiled\(\)/.test(rendererJs));
-check("the band states that progress is not visible from here",
-  /Progress not visible/.test(rendererJs) && /isn't something I can do in this build/.test(rendererJs));
 check("an empty band says why it is empty rather than showing nothing",
   /I haven't filed any tickets from this machine/.test(rendererJs));
 check("a build that cannot file says so instead of showing an empty list",
   /isn't connected to a service desk/.test(rendererJs));
+
+// (1) EVERY ROW CARRIES BOTH PHRASES, which is what stops the band reading as a status view. They
+// are drawn as a matched pair — the delivery's own note says neither can be dropped without the row
+// looking broken — so both are pinned rather than just the one.
+check("every row says \"Filed from here\"", /el\("b", "", "Filed from here"\)/.test(rendererCode));
+check("…and \"Progress not visible\" beside it", /el\("span", "", "Progress not visible"\)/.test(rendererCode));
+check("…as one matched pair in the same element", /stat\.append\(el\("b", "", "Filed from here"\), el\("span", "", "Progress not visible"\)\)/.test(rendererCode));
+
+// (2) THE PAIRING WITH THE SPOKEN ANSWER, MADE MECHANICAL. D242 requires the band's note to say the
+// limit "in the same words `persona.tickets.some` speaks", so the band and the spoken answer cannot
+// describe one ticket two ways. Until ratification that was two independent regexes, either of
+// which could have gone on passing while the other string was edited. Now the shared clause is
+// extracted from the persona file and looked for in the renderer.
+{
+  const spoken = persona.tickets?.some ?? "";
+  const CLAUSE = "checking a ticket's progress with the service desk isn't something I can do in this build";
+  check("the persona's spoken answer carries the limit clause", spoken.includes(CLAUSE), spoken.slice(0, 80));
+  check("…and the band's note carries THE SAME clause, character for character",
+    rendererJs.includes(CLAUSE),
+    "if this fails, the band and the voice have started describing one ticket two ways");
+  // The other half of the pairing: the band must not invent a second vocabulary for the same fact.
+  check("…and the band does not also say it a second, different way",
+    (rendererJs.match(/can't see how they're getting on/g) ?? []).length === 1);
+}
+
+// (3) NO CHANNEL THAT COULD BECOME A HUB LOOKUP. `canQueryHub` is carried so the inspector can show
+// it, and a lookup keyed on the self-asserted `osUsername` would be D54's user identity through the
+// back door. So it may appear in an inspector payload and must never appear in a CONDITION.
+check("`canQueryHub` is disclosed, not acted on: it never gates anything",
+  !/if\s*\([^)]*canQueryHub|canQueryHub\s*(?:\?|&&|\|\|)|!canQueryHub/.test(rendererCode),
+  "the moment it gates a branch, the band has a status view behind a flag");
+check("…and the main process hard-codes it false rather than deriving it",
+  /canQueryHub: false/.test(readFileSync(join(RENDERER, "..", "main", "main.js"), "utf8")));
+check("the preload exposes no ticket-status lookup channel", (() => {
+  const pre = readFileSync(join(RENDERER, "..", "main", "preload.cjs"), "utf8");
+  const ticketChannels = [...pre.matchAll(/invoke\("(ticket:[^"]+)"\)/g)].map((m) => m[1]);
+  return ticketChannels.every((c) => c === "ticket:file" || c === "ticket:filed");
+})(), "a third ticket channel is how a status lookup arrives");
+
+// (4) ALL THREE NOTE BRANCHES EXIST AND SAY DIFFERENT THINGS. "no news" where the truth is "no
+// lookup" is the worse outcome D242 names by a distance, so the empty case and the cannot-file case
+// must not collapse into each other.
+{
+  const note = rendererCode.match(/ticketsNote\.textContent =[\s\S]*?;/)?.[0] ?? "";
+  const branches = [...note.matchAll(/"([^"]{30,})"/g)].map((m) => m[1]);
+  check(`the note has three distinct branches (${branches.length} found)`, branches.length === 3);
+  check("…and none of them is a duplicate", new Set(branches).size === branches.length);
+  check("…the cannot-file one says there is nothing to look up",
+    branches.some((b) => /nothing to look up/.test(b)));
+  check("…the empty one says a ticket raised elsewhere will not show",
+    branches.some((b) => /won't show here/.test(b)));
+  check("…and none of the three implies a status is known",
+    !branches.some((b) => /\b(in progress|being worked|assigned|open|closed|resolved)\b/i.test(b)), branches.join(" | "));
+}
+
+// (5) THE TRIGGER NAMES WHAT THE ENDPOINT KNOWS — what it FILED, never a status. It read "Tickets
+// you've opened" in the September delivery, which claims knowledge of tickets raised anywhere.
+check("the trigger says these are the ones filed FROM THIS MACHINE",
+  /Tickets I've filed from this machine/.test(indexHtml));
+check("…and does not claim to know about tickets opened elsewhere",
+  !/Tickets you've opened|your tickets|all your tickets/i.test(indexHtml));
 
 // ==============================================================================================
 console.log(`\n${"=".repeat(94)}\n  ${pass} passed, ${fail} failed\n${"=".repeat(94)}`);
