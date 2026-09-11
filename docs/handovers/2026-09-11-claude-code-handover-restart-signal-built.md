@@ -290,3 +290,31 @@ disagreement it returns null.
 - **Camera, microphone, disk, VRAM and per-process history are deliberately absent**, each for a
   different reason; register §5.39i and `RESTART-SIGNAL.md` §7 say which.
 - **One commit, named files.** Charles clicks it through.
+
+---
+
+## 11. Follow-up the same day: the boot-type [VERIFY], narrowed as far as a machine can take it
+
+§10 lists Event 27's `0x1` as open. Before assuming that needed a reboot, the **whole retained
+history** was read rather than the newest event — `client/scripts/verify-boot-type.mjs`,
+`npm.cmd run verify:boot-type`, read-only, and it turns nothing on.
+
+**81 boot events retained here, 2026-07-16 to 2026-09-09, every one `0x0`.** So `0x0` = full boot is
+corroborated **81 times rather than once**. And the log carries the control the test needs: three of
+the last twelve Event 1074s are a genuine *shut down* or *power off* rather than a restart — the only
+actions that could produce a hybrid boot, since a restart is a full boot whatever the setting — and
+every boot after them is still `0x0`, which is exactly what `HiberbootEnabled = 0` should mean.
+
+**`0x1` and `0x2` remain unobserved, and a session cannot settle them — structurally, not for want
+of effort.** A hybrid boot needs a **power-off followed by a power-on**, and nothing runs between the
+shutdown and the hand that presses the button. So the script does the two halves a machine can do —
+state before, verdict after — and prints the four-step procedure, which turns this from a note
+nobody acts on into two minutes for anyone with a Fast Startup machine.
+
+**Read two things off that second run, and the second is the one that decides the design:** the new
+`BootType`, and **whether `LastBootUpTime` moved**. If it did not, uptime survives a Fast Startup
+shutdown, a machine someone powers down nightly still looks weeks old to the score, and Event 27 is a
+**replacement** for the uptime reading rather than a supplement to it.
+
+**The script deliberately does not offer to turn Fast Startup on.** That changes how a machine shuts
+down, and it is its owner's call.

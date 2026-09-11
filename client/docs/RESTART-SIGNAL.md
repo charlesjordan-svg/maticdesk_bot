@@ -109,9 +109,11 @@ Four copy rules, all load-bearing, and one consequence of what this build can do
    in the spec: under Fast Startup a shutdown is a kernel hibernate, so it does not clear the session
    and **the fix does not apply** — a user who follows the other wording does the work and gets
    nothing.
-2. **It leads with the evidence, not the instruction.** Clauses are ordered by weight, so the
-   strongest reason is said first. *"Chrome has grown 4 GB since Tuesday and your memory is nearly
-   full"* earns compliance in a way *"it's been a while"* does not.
+2. **It leads with the evidence, not the instruction.** Clauses are ordered by weight so the
+   strongest reason is said first — except the pending-update flag, which carries `leads` because
+   its weight is **0** precisely so that it does not need one, and ordering it by weight buried the
+   one signal Windows states outright. *"Chrome has grown 4 GB since Tuesday and your memory is
+   nearly full"* earns compliance in a way *"it's been a while"* does not.
 3. **It offers to come back to it** — which is the part of "offer to schedule it" this build can
    honour. **No capability restarts a machine** (`restart_service` is a Windows service, not the
    computer), so the sentence never implies a restart has been booked, and there is no button
@@ -176,10 +178,13 @@ gap is narrow — a user who takes the advice restarts the machine and the signa
   Windows PowerShell 5.1 on the spec's host rather than throwing, so a collector without a null check
   computes an uptime of zero and never fires. Every function here returns `null` instead.
 - **Never read the consent store.** See §7.
-- **Never assert a boot-type conclusion.** `0x0` = full boot is corroborated, but only `0x0` has ever
-  been observed and only on machines with Fast Startup **disabled**. `0x1` and `0x2` are unverified.
-  `lastBootTypeEvent()` returns the raw value plus `interpreted: false`, whose only job is to stop a
-  reader mistaking the object for a verdict.
+- **Never assert a boot-type conclusion.** `0x0` = full boot is corroborated — **81 observations on
+  this machine**, 2026-07-16 to 2026-09-09, and three of the last twelve shutdown events were a
+  genuine shut down or power off rather than a restart, each followed by a `0x0` boot. But only
+  `0x0` has ever been observed, and only with Fast Startup **disabled**. `0x1` and `0x2` are
+  unverified. `lastBootTypeEvent()` returns the raw value plus `interpreted: false`, whose only job
+  is to stop a reader mistaking the object for a verdict. **`npm.cmd run verify:boot-type` reports
+  this and prints what would settle it** — §9.
 
 ### And the walk checks itself
 
@@ -277,3 +282,37 @@ one stops.
 §5.39c's defect was found.
 
 `docs/PANEL-RENDERER-CHECK.md` §9 is the click-through.
+
+---
+
+## 9. Settling the boot type — what a session cannot do, and why
+
+```bash
+npm.cmd run verify:boot-type
+```
+
+Read-only, and it turns nothing on. It prints `HiberbootEnabled`, this boot's instant and type,
+**every** Event 27 still in the System log grouped by type, how the last twelve shutdowns were
+initiated, and a verdict.
+
+**As it stands here:** 81 boots retained, all `0x0`, Fast Startup off throughout — so `0x0` = full
+boot is corroborated 81 times rather than once. The log also carries the **control**: three of the
+last twelve Event 1074s are a genuine shut down or power off rather than a restart — the only
+actions that could produce a hybrid boot, since a restart is a full boot whatever the setting — and
+every boot after them is `0x0`, which is what the setting being off should mean.
+
+**`0x1` cannot be settled by a session, and that is structural rather than a limit of effort.** A
+hybrid boot only happens on **shut down** followed by a power-on. A *restart* is a full boot even
+with Fast Startup enabled — that is the entire point of the feature — so the test needs a power
+cycle, and nothing runs between the power-off and the hand that presses the button.
+
+The script prints the four steps. **Two things to read off the second run, and the second decides
+the design:**
+
+- the new Event 27 `BootType` — if it is `1`, the spec's mapping is confirmed;
+- **whether `LastBootUpTime` moved.** If it did not, uptime survives a Fast Startup shutdown, a
+  machine someone powers down nightly still looks weeks old to the score, and **Event 27 is a
+  replacement for the uptime reading rather than a supplement to it.**
+
+Nothing here turns Fast Startup on. That changes how a machine shuts down, and it is its owner's
+call.

@@ -145,6 +145,15 @@ npm.cmd run show-consent   # what the broker rendered and kept, for that compari
 npm.cmd run start:elevated # the app; needs .env with ANTHROPIC_API_KEY (see .env.example)
 npm.cmd run count-tokens   # measures the shipped prompt prefix against the cache floor
 npm.cmd run verify-cache   # TWO REAL CALLS to claude-sonnet-5: proves the cache_control breakpoint works (D161)
+npm.cmd run verify:boot-type # D256's open [VERIFY]: the WHOLE Event 27 history, the HiberbootEnabled
+#                            setting, and a verdict on which boot types have ever been observed.
+#                            READ-ONLY, and it turns nothing on. 0x0 is corroborated 81 times here;
+#                            0x1 and 0x2 are still unobserved because Fast Startup has been OFF for
+#                            the whole retained history. A SESSION CANNOT FINISH IT - a hybrid boot
+#                            needs a power-off then a power-on, and nothing runs in between - so the
+#                            script prints the four-step procedure instead. Read BOTH the new
+#                            BootType and whether LastBootUpTime MOVED; the second decides whether
+#                            Event 27 supplements the uptime reading or replaces it.
 npm.cmd run verify:pipe    # D201: reads the DACL Windows gives a Node pipe and exercises the
 #                            access check. RUN UNELEVATED - an elevated token has Administrators
 #                            enabled rather than deny-only and the write succeeds (wrong answer).
