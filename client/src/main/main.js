@@ -52,7 +52,13 @@ async function createWindow() {
   win = new BrowserWindow({
     width: 1180,
     height: 800,
-    backgroundColor: "#0d1117",
+    // The panel's own ground (--matic-ui-ground, light). It is only ever seen behind the page
+    // while the page is loading, and `show: false` below means that is now nobody's problem:
+    // the window appears when the renderer has painted, so a user whose saved theme is dark
+    // never sees a light frame flash. The theme itself is applied before first paint by the
+    // inline script at the top of index.html - main holds no opinion about it (D243).
+    backgroundColor: "#f2f2f3",
+    show: false,
     title: "Matic Desk",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -61,6 +67,7 @@ async function createWindow() {
     },
   });
   win.on("closed", () => { win = null; });
+  win.once("ready-to-show", () => { if (win && !win.isDestroyed()) win.show(); });
   await win.loadFile(join(ROOT, "src/renderer/index.html"));
 }
 
@@ -242,6 +249,20 @@ app.whenReady().then(async () => {
     profile.write(patch ?? {});
     return { ok: true, profile: profile.reporter() };
   });
+
+  // ---- the tickets band (D242) ----
+  //
+  // THE SAME READ THE D235 TURN MAKES, AVAILABLE WITHOUT A TURN. The band shows what this machine
+  // filed and got a reference for; it is NOT a status view and cannot become one here - a hub-side
+  // lookup needs a route and a user identity that do not exist (D54, D68/D69), and keying one on
+  // the self-asserted `osUsername` is that identity through the back door (D235). `canFile` is the
+  // same duck-type the escalation offer uses, so a build that cannot file says so in the band
+  // instead of showing an empty list that reads as "no news".
+  ipcMain.handle("ticket:filed", () => ({
+    filed: egress ? egress.filedFromThisMachine() : [],
+    canFile: typeof cloud?.fileTicket === "function",
+    canQueryHub: false,
+  }));
 
   ipcMain.handle("broker:listCapabilities", () => broker.listCapabilities());
   ipcMain.handle("agent:diagnose", () => agent.diagnose().panel);

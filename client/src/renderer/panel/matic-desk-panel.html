@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-variant="overlay" data-scene="capability" data-hub="ok" data-band="none" data-inspector="off" data-offer="pending" data-tickets="open">
+<head>
+<meta charset="utf-8">
+<title>Matic Desk — end-user panel harness</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════
+   Matic Desk panel — token set.
+   Namespaced --matic-ui-* so it sits alongside the avatar's
+   --matic-avatar-* tokens without colliding. Names are final; values
+   are the only thing to retune.
+   ═══════════════════════════════════════════════════════════════════ */
+:root, [data-theme="light"] {
+  --matic-ui-ground:#f2f2f3;
+  --matic-ui-surface:#e9e9ea;
+  --matic-ui-surface-2:#ffffff;
+  --matic-ui-ink:#1d1f20;
+  --matic-ui-ink-muted:#5d5d60;
+  --matic-ui-ink-quiet:#7a7a7d;
+  --matic-ui-line:rgba(29,31,32,0.16);
+  --matic-ui-line-strong:rgba(29,31,32,0.34);
+  --matic-ui-accent:#5980a6;
+  --matic-ui-accent-deep:#416180;
+  --matic-ui-accent-ink:#2c455d;
+  --matic-ui-accent-wash:#e2ecf6;
+  --matic-ui-ok:#4a7a63;
+  --matic-ui-attn:#8a6a3a;
+  --matic-ui-shadow-lg:0 12px 32px rgba(43,43,45,0.22);
+}
+[data-theme="dark"] {
+  --matic-ui-ground:#14181c;
+  --matic-ui-surface:#1b2126;
+  --matic-ui-surface-2:#222a31;
+  --matic-ui-ink:#e8ecef;
+  --matic-ui-ink-muted:#9fabb4;
+  --matic-ui-ink-quiet:#7e8b94;
+  --matic-ui-line:rgba(232,236,239,0.16);
+  --matic-ui-line-strong:rgba(232,236,239,0.34);
+  --matic-ui-accent:#8fb2d4;
+  --matic-ui-accent-deep:#b5d0e8;
+  --matic-ui-accent-ink:#d6e7f5;
+  --matic-ui-accent-wash:#243441;
+  --matic-ui-ok:#7fb79b;
+  --matic-ui-attn:#d0aa72;
+  --matic-ui-shadow-lg:0 12px 32px rgba(0,0,0,0.5);
+}
+:root {
+  /* Barlow Condensed / Barlow are named first and used when the app ships
+     them as local font files. No webfont is requested at runtime. */
+  --matic-ui-font-head:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --matic-ui-font-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --matic-ui-font-mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;
+  --matic-ui-text-xs:12px; --matic-ui-text-sm:13px; --matic-ui-text-md:15px;
+  --matic-ui-text-lg:17px; --matic-ui-text-xl:22px; --matic-ui-text-2xl:28px;
+  --matic-ui-s1:4px; --matic-ui-s2:8px; --matic-ui-s3:12px; --matic-ui-s4:16px;
+  --matic-ui-s6:24px; --matic-ui-s8:32px;
+  --matic-ui-radius:0px;
+  --matic-ui-hair:1px;
+  --matic-ui-dur:180ms; --matic-ui-dur-slow:280ms;
+  --matic-ui-ease:cubic-bezier(.4,0,.2,1);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration:1ms !important; animation-duration:1ms !important;
+    animation-iteration-count:1 !important;
+  }
+}
+
+/* ── base ── */
+*,*::before,*::after { box-sizing:border-box; }
+body {
+  margin:0; padding:var(--matic-ui-s6);
+  background:var(--matic-ui-ground); color:var(--matic-ui-ink);
+  font-family:var(--matic-ui-font-body); font-size:var(--matic-ui-text-md); line-height:1.55;
+  display:flex; flex-direction:column; gap:20px;
+}
+h1,h2,h3,h4 { font-family:var(--matic-ui-font-head); font-weight:600; line-height:1.14; margin:0; letter-spacing:-.01em; }
+p { margin:0; }
+button { font:inherit; color:inherit; }
+:focus { outline:none; }
+:focus-visible { outline:2px solid var(--matic-ui-accent); outline-offset:2px; }
+::selection { background:var(--matic-ui-accent-wash); }
+a { color:var(--matic-ui-accent-deep); text-underline-offset:3px; }
+a:hover { color:var(--matic-ui-accent); }
+
+/* ── wireframe frame: square, hairline, registration marks ── */
+.bp { position:relative; border:var(--matic-ui-hair) solid var(--matic-ui-line); border-radius:0; }
+.bp > .corner { position:absolute; width:11px; height:11px; color:var(--matic-ui-line-strong); }
+.bp > .corner::before, .bp > .corner::after { content:""; position:absolute; background:currentColor; }
+.bp > .corner::before { left:5px; top:0; width:1px; height:100%; }
+.bp > .corner::after  { top:5px; left:0; width:100%; height:1px; }
+.bp > .tl { top:-6px; left:-6px; } .bp > .tr { top:-6px; right:-6px; }
+.bp > .bl { bottom:-6px; left:-6px; } .bp > .br { bottom:-6px; right:-6px; }
+
+/* ── controls ── */
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:14px; line-height:1.2;
+  padding:8px 14px; cursor:pointer; border-radius:0;
+  background:transparent; border:var(--matic-ui-hair) solid var(--matic-ui-line);
+  transition:background var(--matic-ui-dur) var(--matic-ui-ease), color var(--matic-ui-dur) var(--matic-ui-ease);
+}
+.btn-primary { background:var(--matic-ui-accent); border-color:var(--matic-ui-accent); color:var(--matic-ui-ground); }
+.btn-primary:hover { background:var(--matic-ui-accent-deep); border-color:var(--matic-ui-accent-deep); }
+.btn-primary:active { background:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent-ink); }
+.btn-secondary { color:var(--matic-ui-ink-muted); border-color:var(--matic-ui-line-strong); }
+.btn-secondary:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.btn-secondary:active { background:var(--matic-ui-accent-wash); border-color:var(--matic-ui-accent); }
+.btn-ghost {
+  border-color:transparent; color:var(--matic-ui-accent-deep);
+  font-family:var(--matic-ui-font-body); font-weight:400; font-size:12px; padding:4px 6px; cursor:pointer;
+  background:transparent;
+}
+.btn-ghost:hover { background:var(--matic-ui-accent-wash); }
+.input {
+  width:100%; min-height:44px; padding:8px 12px; font:inherit; font-size:var(--matic-ui-text-md);
+  color:var(--matic-ui-ink); caret-color:var(--matic-ui-accent); border-radius:0;
+  background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-line);
+}
+.input:hover { border-color:var(--matic-ui-line-strong); }
+.input:focus-visible { border-color:var(--matic-ui-accent); outline-offset:0; }
+
+/* ── harness chrome ── */
+.harness-head {
+  display:flex; align-items:flex-end; gap:24px; flex-wrap:wrap;
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); padding-bottom:14px;
+}
+.kicker { font-family:var(--matic-ui-font-head); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:5px; }
+.segrow { display:flex; }
+.seg {
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.04em;
+  padding:8px 13px; cursor:pointer; border-radius:0; margin-right:-1px;
+  background:transparent; color:var(--matic-ui-ink-muted);
+  border:var(--matic-ui-hair) solid var(--matic-ui-line);
+}
+.seg:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.harness-body { display:flex; gap:var(--matic-ui-s6); align-items:flex-start; flex-wrap:wrap; }
+.rail-h { width:212px; flex:none; display:flex; flex-direction:column; gap:20px; position:sticky; top:var(--matic-ui-s6); }
+.railgroup { display:flex; flex-direction:column; }
+.rbtn {
+  text-align:left; font-size:13px; line-height:1.35; padding:8px 10px; cursor:pointer;
+  background:transparent; color:var(--matic-ui-ink-muted);
+  border:0; border-left:2px solid var(--matic-ui-line); border-radius:0;
+}
+.rbtn:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.stage { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; overflow-x:auto; padding:8px 8px 8px 0; }
+
+/* active states for every control, driven by the root attributes */
+[data-theme="light"] [data-set="theme:light"], [data-theme="dark"] [data-set="theme:dark"],
+[data-variant="overlay"] [data-set="variant:overlay"], [data-variant="inline"] [data-set="variant:inline"],
+[data-scene="first"] [data-set="scene:first"], [data-scene="capability"] [data-set="scene:capability"],
+[data-scene="offer"] [data-set="scene:offer"], [data-scene="consent"] [data-set="scene:consent"],
+[data-scene="citation"] [data-set="scene:citation"], [data-scene="decline"] [data-set="scene:decline"],
+[data-hub="ok"] [data-set="hub:ok"], [data-hub="unreachable"] [data-set="hub:unreachable"],
+[data-hub="none"] [data-set="hub:none"],
+[data-band="machine"] [data-set="band:machine"], [data-band="tickets"] [data-set="band:tickets"],
+[data-inspector="on"] [data-set="inspector:on"],
+[data-tickets="open"] [data-set="tickets:open"], [data-tickets="closed"] [data-set="tickets:closed"] {
+  background:var(--matic-ui-accent); border-color:var(--matic-ui-accent); color:var(--matic-ui-ground);
+}
+.rbtn[data-set] { }
+[data-scene="first"] .rbtn[data-set="scene:first"], [data-scene="capability"] .rbtn[data-set="scene:capability"],
+[data-scene="offer"] .rbtn[data-set="scene:offer"], [data-scene="consent"] .rbtn[data-set="scene:consent"],
+[data-scene="citation"] .rbtn[data-set="scene:citation"], [data-scene="decline"] .rbtn[data-set="scene:decline"],
+[data-hub="ok"] .rbtn[data-set="hub:ok"], [data-hub="unreachable"] .rbtn[data-set="hub:unreachable"],
+[data-hub="none"] .rbtn[data-set="hub:none"],
+[data-band="machine"] .rbtn[data-set="band:machine"], [data-band="tickets"] .rbtn[data-set="band:tickets"],
+[data-inspector="on"] .rbtn[data-set="inspector:on"] {
+  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink);
+  border:0; border-left:2px solid var(--matic-ui-accent);
+}
+
+/* ── the panel ── */
+.window {
+  width:1160px; flex:none; height:800px; display:flex; flex-direction:column;
+  background:var(--matic-ui-ground); box-shadow:var(--matic-ui-shadow-lg); overflow:hidden;
+}
+.titlebar {
+  flex:none; height:36px; display:flex; align-items:center; gap:10px; padding:0 4px 0 12px;
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface);
+}
+.titlebar .name { font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px; letter-spacing:.04em; color:var(--matic-ui-ink-muted); }
+.wbtn { width:34px; height:36px; display:grid; place-items:center; color:var(--matic-ui-ink-quiet); font-size:12px; }
+.panelbody { flex:1; min-height:0; display:flex; position:relative; }
+
+/* left rail */
+.rail {
+  width:236px; flex:none; padding:22px 20px; gap:18px;
+  border-right:var(--matic-ui-hair) solid var(--matic-ui-line);
+  display:flex; flex-direction:column;
+}
+.brand { font-family:var(--matic-ui-font-head); font-weight:600; font-size:13px; letter-spacing:.2em; text-transform:uppercase; color:var(--matic-ui-ink-muted); }
+.avatar-mount {
+  width:150px; height:150px; display:grid; place-items:center; text-align:center; line-height:1.5;
+  border:1px dashed var(--matic-ui-line-strong); color:var(--matic-ui-ink-quiet);
+  font-size:10px; letter-spacing:.06em;
+}
+.status-head { font-family:var(--matic-ui-font-head); font-weight:600; font-size:19px; }
+.status-sub { font-size:12px; color:var(--matic-ui-ink-quiet); margin-top:2px; }
+.dot { width:8px; height:8px; flex:none; margin-top:6px; border-radius:50%; background:var(--matic-ui-ink-quiet); }
+[data-hub="ok"] .dot { background:var(--matic-ui-ok); }
+[data-hub="unreachable"] .dot { background:var(--matic-ui-attn); }
+.service {
+  display:flex; gap:9px; align-items:flex-start;
+  padding-top:14px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line);
+}
+.service-title { font-size:var(--matic-ui-text-sm); line-height:1.35; }
+.service-detail { font-size:11px; line-height:1.4; color:var(--matic-ui-ink-quiet); margin-top:2px; }
+
+/* conversation column */
+.main { flex:1; min-width:520px; display:flex; flex-direction:column; position:relative; }
+.utility {
+  flex:none; display:flex; align-items:center; gap:8px; height:44px; padding:0 14px 0 20px;
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line);
+}
+.band-trigger {
+  display:inline-flex; align-items:center; gap:9px; cursor:pointer; padding:6px 10px; border-radius:0;
+  background:transparent; color:var(--matic-ui-ink-muted); border:var(--matic-ui-hair) solid transparent;
+  font-family:var(--matic-ui-font-body); font-size:13px;
+}
+.band-trigger:first-child { margin-left:-10px; }
+.band-trigger:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+[data-band="machine"] [data-set="band:machine"].band-trigger,
+[data-band="tickets"] [data-set="band:tickets"].band-trigger {
+  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent);
+}
+.glyph-machine { width:13px; height:11px; border:1px solid currentColor; flex:none; display:block; }
+.glyph-ticket { width:11px; height:13px; border:1px solid currentColor; flex:none; display:block; }
+.count { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.06em; padding:1px 6px; border:1px solid var(--matic-ui-line-strong); }
+.chev { font-size:12px; display:inline-block; transition:transform var(--matic-ui-dur) var(--matic-ui-ease); }
+[data-band="machine"] [data-set="band:machine"] .chev, [data-band="tickets"] [data-set="band:tickets"] .chev { transform:rotate(180deg); }
+.inspector-trigger {
+  margin-left:auto; width:34px; height:34px; display:grid; place-items:center; cursor:pointer; border-radius:0;
+  background:transparent; color:var(--matic-ui-ink-quiet); border:var(--matic-ui-hair) solid transparent;
+}
+.inspector-trigger:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+[data-inspector="on"] .inspector-trigger { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); border-color:var(--matic-ui-accent); }
+.crosshair { position:relative; width:14px; height:14px; display:block; }
+.crosshair::before { content:""; position:absolute; left:6px; top:0; width:1px; height:100%; background:currentColor; }
+.crosshair::after { content:""; position:absolute; top:6px; left:0; width:100%; height:1px; background:currentColor; }
+
+/* bands */
+.band { display:none; flex:none; padding:16px 20px 18px; background:var(--matic-ui-surface); border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+[data-band="machine"] .band-machine { display:block; }
+[data-band="tickets"] .band-tickets { display:block; }
+.band-head { display:flex; align-items:center; gap:12px; margin-bottom:11px; flex-wrap:wrap; }
+.band-title { font-family:var(--matic-ui-font-head); font-weight:600; font-size:15px; letter-spacing:.02em; }
+.band-note { font-size:11px; color:var(--matic-ui-ink-quiet); }
+.mgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px 28px; }
+.mrow { display:flex; gap:14px; align-items:baseline; padding:7px 0; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.mrow dt { width:126px; flex:none; font-size:var(--matic-ui-text-sm); color:var(--matic-ui-ink-quiet); margin:0; }
+.mrow dd { margin:0; font-size:var(--matic-ui-text-sm); line-height:1.45; overflow-wrap:anywhere; }
+.filter { font-size:12px; padding:5px 12px; cursor:pointer; border-radius:0; margin-left:-1px; background:transparent; color:var(--matic-ui-ink-muted); border:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.filter:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+.tset { display:none; }
+[data-tickets="open"] .tset-open { display:block; }
+[data-tickets="closed"] .tset-closed { display:block; }
+[data-tickets="open"] .tickets-title-open, [data-tickets="closed"] .tickets-title-closed { display:inline; }
+.tickets-title-open, .tickets-title-closed { display:none; }
+.trow { display:flex; gap:16px; align-items:flex-start; padding:12px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.tref { width:104px; flex:none; }
+.tref b { display:block; font-family:var(--matic-ui-font-mono); font-weight:400; font-size:11.5px; color:var(--matic-ui-ink-muted); }
+.tref span { display:block; font-size:11px; color:var(--matic-ui-ink-quiet); margin-top:3px; }
+.tbody { flex:1; min-width:0; }
+.tbody b { display:block; font-weight:400; font-size:var(--matic-ui-text-sm); line-height:1.45; }
+.tbody span { display:block; font-size:var(--matic-ui-text-sm); line-height:1.5; color:var(--matic-ui-ink-muted); margin-top:4px; }
+.tstat { width:150px; flex:none; text-align:right; }
+.tstat b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.tstat b.you { color:var(--matic-ui-attn); }
+.tstat b.closed { color:var(--matic-ui-ink-quiet); }
+.tstat span { display:block; font-size:11px; color:var(--matic-ui-ink-quiet); margin-top:5px; }
+
+/* transcript */
+.transcript { flex:1; min-height:0; overflow-y:auto; padding:26px 26px 30px; display:flex; flex-direction:column; gap:20px; }
+.scene { display:none; flex-direction:column; gap:20px; }
+[data-scene="first"] .scene-first, [data-scene="capability"] .scene-capability,
+[data-scene="offer"] .scene-offer, [data-scene="consent"] .scene-consent,
+[data-scene="citation"] .scene-citation, [data-scene="decline"] .scene-decline { display:flex; }
+.scene-first { flex:1; justify-content:center; }
+.said { display:flex; justify-content:flex-end; }
+.said > div {
+  max-width:60%; padding:11px 15px; font-size:var(--matic-ui-text-md); line-height:1.5;
+  background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink);
+  border:var(--matic-ui-hair) solid var(--matic-ui-accent);
+}
+.reply { max-width:640px; padding:18px 20px; }
+.reply p + p { margin-top:14px; }
+.stack { max-width:640px; display:flex; flex-direction:column; gap:14px; }
+.actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.actionbar { margin-top:16px; padding-top:15px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+
+/* hub-dependent copy */
+.hubcopy { display:none; }
+[data-hub="ok"] .hub-ok, [data-hub="unreachable"] .hub-unreachable, [data-hub="none"] .hub-none { display:block; }
+.degraded {
+  flex:none; display:none; gap:12px; align-items:baseline; padding:12px 20px;
+  border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface);
+}
+[data-hub="unreachable"] .degraded-unreachable, [data-hub="none"] .degraded-none { display:flex; }
+.degraded .tagword {
+  flex:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet);
+}
+.degraded p { font-size:var(--matic-ui-text-sm); line-height:1.5; color:var(--matic-ui-ink-muted); }
+[data-hub="unreachable"] .needs-service, [data-hub="none"] .needs-service { display:none; }
+.no-service { display:none; }
+[data-hub="unreachable"] .no-service-unreachable, [data-hub="none"] .no-service-none { display:block; }
+
+/* composer */
+.composer { flex:none; padding:16px 26px 20px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); display:flex; flex-direction:column; gap:8px; }
+.composer .hint { display:none; font-size:11px; color:var(--matic-ui-ink-quiet); }
+[data-scene="offer"][data-offer="pending"] .composer .hint { display:block; }
+.composer .row { display:flex; gap:10px; align-items:stretch; }
+.send { min-height:44px; padding:0 22px; font-size:var(--matic-ui-text-md); }
+
+/* offer answer states */
+.offer-pending, .offer-answered, .after-accept, .after-decline { display:none; }
+[data-offer="pending"] .offer-pending { display:flex; }
+[data-offer="accepted"] .offer-answered, [data-offer="declined"] .offer-answered { display:flex; }
+[data-offer="accepted"] .after-accept, [data-offer="declined"] .after-decline { display:block; }
+[data-offer="accepted"] .answer-yes, [data-offer="declined"] .answer-no { display:inline; }
+.answer-yes, .answer-no { display:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+
+/* capability answer, laid out */
+.clause { display:flex; gap:12px; align-items:baseline; padding:9px 0; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.clause span:first-child { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; color:var(--matic-ui-accent-deep); width:16px; flex:none; }
+.clause span + span { font-size:var(--matic-ui-text-md); line-height:1.5; }
+.aside-note { border-left:2px solid var(--matic-ui-accent); padding:2px 0 2px 14px; }
+.aside-note p { font-size:var(--matic-ui-text-sm); line-height:1.6; color:var(--matic-ui-ink-muted); }
+.why { display:flex; gap:12px; align-items:baseline; padding:11px 14px; background:var(--matic-ui-surface); border-left:2px solid var(--matic-ui-accent); }
+.why > span:first-child { flex:none; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); }
+.why > span + span { font-size:var(--matic-ui-text-sm); line-height:1.5; }
+
+/* consent */
+.consent { background:var(--matic-ui-surface); }
+.consent-head { display:flex; align-items:center; gap:10px; padding:11px 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.consent-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.consent-head span { margin-left:auto; font-size:11px; color:var(--matic-ui-ink-quiet); }
+.consent-verbatim { padding:18px; }
+.consent-verbatim p { font-size:var(--matic-ui-text-md); line-height:1.6; }
+
+/* citation */
+.citation { padding:16px 20px 18px; background:var(--matic-ui-surface); border:var(--matic-ui-hair) solid var(--matic-ui-line); border-top:0; }
+.citation .from { font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--matic-ui-accent-deep); display:block; margin-bottom:10px; }
+.citation .body { font-size:var(--matic-ui-text-md); line-height:1.6; }
+.citation .src { display:flex; gap:8px; margin-top:12px; padding-top:11px; border-top:var(--matic-ui-hair) solid var(--matic-ui-line); font-size:11px; color:var(--matic-ui-ink-quiet); }
+.citation .src span:last-child { margin-left:auto; }
+.follow { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }
+
+/* inspector */
+.inspector { display:none; flex-direction:column; background:var(--matic-ui-ground); }
+[data-inspector="on"] .inspector { display:flex; }
+[data-variant="overlay"] .inspector {
+  position:absolute; top:0; right:0; bottom:0; width:440px; z-index:2;
+  border-left:var(--matic-ui-hair) solid var(--matic-ui-line-strong); box-shadow:var(--matic-ui-shadow-lg);
+}
+[data-variant="inline"] .inspector { width:392px; flex:none; border-left:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.scrim { display:none; position:absolute; inset:0; background:rgba(20,24,28,0.22); }
+[data-inspector="on"][data-variant="overlay"] .scrim { display:block; }
+.ins-head { flex:none; display:flex; align-items:center; gap:10px; height:44px; padding:0 12px 0 18px; border-bottom:var(--matic-ui-hair) solid var(--matic-ui-line); }
+.ins-head b { font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--matic-ui-ink-muted); }
+.ins-body { flex:1; min-height:0; overflow-y:auto; padding:18px; }
+.step { border-top:var(--matic-ui-hair) solid var(--matic-ui-line); padding:14px 0; display:flex; gap:12px; align-items:baseline; }
+.step > b { width:88px; flex:none; font-family:var(--matic-ui-font-head); font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-accent-deep); }
+.step > div { flex:1; min-width:0; }
+.step .plain { font-size:var(--matic-ui-text-sm); line-height:1.5; overflow-wrap:anywhere; }
+details > summary { cursor:pointer; list-style:none; font-size:11px; color:var(--matic-ui-accent-deep); padding:4px 0; }
+details > summary::-webkit-details-marker { display:none; }
+details > summary:hover { color:var(--matic-ui-accent); }
+details[open] > summary .more, details:not([open]) > summary .less { display:none; }
+pre {
+  margin:8px 0 0; padding:12px; font-family:var(--matic-ui-font-mono); font-size:11.5px; line-height:1.6;
+  color:var(--matic-ui-ink-muted); background:var(--matic-ui-surface);
+  border:var(--matic-ui-hair) solid var(--matic-ui-line);
+  white-space:pre-wrap; overflow-wrap:anywhere; overflow-x:hidden;
+}
+.devlog { border-top:var(--matic-ui-hair) solid var(--matic-ui-line); margin-top:6px; padding-top:14px; }
+.devlog > summary {
+  display:flex; align-items:center; justify-content:space-between;
+  font-family:var(--matic-ui-font-head); font-weight:600; font-size:12px; color:var(--matic-ui-ink-muted);
+  border:var(--matic-ui-hair) solid var(--matic-ui-line); padding:8px 12px;
+}
+.devlog > summary:hover { background:var(--matic-ui-accent-wash); color:var(--matic-ui-accent-ink); }
+
+/* per-scene inspector payloads */
+.ins-set { display:none; }
+[data-scene="consent"] .ins-consent, [data-scene="decline"] .ins-decline { display:block; }
+[data-scene="first"] .ins-default, [data-scene="capability"] .ins-default,
+[data-scene="offer"] .ins-default, [data-scene="citation"] .ins-default { display:block; }
+
+/* the note */
+.notes { width:1160px; flex:none; padding:20px 22px; }
+.notegrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px 28px; }
+.notegrid h4 { font-size:var(--matic-ui-text-lg); margin-bottom:4px; }
+.notegrid p { font-size:var(--matic-ui-text-sm); line-height:1.55; color:var(--matic-ui-ink-muted); }
+</style>
+</head>
+<body>
+
+<header class="harness-head">
+  <div style="margin-right:auto">
+    <div class="kicker">Design harness — offline, single file</div>
+    <h1 style="font-size:26px">Matic Desk — end-user panel</h1>
+  </div>
+  <div style="display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap">
+    <div>
+      <div class="eyebrow">Theme</div>
+      <div class="segrow">
+        <button class="seg" data-set="theme:light">Light</button>
+        <button class="seg" data-set="theme:dark">Dark</button>
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow">Inspector opens as</div>
+      <div class="segrow">
+        <button class="seg" data-set="variant:overlay">A · drawer over</button>
+        <button class="seg" data-set="variant:inline">B · panel beside</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="harness-body">
+
+  <nav class="rail-h">
+    <div>
+      <div class="eyebrow">Conversation states</div>
+      <div class="railgroup">
+        <button class="rbtn" data-set="scene:first">First run, empty</button>
+        <button class="rbtn" data-set="scene:capability">Long capability answer</button>
+        <button class="rbtn" data-set="scene:offer">Offer awaiting an answer</button>
+        <button class="rbtn" data-set="scene:consent">Consent card</button>
+        <button class="rbtn" data-set="scene:citation">Answer with a citation</button>
+        <button class="rbtn" data-set="scene:decline">A decline</button>
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow">Shell</div>
+      <div class="railgroup">
+        <button class="rbtn" data-toggle="inspector">Inspector</button>
+        <button class="rbtn" data-set="band:machine">Machine view</button>
+        <button class="rbtn" data-set="band:tickets">Tickets</button>
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow">Connection states</div>
+      <div class="railgroup">
+        <button class="rbtn" data-set="hub:ok">1 · Normal</button>
+        <button class="rbtn" data-set="hub:unreachable">2 · Can't reach it</button>
+        <button class="rbtn" data-set="hub:none">3 · None connected</button>
+      </div>
+    </div>
+    <p style="font-size:11px; line-height:1.5; color:var(--matic-ui-ink-quiet)">All names, addresses and ticket references are placeholders.</p>
+  </nav>
+
+  <div class="stage">
+    <div class="window bp">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+
+      <div class="titlebar">
+        <span style="width:9px; height:9px; border:1px solid var(--matic-ui-line-strong); flex:none"></span>
+        <span class="name">Matic Desk</span>
+        <span style="margin-left:auto; display:flex">
+          <span class="wbtn">&#8212;</span><span class="wbtn">&#9633;</span><span class="wbtn">&#10005;</span>
+        </span>
+      </div>
+
+      <div class="panelbody">
+
+        <!-- ── left rail ── -->
+        <aside class="rail">
+          <div class="brand">Matic Desk</div>
+
+          <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:6px">
+            <!-- avatar assets mount here, as delivered. Styled around, never on. -->
+            <div class="avatar-mount">matic-avatar.svg<br>mounts here<br>(unchanged)</div>
+            <div style="text-align:center">
+              <div class="status-head hubcopy hub-ok">Ready when you are</div>
+              <div class="status-head hubcopy hub-unreachable">Ready, with limits</div>
+              <div class="status-head hubcopy hub-none">Ready when you are</div>
+              <div class="status-sub hubcopy hub-ok">Nothing running</div>
+              <div class="status-sub hubcopy hub-unreachable">Some help unavailable</div>
+              <div class="status-sub hubcopy hub-none">This machine only</div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto; display:flex; flex-direction:column; gap:14px">
+            <div class="service">
+              <span class="dot"></span>
+              <div>
+                <div class="service-title hubcopy hub-ok">Everything I need is available</div>
+                <div class="service-title hubcopy hub-unreachable">Working with less than usual</div>
+                <div class="service-title hubcopy hub-none">Working on this machine only</div>
+                <div class="service-detail hubcopy hub-ok">Company guidance and the service desk are both available. Checked a moment ago.</div>
+                <div class="service-detail hubcopy hub-unreachable">I can't reach your company's guidance or the service desk right now. Checked a moment ago.</div>
+                <div class="service-detail hubcopy hub-none">No company guidance or service desk is set up here. That's normal for this machine.</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px">
+              <button class="btn btn-secondary" style="flex:1; justify-content:flex-start; font-size:12px; padding:7px 10px">Settings</button>
+              <button class="btn btn-secondary" data-toggle="theme" title="Switch between light and dark" aria-label="Switch between light and dark" style="width:34px; padding:0; flex:none">
+                <span style="position:relative; width:14px; height:14px; display:block; border:1px solid currentColor; border-radius:50%; overflow:hidden">
+                  <span id="themeGlyph" style="position:absolute; inset:0; background:currentColor; clip-path:inset(0 50% 0 0)"></span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <!-- ── conversation ── -->
+        <main class="main">
+
+          <div class="utility">
+            <button class="band-trigger" data-set="band:machine">
+              <span class="glyph-machine"></span>
+              <span>What I can see about this machine</span>
+              <span class="chev">&#8964;</span>
+            </button>
+            <button class="band-trigger" data-set="band:tickets">
+              <span class="glyph-ticket"></span>
+              <span>Tickets you've opened</span>
+              <span class="count">3</span>
+              <span class="chev">&#8964;</span>
+            </button>
+            <button class="inspector-trigger" data-toggle="inspector" title="Show what I proposed, checked and did" aria-label="Show what I proposed, checked and did">
+              <span class="crosshair"></span>
+            </button>
+          </div>
+
+          <!-- machine view, collapsed by default -->
+          <div class="band band-machine">
+            <div class="band-head">
+              <div class="band-title">Here's what I can see</div>
+              <div class="band-note" style="margin-left:auto">Checked a moment ago</div>
+            </div>
+            <dl class="mgrid">
+              <div class="mrow"><dt>This computer</dt><dd>PLACEHOLDER-PC</dd></div>
+              <div class="mrow"><dt>Signed in as</dt><dd>placeholder.user</dd></div>
+              <div class="mrow"><dt>Printing</dt><dd>Running normally</dd></div>
+              <div class="mrow"><dt>Sound</dt><dd>Running normally</dd></div>
+              <div class="mrow"><dt>Network adapter</dt><dd>Placeholder Gigabit Ethernet Controller</dd></div>
+              <div class="mrow"><dt>Network</dt><dd>Connected, address given out automatically</dd></div>
+            </dl>
+          </div>
+
+          <!-- tickets, collapsed by default -->
+          <div class="band band-tickets">
+            <div class="band-head">
+              <div class="band-title"><span class="tickets-title-open">Still being worked on</span><span class="tickets-title-closed">Recently closed</span></div>
+              <div class="segrow" style="margin-left:auto">
+                <button class="filter" data-set="tickets:open">Still open</button>
+                <button class="filter" data-set="tickets:closed">Closed</button>
+              </div>
+            </div>
+            <div class="tset tset-open">
+              <div class="trow">
+                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened Monday</span></div>
+                <div class="tbody"><b>Dock stopped driving the second screen</b><span>Desktop support asked whether the dock's light is on when both screens are blank.</span></div>
+                <div class="tstat"><b class="you">Waiting on you</b><span>Updated yesterday</span></div>
+              </div>
+              <div class="trow">
+                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened last week</span></div>
+                <div class="tbody"><b>Mailbox move to the new server</b><span>Scheduled for the next migration window. No action needed from you.</span></div>
+                <div class="tstat"><b>With desktop support</b><span>Updated 3 days ago</span></div>
+              </div>
+              <div class="trow">
+                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened last week</span></div>
+                <div class="tbody"><b>Files in the shared folder not syncing</b><span>Someone has picked it up and is checking the sync logs I attached.</span></div>
+                <div class="tstat"><b>Being looked at</b><span>Updated 4 days ago</span></div>
+              </div>
+            </div>
+            <div class="tset tset-closed">
+              <div class="trow">
+                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened 2 weeks ago</span></div>
+                <div class="tbody"><b>Printer queue kept stalling</b><span>Restarting the printing service cleared it. Closed after you confirmed it was printing again.</span></div>
+                <div class="tstat"><b class="closed">Closed</b><span>Closed 12 days ago</span></div>
+              </div>
+              <div class="trow">
+                <div class="tref"><b>PLACEHOLDER-0000</b><span>Opened 3 weeks ago</span></div>
+                <div class="tbody"><b>Couldn't reach the intranet from home</b><span>Turned out to be the connection software version. Desktop support upgraded it remotely.</span></div>
+                <div class="tstat"><b class="closed">Closed</b><span>Closed 18 days ago</span></div>
+              </div>
+            </div>
+            <div class="band-note" style="margin-top:12px">Your five most recent. Anything older lives in the service desk.</div>
+          </div>
+
+          <!-- state 2 and 3: the assistant says what it can't do, without blaming itself -->
+          <div class="degraded degraded-unreachable">
+            <span class="tagword">Right now</span>
+            <p>I can't reach your company's guidance or the service desk at the moment, so I can only go on what I can see on this machine. I'll tell you as soon as that changes.</p>
+          </div>
+          <div class="degraded degraded-none">
+            <span class="tagword">On this machine</span>
+            <p>There's no company guidance or service desk connected here, so I'll stick to what I can check and fix on this machine itself.</p>
+          </div>
+
+          <div class="transcript">
+
+            <!-- first run -->
+            <div class="scene scene-first" style="max-width:560px; margin:0 auto; text-align:center; gap:22px">
+              <div>
+                <h2 style="font-size:var(--matic-ui-text-2xl)">Tell me what's gone wrong</h2>
+                <p style="line-height:1.6; color:var(--matic-ui-ink-muted); margin-top:8px">Plain words are fine. I'll look at this machine first, tell you what I find, and ask before I change anything.</p>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center">
+                <button class="btn btn-secondary" style="font-family:var(--matic-ui-font-body); font-weight:400; font-size:var(--matic-ui-text-sm)">My printer won't print</button>
+                <button class="btn btn-secondary" style="font-family:var(--matic-ui-font-body); font-weight:400; font-size:var(--matic-ui-text-sm)">I can't get online</button>
+                <button class="btn btn-secondary" style="font-family:var(--matic-ui-font-body); font-weight:400; font-size:var(--matic-ui-text-sm)">A screen has stopped working</button>
+              </div>
+            </div>
+
+            <!-- the long generated answer, laid out. Words and order are untouched;
+                 the layout breaks it at the semicolons the catalog already puts in. -->
+            <div class="scene scene-capability">
+              <div class="said"><div>What are your capabilities</div></div>
+              <div class="reply bp">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <p style="margin-bottom:14px">Glad you asked. On this machine I can step in when</p>
+                <div style="margin-bottom:16px">
+                  <div class="clause"><span>01</span><span>a printer or another background Windows service has got stuck and needs a nudge</span></div>
+                  <div class="clause"><span>02</span><span>websites or company servers won't load because this machine is remembering old addresses</span></div>
+                  <div class="clause"><span>03</span><span>the network connection has dropped out or this machine has lost its address</span></div>
+                  <div class="clause"><span>04</span><span>and the network adapter itself needs switching off and on again</span></div>
+                </div>
+                <div class="aside-note" style="margin-bottom:14px">
+                  <p>I'll always show you exactly what I'm about to do and wait for you to approve it &mdash; nothing changes until you say so. One of those &mdash; disable and re-enable a network adapter &mdash; you'll notice happen, so I'll flag it before asking.</p>
+                </div>
+                <p>Anything beyond that list I can't do myself &mdash; but I can look for your company's guidance on it, or hand it to IT with everything I've already checked.</p>
+              </div>
+            </div>
+
+            <!-- an offer that can be answered -->
+            <div class="scene scene-offer">
+              <div class="said"><div>please take another look</div></div>
+              <div class="stack">
+                <div class="reply bp">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>I can't fix this one from here &mdash; it needs desktop support. I can open a ticket for you and include what I've already checked. Would you like me to?</p>
+                  <div class="actionbar">
+                    <div class="actions offer-pending">
+                      <button class="btn btn-primary" data-set="offer:accepted" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Yes, open a ticket</button>
+                      <button class="btn btn-secondary" data-set="offer:declined" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">No thanks</button>
+                      <details style="margin-left:2px">
+                        <summary><span class="more">What would you send?</span><span class="less">Hide what I'd send</span></summary>
+                        <div style="margin-top:10px; padding:14px; border:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface); width:100%">
+                          <div style="font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:8px">What I'd send with it</div>
+                          <div style="display:flex; flex-direction:column; gap:6px; font-size:var(--matic-ui-text-sm); line-height:1.45; color:var(--matic-ui-ink-muted)">
+                            <span>What you told me, in your words</span>
+                            <span>What I checked on this machine, and what I found</span>
+                            <span>Anything I tried, and whether it helped</span>
+                            <span>This machine's name and who is signed in</span>
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                    <div class="actions offer-answered">
+                      <span class="answer-yes">You said yes</span>
+                      <span class="answer-no">You said no thanks</span>
+                      <button class="btn btn-ghost" data-set="offer:pending">Change my answer</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="reply bp after-accept">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>Done &mdash; the ticket is with desktop support, and everything I checked is attached to it. Your reference is <b style="font-family:var(--matic-ui-font-mono); font-weight:400; font-size:var(--matic-ui-text-sm)">PLACEHOLDER-0000</b>. If it's still a problem, tell me and I'll take another look.</p>
+                </div>
+                <div class="reply bp after-decline">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>No problem. Nothing has been sent anywhere. Say the word if you change your mind and I'll open it with everything I've already checked.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- consent: the card is ours, the words inside are the host's, verbatim -->
+            <div class="scene scene-consent">
+              <div class="said"><div>nothing prints, it just sits there</div></div>
+              <div class="stack">
+                <div class="reply bp">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>That matches what I can see here &mdash; the service that queues your printing has stopped. Restarting it usually clears the queue and nothing else on the machine is affected.</p>
+                </div>
+                <div class="why">
+                  <span>Why</span>
+                  <span>Printing service &mdash; <b>stopped</b>. Everything else I check on this machine is running normally.</span>
+                </div>
+                <div class="bp consent">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <div class="consent-head">
+                    <b>Your approval needed</b>
+                    <span>Nothing has changed yet</span>
+                  </div>
+                  <div class="consent-verbatim">
+                    <!-- VERBATIM from the privileged half of the application.
+                         Not authored, paraphrased, shortened or reformatted here. -->
+                    <p>Matic Desk is requesting permission to restart the Print Spooler service on PLACEHOLDER-PC. This will stop and start the service that manages printing. Documents currently queued may need to be sent again. This action can be reversed by restarting the service or the computer. Approving this request applies to this action only.</p>
+                    <div class="actions" style="margin-top:18px">
+                      <button class="btn btn-primary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Go ahead</button>
+                      <button class="btn btn-secondary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Not now</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- a citation: shown, never spoken, and attributed to the company -->
+            <div class="scene scene-citation">
+              <div class="said"><div>my dock stopped driving both screens</div></div>
+              <div class="stack" style="gap:0">
+                <div class="reply bp needs-service">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>Docks that drop a second screen are usually a firmware level thing rather than anything on this machine, and your company has written guidance for exactly this. Here is what it says.</p>
+                </div>
+                <div class="citation needs-service">
+                  <span class="from">From your company's IT guidance</span>
+                  <p class="body">Docking stations supplied with company laptops must be running firmware 1.4 or later to drive two external displays. Firmware updates are delivered through the software centre and require the dock to stay connected for the duration of the update. If both displays remain blank after the update, raise a ticket with the dock's serial number.</p>
+                  <div class="src">
+                    <span>Placeholder Knowledge Base &middot; &ldquo;Docking stations and external displays&rdquo;</span>
+                    <span>Updated placeholder date</span>
+                  </div>
+                </div>
+                <p class="follow needs-service" style="padding-top:14px">I can't apply that from here. If it doesn't help, I can hand it to IT with everything I've already checked.</p>
+
+                <!-- state 2: honest about the limit, not an apology and not an error -->
+                <div class="reply bp no-service no-service-unreachable">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>Your company does keep guidance on docks and second screens, and normally I'd read it to you here &mdash; I just can't reach it at the moment.</p>
+                  <p>What I can tell you is that this machine looks fine: the display settings and the adapter are both healthy, so the dock itself is the thing to look at. Try me again in a few minutes and I'll pull up the guidance.</p>
+                </div>
+                <!-- state 3: a different thing, and not a fault -->
+                <div class="reply bp no-service no-service-none">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>I don't have your company's guidance connected on this machine, so I can only go on what I can see here &mdash; and this machine looks fine: the display settings and the adapter are both healthy, which points at the dock rather than the laptop.</p>
+                  <p>Docks that drop a second screen are usually a firmware level thing, so whoever looks after your hardware is the right next step.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- a decline: the product working correctly, framed as a result -->
+            <div class="scene scene-decline">
+              <div class="said"><div>can you move my mailbox to the new server</div></div>
+              <div class="stack">
+                <div class="reply bp">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <p>That one sits outside what I can do on this machine, and your company's guidance doesn't cover it either &mdash; so the honest answer is that this needs a person.</p>
+                  <p>I can pass it to IT with what I've already checked, which usually saves them a round of questions.</p>
+                  <div class="actionbar actions">
+                    <button class="btn btn-primary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">Pass it to IT</button>
+                    <button class="btn btn-secondary" style="font-size:var(--matic-ui-text-sm); padding:9px 16px">I'll handle it</button>
+                  </div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:baseline; font-size:11px; color:var(--matic-ui-ink-quiet)">
+                  <span>The internal note for this turn is in the inspector, not here.</span>
+                  <button class="btn btn-ghost" data-set="inspector:on">Open it</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="composer">
+            <div class="hint">Waiting on your yes or no above &mdash; or just type instead.</div>
+            <div class="row">
+              <input class="input" placeholder="Describe the problem &mdash; e.g. &ldquo;my printer isn't working&rdquo;" style="flex:1">
+              <button class="btn btn-primary send">Send</button>
+            </div>
+          </div>
+
+          <div class="scrim" data-set="inspector:off"></div>
+        </main>
+
+        <!-- ── inspector: one view, two depths, hidden by default ── -->
+        <aside class="inspector">
+          <div class="ins-head">
+            <b>What I did on this machine</b>
+            <button class="btn btn-ghost" data-set="inspector:off" style="margin-left:auto">Close</button>
+          </div>
+          <div class="ins-body">
+            <div class="band-note" style="margin-bottom:14px">This turn &middot; placeholder timestamp</div>
+
+            <div class="ins-set ins-default">
+              <div class="step">
+                <b>Proposed</b>
+                <div>
+                  <div class="plain">Nothing. This turn was a question, answered from what the assistant already knows about this machine.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "socialTemplate": "capability",
+  "note": "answered from a client-shipped template — no provider call, no proposal",
+  "proposal": null
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Checked</b>
+                <div>
+                  <div class="plain">Not applicable &mdash; nothing was proposed, so there was nothing to check.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "applicable": false,
+  "reason": "no proposal"
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Consent</b>
+                <div>
+                  <div class="plain">Not needed.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "status": "not-required"
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Done</b>
+                <div>
+                  <div class="plain">Nothing has been changed on this machine this turn.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "executed": false,
+  "changes": []
+}</pre>
+                  </details>
+                </div>
+              </div>
+            </div>
+
+            <div class="ins-set ins-consent">
+              <div class="step">
+                <b>Proposed</b>
+                <div>
+                  <div class="plain">Restart the service that queues printing, because it is stopped. Nothing else on the machine is touched.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "capability": "service.restart",
+  "target": "print-spooler",
+  "reason": "state=stopped",
+  "reversible": true,
+  "userVisible": false
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Checked</b>
+                <div>
+                  <div class="plain">Allowed on this machine, and the service really is stopped. No reboot needed.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "policyAllows": true,
+  "preconditions": [
+    { "check": "service.exists", "pass": true },
+    { "check": "service.state == stopped", "pass": true }
+  ],
+  "requiresReboot": false
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Consent</b>
+                <div>
+                  <div class="plain">Waiting on the person at the keyboard. Nothing has run.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "status": "awaiting-user",
+  "textSource": "privileged-host",
+  "shownVerbatim": true
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Done</b>
+                <div>
+                  <div class="plain">Nothing has been changed on this machine this turn.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "executed": false,
+  "changes": []
+}</pre>
+                  </details>
+                </div>
+              </div>
+            </div>
+
+            <div class="ins-set ins-decline">
+              <div class="step">
+                <b>Proposed</b>
+                <div>
+                  <div class="plain">Nothing. The request is outside what this assistant can do here, and no company guidance matched it, so it was handed on instead.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "proposal": null,
+  "note": "no capability in the catalog covers this — escalating",
+  "catalogVersion": "placeholder-0.0.0"
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Checked</b>
+                <div>
+                  <div class="plain">Not applicable &mdash; there was nothing to validate.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "applicable": false,
+  "reason": "no proposal"
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Consent</b>
+                <div>
+                  <div class="plain">Not needed. Nothing was proposed.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "status": "not-required"
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="step">
+                <b>Done</b>
+                <div>
+                  <div class="plain">Nothing has been changed on this machine this turn.</div>
+                  <details><summary><span class="more">Show the data</span><span class="less">Hide the data</span></summary>
+<pre>{
+  "executed": false,
+  "changes": []
+}</pre>
+                  </details>
+                </div>
+              </div>
+            </div>
+
+            <details class="devlog">
+              <summary><span>Developer log</span><span class="chev">&#8964;</span></summary>
+<pre>[hub] authenticated as placeholder-principal (auth: none) — B0 skeleton
+[router] capability question ("what are your capabilities") — answered from the catalog (id 0000), template, no provider call, NO PROPOSAL
+[ticket] the offer was neither accepted nor declined — dropping it and handling the sentence normally</pre>
+            </details>
+          </div>
+        </aside>
+
+      </div>
+    </div>
+
+    <!-- what changed, and why -->
+    <div class="notes bp">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+      <div class="kicker" style="margin-bottom:12px">What changed, and why</div>
+      <div class="notegrid">
+        <div>
+          <h4>Two regions, not four</h4>
+          <p>The panel is the conversation plus the assistant. Diagnostics are no longer resident: the machine view is one line, the inspector is absent until asked for. Nothing was deleted.</p>
+        </div>
+        <div>
+          <h4>The inspector opens into the layout</h4>
+          <p>Nothing reserves space for it, so nothing is left behind when it closes. Two candidates: a drawer over the conversation, and a panel beside it. Switch at the top of this page.</p>
+        </div>
+        <div>
+          <h4>One inspector, two depths</h4>
+          <p>Each step reads as a sentence a buyer can follow, with its raw payload one click under it, wrapped rather than clipped. The [hub]/[router]/[ticket] log is a further step down, ours alone.</p>
+        </div>
+        <div>
+          <h4>Offers can be answered</h4>
+          <p>Yes / No thanks sit inside the message that made the offer, and the composer says an answer is outstanding. Answering leaves a record of what you said, and it can be changed.</p>
+        </div>
+        <div>
+          <h4>Evidence at the moment it matters</h4>
+          <p>The stopped print service appears as the reason above the proposal, not as a row in a list nobody opens. The full machine view stays available for anyone who wants it.</p>
+        </div>
+        <div>
+          <h4>Three connection states, in the user's words</h4>
+          <p>Normal is a quiet line in the rail. Unreachable says what it can't do and doesn't apologise for it. None-connected reads as a configuration, not a fault &mdash; grey, no warning colour. No "hub", and no timestamps to the second.</p>
+        </div>
+        <div>
+          <h4>Our words stopped reaching the user</h4>
+          <p>State names, voice settings and catalog language are gone from the surface. The internal note moved to the inspector, where the text is still verbatim for us.</p>
+        </div>
+        <div>
+          <h4>A decline is a result</h4>
+          <p>It gets the same frame as an answer, states the limit once, and offers the next step. No apology tone, no error styling, no red.</p>
+        </div>
+        <div>
+          <h4>Tokens, motion, fonts</h4>
+          <p>Colour, type, spacing and motion are <b>--matic-ui-*</b> variables, separate from --matic-avatar-*. Only chevrons and hovers move, and prefers-reduced-motion flattens them. No webfont is requested at runtime &mdash; Barlow is named first and used if the app ships it locally.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Plain vanilla state switching. No framework, no build step, no network.
+   Every control carries data-set="key:value" or data-toggle="key"; the state
+   lives in attributes on <html> and all visibility is CSS. */
+(function () {
+  var root = document.documentElement;
+  var attrFor = { theme:'data-theme', variant:'data-variant', scene:'data-scene',
+                  hub:'data-hub', band:'data-band', inspector:'data-inspector',
+                  offer:'data-offer', tickets:'data-tickets' };
+
+  function syncThemeGlyph() {
+    var g = document.getElementById('themeGlyph');
+    if (g) g.style.clipPath = root.getAttribute('data-theme') === 'dark' ? 'inset(0 0 0 50%)' : 'inset(0 50% 0 0)';
+  }
+
+  function set(key, value) {
+    var attr = attrFor[key];
+    if (!attr) return;
+    if (key === 'band' && root.getAttribute(attr) === value) value = 'none';
+    root.setAttribute(attr, value);
+    if (key === 'scene') root.setAttribute('data-offer', 'pending');
+    if (key === 'theme') syncThemeGlyph();
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-set],[data-toggle]') : null;
+    if (!el) return;
+    var toggle = el.getAttribute('data-toggle');
+    if (toggle === 'theme') { set('theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); return; }
+    if (toggle === 'inspector') { set('inspector', root.getAttribute('data-inspector') === 'on' ? 'off' : 'on'); return; }
+    var pair = (el.getAttribute('data-set') || '').split(':');
+    if (pair.length === 2) set(pair[0], pair[1]);
+  });
+
+  syncThemeGlyph();
+})();
+</script>
+</body>
+</html>

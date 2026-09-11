@@ -1,0 +1,144 @@
+/* Matic Desk panel — the APP-ONLY half of the stylesheet. Hand-written, loaded after
+   matic-panel.css (which is generated from the delivery and must not be edited).
+
+   EVERYTHING HERE IS EITHER (a) the harness stage becoming a real Electron window, or (b) a
+   surface the delivery did not draw. Nothing here restyles something the delivery did draw:
+   if a colour, a size or a spacing looks wrong on screen, it is a note for the next delivery,
+   not an override to add below. The tokens are used as delivered and none is redefined.
+
+   Integrated 2026-09-10 (D240/D241). */
+
+/* ── (a) the stage becomes the window ───────────────────────────────────────────────────────
+   The delivery draws a 1160x800 panel floating on a page with 24px of padding, a drop shadow
+   and registration marks - a design stage. In the app the panel IS the window, so the page
+   scrolls nowhere and the window fills the viewport. The `.window` element keeps its class and
+   loses `.bp`: the corner marks sit at -6px and would be cropped by the window edge. */
+html, body { height: 100%; }
+body {
+  padding: 0;
+  gap: 0;
+  display: block;
+  overflow: hidden;          /* the transcript scrolls, the page never does */
+}
+.window {
+  width: 100%;
+  height: 100%;
+  box-shadow: none;
+}
+/* The OS title bar is the real one (BrowserWindow is framed), so the delivery's depiction of it
+   is not rendered. `.main` may shrink below the delivery's 520px floor rather than force the
+   window to scroll sideways; the inspector opens over the top of it (overlay), so nothing is
+   squeezed by it. */
+.main { min-width: 0; }
+
+/* The avatar element replaces the delivery's dashed `.avatar-mount` placeholder, at the size the
+   placeholder reserved. `theme` follows the panel's theme; everything else is the element's. */
+matic-avatar { display: block; }
+
+/* ── (b) surfaces the delivery did not draw ─────────────────────────────────────────────────
+
+   FOUR of them, and each one exists because it carries a fact the user has to be able to read.
+   They are built from delivered parts (`.bp` frame, `.reply` padding, the token set) rather than
+   invented, so they sit inside the same visual language.
+
+   1. `.turn-note`  — a plain statement about what the SYSTEM did or did not do: "nothing was
+      filed", "no email was sent", "the service desk is reachable again". These are NOT the
+      internal notes the design moved to the inspector (source lines, template names, broker
+      JSON - those now go to the inspector and the developer log and nowhere else). They are the
+      lines D86/D213/D205 exist to keep in front of the user, and deleting them to tidy the
+      surface would re-open every one of those defects. Quiet, never red, never an apology.
+   2. `.ticket-review` — the D213 review card. The design covers the OFFER; this is the step
+      after a yes, and it is the one card in the app through which user data leaves the machine.
+   3. `.todo-card` — the checks the USER has to carry out. A user read straight past these when
+      they were grey system text (the reason the old renderer gave them a card), so they keep a
+      card here too, in the attention colour rather than the accent.
+   4. `.transcript-turn` — the wrapper the renderer appends per turn, so a turn's parts stay
+      together and the newest is what scrolls into view. */
+
+.turn-note {
+  max-width: 640px;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--matic-ui-line-strong);
+  font-size: var(--matic-ui-text-sm);
+  line-height: 1.55;
+  color: var(--matic-ui-ink-muted);
+}
+/* The one flavour that is not neutral: a fact the user could be harmed by assuming away - "the
+   hub did not answer, whether it was stored is unknown". Attention, not error: nothing is broken
+   about the assistant, something is unknown about the world. */
+.turn-note.unknown { border-left-color: var(--matic-ui-attn); }
+.turn-note b {
+  flex: none;
+  font-family: var(--matic-ui-font-head);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--matic-ui-ink-quiet);
+}
+
+.transcript-turn { display: flex; flex-direction: column; gap: 14px; }
+
+.ticket-review { background: var(--matic-ui-surface); max-width: 640px; }
+.ticket-review .consent-head b { color: var(--matic-ui-ok); }
+.ticket-review-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.ticket-review .lede { font-size: var(--matic-ui-text-sm); color: var(--matic-ui-ink-muted); }
+.ticket-review .fields { display: grid; grid-template-columns: minmax(104px, auto) 1fr; gap: 8px 14px; align-items: start; }
+.ticket-review label {
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--matic-ui-ink-quiet); padding-top: 11px;
+}
+.ticket-review textarea.input { min-height: 72px; resize: vertical; line-height: 1.5; padding-top: 10px; }
+/* Shown but not editable, and legible as such at a glance: it is the model's reading of the
+   problem, or a fact about the machine, and a field a user can retype is neither (D213). */
+.ticket-review .fixed {
+  font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
+  color: var(--matic-ui-ink-muted); padding-top: 11px; overflow-wrap: anywhere;
+}
+.ticket-review .caveat {
+  font-size: var(--matic-ui-text-sm); line-height: 1.5; color: var(--matic-ui-ink-muted);
+  border-top: var(--matic-ui-hair) solid var(--matic-ui-line); padding-top: 13px;
+}
+
+.todo-card { max-width: 640px; background: var(--matic-ui-surface); border-left: 2px solid var(--matic-ui-attn); }
+.todo-card .consent-head b { color: var(--matic-ui-attn); }
+.todo-card ol { margin: 0; padding: 4px 18px 18px 40px; display: flex; flex-direction: column; gap: 12px; }
+.todo-card li { font-size: var(--matic-ui-text-md); line-height: 1.5; }
+.todo-card li b { display: block; font-weight: 600; }
+.todo-card li span { display: block; font-size: var(--matic-ui-text-sm); color: var(--matic-ui-ink-muted); margin-top: 2px; }
+.todo-card .next {
+  margin: 0 18px 18px; padding-top: 13px; font-size: var(--matic-ui-text-sm); line-height: 1.5;
+  border-top: var(--matic-ui-hair) solid var(--matic-ui-line);
+}
+
+/* ── (c) two attribute hooks the app drives that the harness drove differently ───────────────
+
+   `data-scene` in the APP has exactly two values and NO control: "first" until the user's first
+   message, then "live", which matches no `.scene` rule and so shows the transcript the renderer
+   is building. The harness's six scenes are conversational moments the app arrives at; they are
+   not state, and there is no switcher (acceptance 5).
+
+   `data-offer` is likewise not a global state here: an offer's own buttons are resolved on the
+   element, because a session can hold more than one offer and a root attribute would answer all
+   of them at once. The root attribute is kept for ONE thing - the composer's hint - so that rule
+   is restated without the harness's `[data-scene="offer"]` qualifier. */
+[data-offer="pending"] .composer .hint { display: block; }
+
+/* The first-run panel stops stretching to fill the transcript, because in the app something does
+   follow it: the assistant says hello (persona.boot, D234) the moment the voice is ready, and a
+   greeting pushed to the bottom of an empty column reads as an afterthought. */
+[data-scene="first"] .scene-first { flex: none; }
+
+/* The status line under the avatar while a turn is in flight. The avatar carries the state
+   (v7 is the point of the pass); this is the same fact in words, for anyone who does not read a
+   face at 150px - and it replaces the old `#state` label, which printed our state NAMES. */
+.status-sub-busy { display: none; }
+[data-busy="on"] .status-sub-busy { display: block; }
+[data-busy="on"] .status-sub-idle { display: none; }
+
+/* The tickets band's count is hidden rather than showing a zero: "Tickets you've opened 0" reads
+   as a broken counter. The trigger stays, because the band explains what it can and cannot see. */
+.count:empty { display: none; }

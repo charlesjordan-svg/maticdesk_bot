@@ -67,7 +67,7 @@
   },
 
   "fallback": {
-    "hubUnreachable": "I'm sorry — I can't reach the service desk just now, and what you described isn't something I can fix from this machine on its own. The panel on the left shows what I can see; a person will be better placed to help with this one, and I'll keep trying to reconnect.",
-    "hubNoAnswer": "I'm sorry — the service desk answered, but its model didn't give me anything I can act on, and what you described isn't something I can fix from this machine on its own. The panel on the left shows what I can see; a person will be better placed to help with this one."
+    "hubUnreachable": "I'm sorry — I can't reach the service desk just now, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one, and I'll keep trying to reconnect.",
+    "hubNoAnswer": "I'm sorry — the service desk answered, but its model didn't give me anything I can act on, and what you described isn't something I can fix from this machine on its own. What I can see about this machine is at the top of this window; a person will be better placed to help with this one."
   }
 }

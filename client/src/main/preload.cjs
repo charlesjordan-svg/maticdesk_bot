@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld("matic", {
   // It is only ever reached from the review card, after the user has pressed submit on a card
   // showing exactly the draft being passed here.
   fileTicket: (draft) => ipcRenderer.invoke("ticket:file", draft),
+  // Read-only, and local: what THIS machine filed, from its own egress record (D235/D242). It is
+  // not a status lookup and there is no channel here that could become one.
+  ticketsFiled: () => ipcRenderer.invoke("ticket:filed"),
   getProfile: () => ipcRenderer.invoke("profile:get"),
   saveProfile: (patch) => ipcRenderer.invoke("profile:save", patch),
 

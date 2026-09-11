@@ -5,105 +5,366 @@
  * It holds no capability implementation, no Win32 handle, and no policy logic - every
  * privileged step is an IPC call into the Broker (handover §2). If broker logic starts
  * appearing in this file, the Phase 1 refactor becomes a rewrite.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * 2026-09-10 (D240): THIS FILE NOW DRAWS CLAUDE DESIGN'S PANEL, and the rule that shaped the
+ * rewrite is one line of the delivery's own notes: **our words stopped reaching the user.**
+ *
+ * Every line the old renderer printed fell into one of two piles, and they are now routed apart:
+ *
+ *   OURS      state names, capability ids, template names, provider and source lines, broker
+ *             JSON, retrieval internals. These go to the INSPECTOR and the developer log, which
+ *             are hidden until asked for. They are not deleted - they are the reason a buyer can
+ *             believe the safety story - they are just no longer the user's reading material.
+ *
+ *   THEIRS    what the system did, did not do, and cannot do: "nothing was filed", "no email was
+ *             sent", "whether it was stored is unknown", "the service desk is reachable again".
+ *             These stay in the transcript as `.turn-note` lines. Every one of them exists
+ *             because of a defect that shipped (D86, D205, D213, 700d920), and tidying them off
+ *             the surface to make it calmer would re-open all of them.
+ *
+ * The avatar is unchanged and still carries the conversational state (D232/v7); what went away is
+ * the LABEL under it that printed the state's name.
  */
 import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
 // The boot line comes from the same persona file as every other social line (D234), so the name
 // and the tone are decided in one place. A JSON module, like the avatar manifest.
 import persona from "../router/persona.json" with { type: "json" };
 
+const root = document.documentElement;
 const avatar = document.getElementById("avatar");
-const stateLabel = document.getElementById("state");
-const voicePill = document.getElementById("voicePill");
-const hubPill = document.getElementById("hubPill");
-const factsEl = document.getElementById("facts");
-const logEl = document.getElementById("log");
+const transcriptEl = document.getElementById("transcript");
 const inputEl = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const devlogEl = document.getElementById("devlog");
 
-const proposalJson = document.getElementById("proposalJson");
-const validationJson = document.getElementById("validationJson");
-const executionJson = document.getElementById("executionJson");
-const consentJson = document.getElementById("consentJson");
+const insWhen = document.getElementById("insWhen");
+const insProposedPlain = document.getElementById("insProposedPlain");
+const insProposedData = document.getElementById("insProposedData");
+const insCheckedPlain = document.getElementById("insCheckedPlain");
+const insCheckedData = document.getElementById("insCheckedData");
+const insConsentPlain = document.getElementById("insConsentPlain");
+const insConsentData = document.getElementById("insConsentData");
+const insDonePlain = document.getElementById("insDonePlain");
+const insDoneData = document.getElementById("insDoneData");
 
 const audioEl = new Audio();
 const driver = new TTSVisemeDriver(avatar, audioEl);
 let voiceReady = false;
 
-/**
- * The avatar's conversational state. The element decides what it can actually show at its size
- * (D232: a parked or undersized state is refused to idle with a console warning) and reports the
- * outcome on `statechange`; the label below the avatar follows THAT event, not this call, so the
- * label is right even when the state was set by something else - the viseme driver sets `speaking`
- * directly, and before this change the label silently stayed on the previous state through every
- * spoken reply.
- */
-function setState(s) {
-  avatar.state = s;
-}
-avatar.addEventListener("statechange", (e) => {
-  const { requested, state, refused } = e.detail;
-  stateLabel.textContent = refused ? `${state} (refused: ${requested})` : state;
-});
+// ═══ small DOM helpers ════════════════════════════════════════════════════════════════════════
+//
+// Built with `textContent`, never innerHTML: every string below is either the user's own sentence,
+// the model's, or the broker's, and one of those three is rendered VERBATIM by decision (D130).
 
-/**
- * Checks the USER has to carry out. Rendered as a card rather than chat bubbles because a user
- * missed them completely when they were grey system messages: they read as logging, not as
- * instructions. Same shape as the consent card on purpose - that is the established language
- * for "this one needs you".
- */
-function todoCard({ checks, nextStep }) {
-  const box = document.createElement("div");
-  box.className = "msg todo";
-
-  const title = document.createElement("div");
-  title.className = "title";
-  title.textContent = "Over to you — things I cannot check from here";
-
-  const list = document.createElement("ol");
-  for (const c of checks) {
-    const li = document.createElement("li");
-    const label = document.createElement("b");
-    label.textContent = c.label;
-    const detail = document.createElement("span");
-    detail.textContent = c.detail;
-    li.append(label, detail);
-    list.append(li);
-  }
-
-  const next = document.createElement("div");
-  next.className = "next";
-  next.textContent = nextStep;
-
-  box.append(title, list, next);
-  logEl.append(box);
-  logEl.scrollTop = logEl.scrollHeight;
+/** @param {string} tag @param {string} [cls] @param {string} [text] */
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
 }
 
-function bubble(text, cls = "bot") {
-  const d = document.createElement("div");
-  d.className = `msg ${cls}`;
-  d.textContent = text;
-  logEl.append(d);
-  logEl.scrollTop = logEl.scrollHeight;
-  return d;
+/** The delivery's registration marks. Four `<i>` corners on anything wearing `.bp`. */
+function framed(node) {
+  for (const c of ["tl", "tr", "bl", "br"]) node.append(el("i", `corner ${c}`));
+  return node;
+}
+
+/**
+ * One turn's worth of transcript. Everything a turn appends goes inside its own wrapper, so the
+ * parts of an answer stay together and `scrollIntoView` lands on the turn rather than on whichever
+ * fragment was added last.
+ */
+let currentTurn = null;
+function newWrapper() {
+  currentTurn = el("div", "transcript-turn");
+  transcriptEl.append(currentTurn);
+  return currentTurn;
+}
+function openTurn() {
+  // The first thing the USER says retires the first-run panel. `data-scene` has exactly these two
+  // values in the app and no control sets it (see index.html) - it is not the harness's switcher.
+  // Only this function sets it, so a hub transition or the boot line - neither of which the user
+  // asked for - cannot clear the empty state out from under them.
+  root.dataset.scene = "live";
+  return newWrapper();
+}
+function turn() { return currentTurn ?? newWrapper(); }
+function scrollDown() { transcriptEl.scrollTop = transcriptEl.scrollHeight; }
+
+/** What the user said, as the panel renders it. */
+function said(text) {
+  const wrap = el("div", "said");
+  wrap.append(el("div", "", text));
+  turn().append(wrap);
+  scrollDown();
+}
+
+/** One thing the assistant says. Returns the element so a caller can hang an offer off it. */
+function reply(text) {
+  const box = framed(el("div", "reply bp"));
+  for (const para of String(text).split(/\n{2,}/)) box.append(el("p", "", para));
+  turn().append(box);
+  scrollDown();
+  return box;
+}
+
+/**
+ * A statement about the SYSTEM, in the user's interest: what was not sent, what is not known,
+ * what came back. Not the assistant's voice, and never styled as an error - a decline and a limit
+ * are correct outcomes (D205, v7's `declining`), and red is reserved for nothing at all here.
+ *
+ * @param {string} text
+ * @param {{ label?: string, unknown?: boolean }} [opts] `unknown` marks the one flavour that is
+ *   not neutral: a fact the user would be harmed by assuming away.
+ */
+function note(text, { label = "", unknown = false } = {}) {
+  const n = el("div", `turn-note${unknown ? " unknown" : ""}`);
+  if (label) n.append(el("b", "", label));
+  n.append(el("span", "", text));
+  turn().append(n);
+  scrollDown();
+  return n;
+}
+
+/** The evidence line, above the thing it justifies. The design's `.why`. */
+function why(label, text) {
+  const w = el("div", "why");
+  w.append(el("span", "", label), el("span", "", text));
+  turn().append(w);
+  scrollDown();
+  return w;
 }
 
 function devlog(line) {
   devlogEl.textContent += line + "\n";
-  devlogEl.scrollTop = devlogEl.scrollHeight;
 }
 
-/** Speaks with real Piper audio + viseme sync. Degrades to mouth-only, never to silence-with-no-signal. */
+/** @param {HTMLElement} plainEl @param {HTMLElement} dataEl @param {string} plain @param {unknown} data */
+function step(plainEl, dataEl, plain, data) {
+  plainEl.textContent = plain;
+  dataEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+}
+const proposed = (plain, data) => step(insProposedPlain, insProposedData, plain, data);
+const checked = (plain, data) => step(insCheckedPlain, insCheckedData, plain, data);
+const consented = (plain, data) => step(insConsentPlain, insConsentData, plain, data);
+const done = (plain, data) => step(insDonePlain, insDoneData, plain, data);
+
+/** The inspector shows THIS turn. Stamped when a turn opens so "this turn" is not a lie. */
+function stampInspector() {
+  insWhen.textContent = `This turn · ${new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+
+// ═══ avatar ═══════════════════════════════════════════════════════════════════════════════════
+//
+// The element decides what it can actually show at its size (D232: a parked or undersized state is
+// refused to idle with a console warning) and reports the outcome on `statechange`. The label that
+// used to follow that event is gone from the surface; the event now reaches the developer log,
+// where a refusal is still visible to us and no longer prints a state name at the user.
+function setState(s) { avatar.state = s; }
+avatar.addEventListener("statechange", (e) => {
+  const { requested, state, refused } = e.detail;
+  if (refused) devlog(`[avatar] ${requested} refused at this size - showing ${state}`);
+});
+
+/** The rail's second line while a turn is in flight. The avatar says it too; this says it in words. */
+function setBusy(on) { root.dataset.busy = on ? "on" : "off"; }
+
+// ═══ theme ════════════════════════════════════════════════════════════════════════════════════
+//
+// The ONE harness control that is a real user preference (handover §3). Persisted in localStorage
+// and applied before first paint by the inline script in index.html; this half keeps the avatar
+// and the toggle's glyph in step with it.
+function applyTheme(theme) {
+  root.dataset.theme = theme;
+  avatar.setAttribute("theme", theme);
+  const glyph = document.getElementById("themeGlyph");
+  if (glyph) glyph.style.clipPath = theme === "dark" ? "inset(0 0 0 50%)" : "inset(0 50% 0 0)";
+  try { localStorage.setItem("matic.theme", theme); } catch { /* storage disabled; the session still works */ }
+}
+document.getElementById("themeToggle").addEventListener("click", () => {
+  applyTheme(root.dataset.theme === "dark" ? "light" : "dark");
+});
+
+// ═══ inspector ════════════════════════════════════════════════════════════════════════════════
+//
+// Hidden by default, opens as `overlay` (acceptance 2 and 8 of the design handover). `data-variant`
+// is set in index.html and there is NO control for it: which depth the inspector opens at is a
+// build decision, not the user's.
+function setInspector(on) { root.dataset.inspector = on ? "on" : "off"; }
+document.getElementById("inspectorTrigger").addEventListener("click", () => {
+  setInspector(root.dataset.inspector !== "on");
+});
+document.getElementById("inspectorClose").addEventListener("click", () => setInspector(false));
+document.getElementById("scrim").addEventListener("click", () => setInspector(false));
+
+// ═══ the two bands ════════════════════════════════════════════════════════════════════════════
+
+const machineGrid = document.getElementById("machineGrid");
+const machineChecked = document.getElementById("machineChecked");
+const ticketRows = document.getElementById("ticketRows");
+const ticketsNote = document.getElementById("ticketsNote");
+const ticketCount = document.getElementById("ticketCount");
+
+/**
+ * A Windows service state as a person would say it. `?` means the probe could not read it, which
+ * is NOT the same as stopped and must not be rendered as though it were.
+ */
+function serviceWords(stateName) {
+  if (stateName === "RUNNING") return "Running normally";
+  if (stateName === "STOPPED") return "Stopped";
+  if (stateName === "?" || !stateName) return "Couldn't read it from here";
+  return String(stateName).toLowerCase().replace(/_/g, " ");
+}
+
+/**
+ * The machine band. Same probe the router reasons over (`agent.diagnose().panel`), in the user's
+ * words. The address rows are kept even though the delivery's mock does not show them: they are
+ * the first two things a support call asks for after the machine name, and dropping information
+ * the founder has been reading is a change, not a tidy-up.
+ */
+function renderMachine(facts) {
+  if (!facts) return;
+  const f = facts;
+  const rows = [
+    ["This computer", f.computer],
+    ["Signed in as", f.user],
+    ["Printing", serviceWords(f.spooler)],
+    ["Sound", serviceWords(f.audio)],
+    ["Network adapter", !f.adapter || f.adapter === "none" ? "None found" : f.adapter],
+    ["Network", f.online === "yes"
+      ? (f.dhcp === "RUNNING" ? "Connected, address given out automatically" : "Connected, address not given out automatically")
+      : "Not connected"],
+  ];
+  if (f.ip && f.ip !== "-") rows.push(["This machine's address", f.ip]);
+  if (f.gateway && f.gateway !== "-") rows.push(["Router", f.gateway]);
+
+  machineGrid.replaceChildren();
+  for (const [label, value] of rows) {
+    const row = el("div", "mrow");
+    row.append(el("dt", "", label), el("dd", "", String(value ?? "-")));
+    machineGrid.append(row);
+  }
+  machineChecked.textContent = "Checked just now";
+}
+
+/**
+ * The panel's name for a service, and the probe key that reports it. The catalog's enum is the
+ * authority on which services exist; this table only says how to SAY them and where to read their
+ * state. A service missing from here simply gets no evidence line.
+ */
+const SERVICE_PLAIN = {
+  spooler: { label: "Printing", fact: "spooler" },
+  audiosrv: { label: "Sound", fact: "audio" },
+  dhcp: { label: "Network addresses", fact: "dhcp" },
+};
+
+/** The one-line evidence for a service proposal, read from the probe the router also read. */
+function evidenceFor(proposal, facts) {
+  const known = SERVICE_PLAIN[proposal?.parameters?.serviceName];
+  const state = known && facts ? facts[known.fact] : null;
+  if (!known || !state || state === "?") return null;
+  return `${known.label} — ${serviceWords(state).toLowerCase()}.`;
+}
+
+/** "today at 9:14", "yesterday at 16:02", "on Saturday 6 September" - the same phrasing the spoken
+ *  answer uses (`social.js: whenSpoken`), so the band and the reply do not describe one ticket two
+ *  ways. Kept deliberately coarse: the design asks for no timestamps to the second. */
+function whenFiled(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(d)) / 86_400_000);
+  if (days <= 0) return `Filed today at ${time}`;
+  if (days === 1) return `Filed yesterday at ${time}`;
+  return `Filed on ${d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
+}
+
+/**
+ * THE TICKETS BAND (D242, answering the design handover's §4).
+ *
+ * It ships, and what it shows is the only thing the endpoint honestly knows: the tickets THIS
+ * machine filed and got a reference for, read back from the egress record (D235). It is NOT a
+ * status view. The hub's ticket table is not visible from here - that needs a route and a user
+ * identity (D54, D68/D69) - so every row says "Filed from this machine" where a status would go,
+ * and the band's note says the rest in the same words `persona.tickets.some` speaks.
+ *
+ * A band that looked like a status view and happened to be empty would be the worse outcome by
+ * far: the user would read "no news" where the truth is "no lookup".
+ */
+function renderTickets(status) {
+  const filed = status?.filed ?? [];
+  const canFile = status?.canFile === true;
+
+  ticketCount.textContent = filed.length ? String(filed.length) : "";
+  ticketRows.replaceChildren();
+
+  for (const t of filed) {
+    const row = el("div", "trow");
+    const ref = el("div", "tref");
+    ref.append(el("b", "", t.reference), el("span", "", whenFiled(t.filedAt)));
+    const body = el("div", "tbody");
+    body.append(
+      el("b", "", t.description || "a problem you described"),
+      el("span", "", t.notified
+        ? "The service desk was notified when this was filed."
+        : "Stored on the hub for IT to pick up. No email was sent, so nobody was alerted automatically."),
+    );
+    const stat = el("div", "tstat");
+    stat.append(el("b", "", "Filed from here"), el("span", "", "Progress not visible"));
+    row.append(ref, body, stat);
+    ticketRows.append(row);
+  }
+
+  ticketsNote.textContent = !canFile
+    ? "This machine isn't connected to a service desk, so there is nothing to file from here and nothing to look up."
+    : filed.length === 0
+      ? "I haven't filed any tickets from this machine. Tickets raised anywhere else won't show here - looking those up isn't built yet."
+      : "This is what I sent from this machine. I can't see how they're getting on - checking a ticket's progress with the service desk isn't something I can do in this build - so quote the reference if you follow one up.";
+}
+
+/**
+ * The band triggers. Opening the machine band re-reads the probe, because a band headed "Checked
+ * just now" that shows the boot's values is a small lie with a support call resting on it.
+ */
+let bandBusy = false;
+async function toggleBand(key) {
+  const closing = root.dataset.band === key;
+  root.dataset.band = closing ? "none" : key;
+  if (closing || bandBusy) return;
+  bandBusy = true;
+  try {
+    if (key === "machine") renderMachine(await window.matic.diagnose());
+    if (key === "tickets") renderTickets(await window.matic.ticketsFiled());
+  } catch (err) {
+    devlog(`[panel] refreshing the ${key} band failed: ${err.message}`);
+  } finally {
+    bandBusy = false;
+  }
+}
+for (const id of ["machineTrigger", "ticketsTrigger"]) {
+  const btn = document.getElementById(id);
+  btn.addEventListener("click", () => toggleBand(btn.dataset.bandKey));
+}
+
+// ═══ speech ═══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Speaks with real Piper audio + viseme sync. Degrades to mouth-only, never to
+ * silence-with-no-signal. Returns the element it wrote, so a caller can hang an offer off the
+ * message that made it.
+ */
 async function say(text, endState = "idle") {
-  bubble(text, "bot");
+  const box = reply(text);
   if (!voiceReady) {
     // Cut-order item 3: text only, keep the mouth moving. The 'speaking' state's own
     // mouth animation runs without a phoneme timeline.
     setState("speaking");
     await new Promise((r) => setTimeout(r, Math.min(600 + text.length * 45, 6000)));
     setState(endState);
-    return;
+    return box;
   }
   const r = await window.matic.speak(text);
   if (!r.ok) {
@@ -111,7 +372,7 @@ async function say(text, endState = "idle") {
     setState("speaking");
     await new Promise((res) => setTimeout(res, Math.min(600 + text.length * 45, 6000)));
     setState(endState);
-    return;
+    return box;
   }
   const url = URL.createObjectURL(new Blob([r.audio], { type: "audio/wav" }));
   audioEl.src = url;
@@ -128,23 +389,78 @@ async function say(text, endState = "idle") {
   driver.stop();
   URL.revokeObjectURL(url);
   setState(endState);
+  return box;
 }
 
-function renderFacts(facts) {
-  factsEl.innerHTML = "";
-  for (const [k, v] of Object.entries(facts ?? {})) {
-    const row = document.createElement("div");
-    const kk = document.createElement("span");
-    kk.textContent = k;
-    const vv = document.createElement("b");
-    vv.textContent = String(v);
-    row.append(kk, vv);
-    factsEl.append(row);
-  }
-}
+// ═══ the offer affordance (design handover §6) ════════════════════════════════════════════════
 
 /**
- * THE TICKET REVIEW CARD (D213, 2026-09-04).
+ * Yes / No thanks, inside the message that made the offer.
+ *
+ * WHY THIS IS THE FIX FOR A REAL DEFECT, not decoration. `Agent.propose(text)` was stateless per
+ * turn, so "yes please hand to it" arrived as an unrelated new problem (3d1992e). D216's intake
+ * remembers the offer and reads the next sentence as an answer - and these buttons send exactly
+ * the sentence it is waiting for, down the SAME path as typing. Nothing about the state machine
+ * is special-cased for the buttons, which is what keeps the typed path honest too.
+ *
+ * THERE IS NO "CHANGE MY ANSWER". The delivery has one; the app cannot honour it. A yes files a
+ * ticket and a filed ticket cannot be unfiled, so an affordance offering to change it would be
+ * offering something the system does not have.
+ */
+function attachOffer(box) {
+  root.dataset.offer = "pending";
+  const bar = el("div", "actionbar");
+  const pending = el("div", "actions");
+  const yes = el("button", "btn btn-primary", "Yes, open a ticket");
+  const no = el("button", "btn btn-secondary", "No thanks");
+  yes.style.cssText = no.style.cssText = "font-size:var(--matic-ui-text-sm); padding:9px 16px";
+
+  // What would be sent, one click down, in the words the ticket card will show field for field.
+  const details = el("details");
+  const summary = el("summary");
+  summary.append(el("span", "more", "What would you send?"), el("span", "less", "Hide what I'd send"));
+  const panel = el("div");
+  panel.style.cssText = "margin-top:10px; padding:14px; border:var(--matic-ui-hair) solid var(--matic-ui-line); background:var(--matic-ui-surface); width:100%";
+  panel.append(el("div", "", "What I'd send with it"));
+  panel.firstChild.setAttribute("style", "font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:8px");
+  const list = el("div");
+  list.style.cssText = "display:flex; flex-direction:column; gap:6px; font-size:var(--matic-ui-text-sm); line-height:1.45; color:var(--matic-ui-ink-muted)";
+  for (const line of [
+    "What you told me, in your words",
+    "What I checked on this machine, and what I found",
+    "Anything I tried, and whether it helped",
+    "This machine's name and who is signed in",
+  ]) list.append(el("span", "", line));
+  panel.append(list);
+  details.append(summary, panel);
+
+  pending.append(yes, no, details);
+  bar.append(pending);
+  box.append(bar);
+  // The buttons arrive AFTER the message was spoken, so the scroll that followed the message was
+  // taken before they existed - and an offer the user has to scroll to find is an offer that gets
+  // answered by typing, which is the path D216's escapes exist to survive rather than to invite.
+  scrollDown();
+  // Nothing is in flight while an offer waits: the rail says so, and says it before the user has
+  // to wonder whether the assistant is still working.
+  setBusy(false);
+
+  const answer = (text, answered) => {
+    // What you answered stays on the message you answered, so scrolling back reads as a record
+    // rather than as an offer nobody responded to.
+    pending.replaceWith(el("div", "turn-note", answered));
+    root.dataset.offer = "none";
+    submit(text);
+  };
+  yes.addEventListener("click", () => answer("yes please", "You said yes"));
+  no.addEventListener("click", () => answer("no thanks", "You said no thanks"));
+}
+
+// ═══ the ticket review card (D213) ════════════════════════════════════════════════════════════
+
+/**
+ * THE TICKET REVIEW CARD (D213, 2026-09-04). Re-dressed in the panel's language on 2026-09-10;
+ * every rule about it is unchanged.
  *
  * The user reviews and edits the complete ticket before anything is sent. That was the founder's
  * instruction and it is also the honest shape for an egress action: the thing you are approving
@@ -156,9 +472,8 @@ function renderFacts(facts) {
  *     facts and their own words, and if we have them wrong the ticket is wrong.
  *   - The case note, category and suggested owner are SHOWN BUT FIXED. They are the model's
  *     reading of the problem, and they are displayed so nothing is sent that the user has not
- *     seen — but letting a user rewrite the case note would turn the ticket into a document with
- *     two authors and no way to tell which sentence came from where. If the case note is wrong,
- *     the description the user can edit is the record that says so.
+ *     seen - but letting a user rewrite the case note would turn the ticket into a document with
+ *     two authors and no way to tell which sentence came from where.
  *
  * It resolves only on an explicit click. There is no timeout that submits, for the same reason
  * the consent card has none.
@@ -167,38 +482,24 @@ function renderFacts(facts) {
  * @returns {Promise<object|null>} the (possibly edited) draft, or null if the user cancelled
  */
 function reviewTicket(draft) {
-  const box = document.createElement("div");
-  box.className = "msg ticket";
+  const box = framed(el("div", "bp ticket-review"));
+  const head = el("div", "consent-head");
+  head.append(el("b", "", "Review before sending"), el("span", "", "Nothing has left this machine"));
+  const body = el("div", "ticket-review-body");
+  body.append(el("div", "lede", "This is exactly what will be sent. Nothing leaves this machine until you press Send."));
 
-  const title = document.createElement("div");
-  title.className = "title";
-  title.textContent = "Review before sending";
-  const lede = document.createElement("div");
-  lede.className = "lede";
-  lede.textContent = "This is exactly what will be sent. Nothing leaves this machine until you press Send.";
-  box.append(title, lede);
-
-  const fields = document.createElement("div");
-  fields.className = "fields";
-
+  const fields = el("div", "fields");
   /** One editable row. Returns a getter, so the submit handler reads the DOM rather than a copy. */
   const editable = (labelText, value, { multiline = false } = {}) => {
-    const label = document.createElement("label");
-    label.textContent = labelText;
-    const input = document.createElement(multiline ? "textarea" : "input");
+    fields.append(el("label", "", labelText));
+    const input = el(multiline ? "textarea" : "input", "input");
     input.value = value ?? "";
-    fields.append(label, input);
+    fields.append(input);
     return () => input.value;
   };
-
-  /** One read-only row. Rendered in the mono style so "shown, not editable" is legible at a glance. */
+  /** One read-only row, in the mono style, so "shown, not editable" is legible at a glance. */
   const fixed = (labelText, value) => {
-    const label = document.createElement("label");
-    label.textContent = labelText;
-    const span = document.createElement("div");
-    span.className = "fixed";
-    span.textContent = value;
-    fields.append(label, span);
+    fields.append(el("label", "", labelText), el("div", "fixed", value));
   };
 
   const r = draft.reporter ?? {};
@@ -210,64 +511,50 @@ function reviewTicket(draft) {
   // user can retype is not that. It is shown because the ticket carries it.
   fixed("OS account", `${r.osUsername ?? "unknown"}  (self-asserted — not authenticated)`);
   fixed("Machine", draft.machineName ?? "-");
-
   const getDescription = editable("Problem", draft.description, { multiline: true });
-
   fixed("Category", draft.category);
   fixed("Goes to", draft.suggestedOwner ? draft.suggestedOwner.replace(/_/g, " ") : "unrouted — IT will decide");
   fixed("Case note", draft.summary);
   if (draft.whatWasChecked) fixed("Already checked", draft.whatWasChecked);
+  body.append(fields);
 
-  box.append(fields);
+  // The standing caveat, in the card rather than only in a log line: this is where a user decides
+  // whether to send, so it is where the limits of what sending achieves have to be readable.
+  body.append(el("div", "caveat", "This is stored on the hub for IT to pick up. No email is sent in this build, so nobody is alerted automatically."));
 
-  const caveat = document.createElement("div");
-  caveat.className = "caveat";
-  // The line that stops the card implying more than filing achieves. This build stores tickets and
-  // emails nobody (D86) — and the moment a user reads "sent" they assume somebody was told.
-  caveat.textContent = "This is stored on the hub for IT to pick up. No email is sent in this build, so nobody is alerted automatically.";
-  box.append(caveat);
-
-  const row = document.createElement("div");
-  row.className = "row";
-  const send = document.createElement("button");
-  send.className = "primary";
-  send.textContent = "Send it";
-  const cancel = document.createElement("button");
-  cancel.className = "danger";
-  cancel.textContent = "Cancel";
+  const row = el("div", "actions");
+  const send = el("button", "btn btn-primary", "Send it");
+  const cancel = el("button", "btn btn-secondary", "Cancel");
+  send.style.cssText = cancel.style.cssText = "font-size:var(--matic-ui-text-sm); padding:9px 16px";
   row.append(send, cancel);
-  box.append(row);
+  body.append(row);
 
-  logEl.append(box);
+  box.append(head, body);
+  turn().append(box);
   box.scrollIntoView({ block: "nearest" });
+  // Waiting on the person at the keyboard, and the rail says so rather than implying work.
+  setBusy(false);
 
   return new Promise((resolve) => {
-    const done = (result, outcomeText) => {
-      row.remove();
-      box.classList.add("resolved");
-      const outcome = document.createElement("div");
-      outcome.className = "outcome";
-      outcome.textContent = outcomeText;
-      box.append(outcome);
+    const settle = (result, outcomeText) => {
+      row.replaceWith(el("div", "turn-note", outcomeText));
+      head.lastElementChild.textContent = result ? "Sent by you" : "Nothing was sent";
+      setBusy(Boolean(result));
       resolve(result);
     };
-    send.onclick = () => done(
+    send.onclick = () => settle(
       {
         ...draft,
         description: getDescription(),
-        reporter: {
-          ...r,
-          firstName: getFirst(),
-          lastName: getLast(),
-          location: getLocation(),
-          contactId: getContact(),
-        },
+        reporter: { ...r, firstName: getFirst(), lastName: getLast(), location: getLocation(), contactId: getContact() },
       },
-      "sent by the user",
+      "Sent by you.",
     );
-    cancel.onclick = () => done(null, "cancelled by the user — nothing was sent");
+    cancel.onclick = () => settle(null, "Cancelled by you — nothing was sent.");
   });
 }
+
+// ═══ consent ══════════════════════════════════════════════════════════════════════════════════
 
 /**
  * Inline consent. Rendered into the conversation so it is always the thing in front of the
@@ -279,32 +566,33 @@ function reviewTicket(draft) {
  * it for the audit record. Nothing here reads the capability or the catalog: if this code could
  * construct consent text, someone would (design rule 2). The one exception is `proposal.reasoning`,
  * which is the model's own sentence and is labelled as such.
+ *
+ * THE 2026-09-10 REDESIGN CHANGED THE FRAME AND NOT ONE WORD INSIDE IT. `r.title` is the card's
+ * heading, `r.what` and `r.detail` are its paragraphs, and each is assigned with `textContent` -
+ * not wrapped, not shortened, not sentence-cased. The line beside the heading ("Nothing has
+ * changed yet") is ours and is a statement about the system, not about the action.
  */
 function askConsent(request, proposal) {
   const r = request.rendered;
-  const box = document.createElement("div");
-  box.className = "msg consent";
+  const box = framed(el("div", "bp consent"));
 
-  const title = document.createElement("div");
-  title.className = "title";
-  title.textContent = r.title;
+  const head = el("div", "consent-head");
+  // The line beside the broker's title is a statement about the SYSTEM and it is kept true: it
+  // says "nothing has changed yet" while that is so, and is replaced the moment it stops being so.
+  // A card still reading "nothing has changed yet" under the sentence confirming that something
+  // did is the same defect class as the hub pill that disagreed with the reply (700d920).
+  const headState = el("span", "", "Nothing has changed yet");
+  head.append(el("b", "", r.title), headState);
 
-  const what = document.createElement("div");
-  what.className = "what";
-  what.textContent = r.what;
-
-  const detail = document.createElement("div");
-  detail.className = "outcome";
-  detail.textContent = r.detail;
-
-  box.append(title, what, detail);
-
+  const verbatim = el("div", "consent-verbatim");
+  verbatim.append(el("p", "", r.what));
+  if (r.detail) verbatim.append(el("p", "", r.detail));
   if (r.rollbackNote) {
-    const note = document.createElement("div");
-    // The broker phrases R2's note as a warning; R1's is a quiet reassurance. Same field, styled by tier.
-    note.className = request.tier === "R2" ? "warn-box" : "outcome";
-    note.textContent = r.rollbackNote;
-    box.append(note);
+    // The broker phrases R2's note as a warning; R1's is a quiet reassurance. Same field, and the
+    // tier decides the weight it is given - never the colour of a failure.
+    const n = el("div", "turn-note" + (request.tier === "R2" ? " unknown" : ""));
+    n.append(el("span", "", r.rollbackNote));
+    verbatim.append(n);
   }
 
   // A user approved an action and then said: "I feel like I approved that with not enough
@@ -312,132 +600,134 @@ function askConsent(request, proposal) {
   // and none of it was on screen. It is one click away now, and collapsed by default so the card
   // does not become another wall of text.
   if (r.notice || r.undo || r.why || r.risk) {
-    const explainBtn = document.createElement("button");
-    explainBtn.className = "explain-btn";
-    explainBtn.textContent = "What is this, and why?";
-
-    const explain = document.createElement("div");
-    explain.className = "explain";
-    explain.hidden = true;
-
+    const details = el("details");
+    const summary = el("summary");
+    summary.append(el("span", "more", "What is this, and why?"), el("span", "less", "Hide the details"));
+    const inner = el("div");
+    inner.style.cssText = "margin-top:12px; display:flex; flex-direction:column; gap:12px";
     // `proposal.reasoning` is the only part that is specific to THIS problem, so it goes first.
-    const disruptive = request.tier === "R2";
-    const sections = [
-      ["Why this, here", proposal.reasoning, false],
-      ["What you will notice", r.notice, disruptive],
-      ["Can it be undone", r.undo, false],
-      ["Why it usually helps", r.why, false],
-      ["Risk level", r.risk, disruptive],
-    ];
-
-    for (const [heading, body, emphasise] of sections) {
-      if (!body) continue;
-      const wrap = document.createElement("div");
-      if (emphasise) wrap.className = "danger-note";
-      const h = document.createElement("h4");
-      h.textContent = heading;
-      const para = document.createElement("p");
-      para.textContent = body;
-      wrap.append(h, para);
-      explain.append(wrap);
+    for (const [heading, bodyText] of [
+      ["Why this, here", proposal.reasoning],
+      ["What you will notice", r.notice],
+      ["Can it be undone", r.undo],
+      ["Why it usually helps", r.why],
+      ["Risk level", r.risk],
+    ]) {
+      if (!bodyText) continue;
+      const clause = el("div", "aside-note");
+      const h = el("div", "", heading);
+      h.setAttribute("style", "font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--matic-ui-ink-quiet); margin-bottom:4px");
+      clause.append(h, el("p", "", bodyText));
+      inner.append(clause);
     }
-
-    explainBtn.addEventListener("click", () => {
-      explain.hidden = !explain.hidden;
-      explainBtn.textContent = explain.hidden ? "What is this, and why?" : "Hide the details";
-      if (!explain.hidden) explain.scrollIntoView({ block: "nearest" });
-    });
-
-    box.append(explainBtn, explain);
+    details.append(summary, inner);
+    verbatim.append(details);
   }
 
-  const row = document.createElement("div");
-  row.className = "row";
-  const approve = document.createElement("button");
-  approve.className = "primary";
-  approve.textContent = "Approve";
-  const deny = document.createElement("button");
-  deny.className = "danger";
-  deny.textContent = "Deny";
+  const row = el("div", "actions");
+  row.style.marginTop = "18px";
+  const approve = el("button", "btn btn-primary", "Go ahead");
+  const deny = el("button", "btn btn-secondary", "Not now");
+  approve.style.cssText = deny.style.cssText = "font-size:var(--matic-ui-text-sm); padding:9px 16px";
   row.append(approve, deny);
-  box.append(row);
+  verbatim.append(row);
 
-  logEl.append(box);
+  box.append(head, verbatim);
+  turn().append(box);
   box.scrollIntoView({ block: "nearest" });
-  consentJson.textContent = "awaiting the user's decision…";
+  consented("Waiting on the person at the keyboard. Nothing has run.", {
+    nonce: request.nonce,
+    renderedBy: "broker",
+    locale: request.locale,
+    expiresAt: new Date(request.expiresAt).toISOString(),
+    shownVerbatim: true,
+    awaiting: "the user's decision",
+  });
+
+  // The card is now waiting on the person, not on us.
+  setBusy(false);
+  scrollDown();
 
   return new Promise((resolve) => {
-    const done = (approved) => {
-      row.remove();
-      box.classList.add("resolved");
-      const outcome = document.createElement("div");
-      outcome.className = "outcome";
-      outcome.textContent = approved ? "approved by the user" : "denied by the user";
-      box.append(outcome);
+    const settle = (approved) => {
+      row.replaceWith(el("div", "turn-note", approved ? "Approved by you." : "Not approved — nothing was changed."));
+      headState.textContent = approved ? "You approved this" : "You did not approve this";
+      setBusy(approved);
       resolve(approved);
     };
-    approve.onclick = () => done(true);
-    deny.onclick = () => done(false);
+    approve.onclick = () => settle(true);
+    deny.onclick = () => settle(false);
   });
 }
 
-function show(el, obj) {
-  el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
-}
+// ═══ the turn ═════════════════════════════════════════════════════════════════════════════════
 
 async function handleTurn(text) {
-  bubble(text, "user");
-  proposalJson.textContent = "…";
-  validationJson.textContent = "—";
-  executionJson.textContent = "—";
+  openTurn();
+  stampInspector();
+  said(text);
+  setBusy(true);
+  // An offer is answered by the sentence that follows it, whatever that sentence is (D216 escape 1),
+  // so the hint comes down as soon as the user says anything.
+  root.dataset.offer = "none";
+  proposed("Working on it…", "…");
+  checked("—", "—");
+  done("Nothing has been changed on this machine this turn.", { executed: false, changes: [] });
 
   setState("thinking");
   const res = await window.matic.propose(text);
+  renderMachine(res.facts);
 
   if (res.escalation) {
     // Scenario 3. Nothing in the catalog fixes this.
     //
-    // SINCE D213 THIS BRANCH HAS TWO OUTCOMES, and the difference is `res.canFile`. The disclaimer
-    // below was correct from 2026-09-02 until today and must NOT be printed unconditionally now:
+    // SINCE D213 THIS BRANCH HAS TWO OUTCOMES, and the difference is `res.canFile`. The note below
+    // was correct from 2026-09-02 until that day and must NOT be printed unconditionally now:
     // saying "nothing was filed" one line before offering to file something is the mirror image of
     // the defect it was written to prevent. What both versions share is that neither claims more
     // than happened.
-    show(proposalJson, { escalate: true, ...res.escalation });
-    show(validationJson, "not applicable — no capability was proposed");
-    show(executionJson, res.canFile
-      ? "nothing executed — this is an escalation, not a machine change. Nothing has been SENT either: the offer is waiting for an answer."
-      : "nothing executed — no ticket was filed. This is the payload that would be sent to the ITSM integration, which is not built.");
-    renderFacts(res.facts ?? {});
-    bubble("no capability in the catalog covers this — escalating", "sys");
-    if (!res.canFile) {
-      // The original disclaimer, unchanged, for the configuration it was written for. The avatar
-      // saying "I would hand this to facilities" can be heard as "a ticket has been raised", and
-      // the next turn overwrites the panel that said otherwise. Observed on the dev box 2026-09-02.
-      bubble("nothing was filed — there is no ITSM integration in this build", "sys bad");
-    }
+    proposed("Nothing. The request is outside what this assistant can do here, so it was handed on instead.",
+      { escalate: true, ...res.escalation });
+    checked("Not applicable — nothing was proposed, so there was nothing to check.",
+      "not applicable — no capability was proposed");
+    done(res.canFile
+      ? "Nothing has been changed, and nothing has been sent: the offer is waiting for an answer."
+      : "Nothing has been changed, and no ticket was filed — this build has no ITSM integration.",
+      { executed: false, sent: false, canFile: res.canFile === true });
     // `declining`, not `escalating` (D232). The avatar is saying it cannot fix this and OFFERING a
     // ticket; nothing has been raised. v7 reserves `escalating` for the confirmation that carries a
-    // ticket number - it follows declining, it does not replace it - and its tray read is "none",
-    // where an offer waiting for an answer is exactly what "needs you" is for. Held after speaking
-    // because the offer is still open.
+    // ticket number - it follows declining, it does not replace it. Held after speaking because
+    // the offer is still open.
     setState("declining");
-    await say(res.reply, "declining");
+    const spoken = await say(res.reply, "declining");
+    if (res.canFile) {
+      // The affordance goes INSIDE the message that made the offer, which is the design's point
+      // and D216's: the answer belongs to that sentence, not to the composer.
+      attachOffer(spoken);
+    } else {
+      // The original disclaimer, unchanged in substance, for the configuration it was written for.
+      // The avatar saying "I would hand this to facilities" can be heard as "a ticket has been
+      // raised". Observed on the dev box 2026-09-02.
+      note("Nothing was filed — there is no service desk connected to this build.");
+    }
     return;
   }
 
   if (res.ticketIntake) {
     // A question in the ticket interview, or the user declining the offer (D216). No proposal, no
-    // validation, and nothing has left the machine — branches before `res.ok` is destructured for
-    // the same reason the answer branch does.
-    show(proposalJson, {
-      ticketIntake: res.ticketIntake.stage,
-      note: res.ticketIntake.stage === "cancelled"
-        ? "the user declined. Nothing was filed and nothing was sent."
-        : `collecting "${res.ticketIntake.field}" for the ticket. Asked because it is not already known (D216).`,
-    });
-    show(validationJson, "not applicable — nothing was proposed.");
-    show(executionJson, "nothing executed, and NOTHING HAS BEEN SENT. The draft is not built until every required detail is known.");
-    renderFacts(res.facts ?? {});
+    // validation, and nothing has left the machine.
+    proposed(res.ticketIntake.stage === "cancelled"
+      ? "Nothing. The offer was declined."
+      : "Nothing. This turn is collecting a detail the ticket needs.",
+      {
+        ticketIntake: res.ticketIntake.stage,
+        note: res.ticketIntake.stage === "cancelled"
+          ? "the user declined. Nothing was filed and nothing was sent."
+          : `collecting "${res.ticketIntake.field}" for the ticket. Asked because it is not already known (D216).`,
+      });
+    checked("Not applicable — nothing was proposed.", "not applicable");
+    done("Nothing has been changed, and NOTHING HAS BEEN SENT. The draft is not built until every required detail is known.",
+      { executed: false, sent: false });
     setState("thinking");
     await say(res.reply, "idle");
     setState("idle");
@@ -447,17 +737,17 @@ async function handleTurn(text) {
   if (res.ticketDraft) {
     // THE ONE PLACE USER DATA CAN LEAVE THIS ENDPOINT, and it is gated on a click on a card that
     // shows every field being sent (D213, D217).
-    show(proposalJson, { ticketDraft: res.ticketDraft, note: "NOT YET SENT. This is what the card is showing the user." });
-    show(validationJson, "not applicable — a ticket is not a machine change, so the broker never sees it.");
-    show(executionJson, "awaiting the user's review…");
-    renderFacts(res.facts ?? {});
+    proposed("A ticket, drafted from what you told me and what I checked. Not sent.",
+      { ticketDraft: res.ticketDraft, note: "NOT YET SENT. This is what the card is showing the user." });
+    checked("Not applicable — a ticket is not a machine change, so the broker never sees it.", "not applicable");
+    done("Waiting on your review.", { executed: false, sent: false });
     setState("thinking");
     await say(res.reply, "idle");
 
     const approved = await reviewTicket(res.ticketDraft);
     if (!approved) {
-      show(executionJson, "the user cancelled. NOTHING WAS SENT and nothing was filed.");
-      bubble("cancelled — nothing left this machine", "sys");
+      done("You cancelled. NOTHING WAS SENT and nothing was filed.", { executed: false, sent: false, cancelled: true });
+      note("Cancelled — nothing left this machine.");
       setState("idle");
       return;
     }
@@ -465,46 +755,48 @@ async function handleTurn(text) {
     setState("thinking");
     const filed = await window.matic.fileTicket(approved);
     if (filed.ok) {
-      show(executionJson, { reference: filed.reference, ticketId: filed.ticketId, notified: filed.notified, notifiedWhy: filed.notifiedWhy });
+      done(`Filed. Reference ${filed.reference}.`,
+        { reference: filed.reference, ticketId: filed.ticketId, notified: filed.notified, notifiedWhy: filed.notifiedWhy });
       // THIS is `escalating` (D232): a ticket exists and has a number. The state is held after the
       // reply so the confirmation stays on the face while the user reads the reference.
       setState("escalating");
       await say(`That's filed. Your reference is ${filed.reference} — quote that if you follow it up.`, "escalating");
       // `notified` IS THE HUB'S OWN FIELD AND IT IS REPEATED, NOT INTERPRETED. The hub stores
       // tickets and emails nobody (D86). A user who hears "filed" and assumes someone was paged
-      // is the failure this line exists to prevent, and it is a `sys` line rather than the
-      // avatar's voice because it is a fact about the system, not something the assistant did.
-      if (!filed.notified) bubble(`${filed.reference} is stored for IT to pick up. No email was sent — this build has no outbound notification.`, "sys");
+      // is the failure this line exists to prevent.
+      if (!filed.notified) note(`${filed.reference} is stored for IT to pick up. No email was sent — this build has no outbound notification.`);
+      renderTickets(await window.matic.ticketsFiled());
     } else {
-      show(executionJson, { error: filed.error, filed: filed.filed });
+      done("The ticket could not be sent.", { error: filed.error, filed: filed.filed });
       // A ticket that could not be sent is a fault on OUR side - the hub, the network - not
       // something the assistant tried and could not help with, so `error`, not `apologising`.
-      // `filed: null` means a TIMEOUT — we genuinely do not know. Saying "nothing was filed" there
-      // would be a confident guess, and the wrong one leaves a user opening a second ticket.
       setState("error");
       await say(filed.error, "error");
-      bubble(filed.filed === null
-        ? "the hub did not answer in time — whether the ticket was stored is UNKNOWN"
-        : "nothing was filed", "sys bad");
+      // `filed: null` means a TIMEOUT — we genuinely do not know. Saying "nothing was filed" there
+      // would be a confident guess, and the wrong one leaves a user opening a second ticket.
+      note(filed.filed === null
+        ? "The service desk did not answer in time, so whether the ticket was stored is unknown. Quote nothing and tell me if you want to try again."
+        : "Nothing was filed.", { unknown: filed.filed === null });
     }
     return;
   }
 
   if (res.ticketStatus) {
     // D235. "Where's my ticket?" answered from this machine's egress record. No proposal, no
-    // validation, nothing sent, and - shown here as well as spoken - NO status lookup: the hub's
-    // ticket table is not visible from the endpoint in this build.
-    show(proposalJson, {
+    // validation, nothing sent, and - shown as well as spoken - NO status lookup: the hub's ticket
+    // table is not visible from the endpoint in this build. The band beside it says the same.
+    proposed("Nothing. This turn was answered from this machine's own record of what it has sent.", {
       ticketStatus: res.ticketStatus.filed.map((f) => ({ reference: f.reference, filedAt: f.filedAt, notified: f.notified })),
       canFile: res.ticketStatus.canFile,
       canQueryHub: res.ticketStatus.canQueryHub,
       note: "from audit/egress.jsonl - what THIS machine filed and got a reference for. Current status is NOT known: a hub-side lookup is not built (D54, D68/D69).",
     });
-    show(validationJson, "not applicable — nothing was proposed.");
-    show(executionJson, "nothing executed, and nothing was sent. This answer came from a local record.");
-    renderFacts(res.facts ?? {});
+    checked("Not applicable — nothing was proposed.", "not applicable");
+    done("Nothing has been changed, and nothing was sent. This answer came from a local record.", { executed: false, sent: false });
+    renderTickets(res.ticketStatus);
     setState("thinking");
     await say(res.reply, "idle");
+    setState("idle");
     return;
   }
 
@@ -516,13 +808,12 @@ async function handleTurn(text) {
     // does not reach the code that can offer a consent card. On 2026-09-03 "Hello how are you?"
     // produced a renew_dhcp card, and every gate behaved correctly — which is what made it a
     // safety issue rather than a cosmetic one.
-    show(proposalJson, {
+    proposed("Nothing. This turn was a question, answered from what the assistant already knows.", {
       socialTemplate: res.social.subkind,
       note: "answered from a client-shipped template (D165). No model was called, and no capability was proposed.",
     });
-    show(validationJson, "not applicable — nothing was proposed, so there was nothing to validate.");
-    show(executionJson, "nothing executed. This turn never reached the consent path (D198).");
-    renderFacts(res.facts ?? {});
+    checked("Not applicable — nothing was proposed, so there was nothing to check.", "not applicable");
+    done("Nothing has been changed. This turn never reached the consent path (D198).", { executed: false, changes: [] });
     setState("thinking");
     await say(res.reply, "idle");
     setState("idle");
@@ -530,79 +821,83 @@ async function handleTurn(text) {
   }
 
   if (res.answer) {
-    // A QUESTION was answered (or declined) from the knowledge base — D211. Branches BEFORE the
-    // `res.ok` destructure below, because an answer has no proposal and no validation: reaching
-    // that code would read `validation.ok` off undefined.
+    // A QUESTION was answered (or declined) from the knowledge base — D211.
     const { answered, citedArticleIds, retrieval } = res.answer;
-    show(proposalJson, {
-      answeredFromKnowledgeBase: answered,
-      // Named `citedArticleIds` here too, rather than flattened into prose, for the reason below.
-      citedArticleIds,
-      retrieval,
-    });
-    show(validationJson, "not applicable — no capability was proposed. A question changes nothing on this machine.");
-    show(executionJson, "nothing executed — this was a question, not an action.");
-    renderFacts(res.facts ?? {});
+    proposed(answered
+      ? "Nothing. This turn was answered from your company's written guidance."
+      : "Nothing. No company guidance covered it, so it was handed on instead.",
+      { answeredFromKnowledgeBase: answered, citedArticleIds, retrieval });
+    checked("Not applicable — no capability was proposed. A question changes nothing on this machine.", "not applicable");
+    done("Nothing has been changed — this was a question, not an action.", { executed: false, changes: [] });
     setState("thinking");
 
     if (answered) {
       // THE CITATION IS ATTRIBUTED CHROME, NOT THE AVATAR'S VOICE (H5). It is shown as a source
-      // line in the transcript and is deliberately NOT spoken and NOT concatenated into the
-      // reply: "according to keyboard-shortcuts-windows, press Win+Shift+S" said aloud is the
-      // avatar claiming provenance, where a separate line is the UI attributing it.
+      // block under the reply and is deliberately NOT spoken and NOT concatenated into it:
+      // "according to keyboard-shortcuts-windows, press Win+Shift+S" said aloud is the avatar
+      // claiming provenance, where a separate block is the UI attributing it.
       await say(res.reply, "idle");
-      if (citedArticleIds.length) bubble(`source: ${citedArticleIds.join(", ")}`, "sys");
-    } else {
-      // A DECLINE IS A CORRECT ANSWER, not a failure, and the transcript must not dress it as one
-      // (D205, B7a §2). The avatar says it does not know and offers a ticket; the system line says
-      // plainly that nothing was filed, for the same reason the escalation branch does — the offer
-      // can be heard as the act.
-      //
-      // THE FACE SAYS SO TOO (D232, the point of the avatar pass). Until 2026-09-10 this branch
-      // spoke in `speaking` and ended in `idle` with a RED system line - a correct behaviour dressed
-      // as a failure at the moment the user's trust is most in play (v7: declining is "the most-seen
-      // state and the one to get most right"). `declining` is round eyes, narrow mouth, a `?`
-      // badge, no bow: composed, never sorry. Held after the reply because the offer is open, and
-      // the system line is plain `sys`, not `sys bad`.
-      setState("declining");
-      await say(res.reply, "declining");
-      bubble("no company guidance covers this — nothing was filed", "sys");
+      if (citedArticleIds.length) {
+        const cite = el("div", "citation");
+        cite.append(el("span", "from", "From your company's IT guidance"));
+        const src = el("div", "src");
+        src.append(el("span", "", citedArticleIds.join(", ")));
+        cite.append(src);
+        turn().append(cite);
+        scrollDown();
+      }
+      setState("idle");
       return;
     }
-    setState("idle");
+
+    // A DECLINE IS A CORRECT ANSWER, not a failure, and the transcript must not dress it as one
+    // (D205, B7a §2). THE FACE SAYS SO TOO (D232): `declining` is round eyes, narrow mouth, a `?`
+    // badge, no bow — composed, never sorry. Held after the reply because the offer is open.
+    setState("declining");
+    await say(res.reply, "declining");
+    note("No company guidance covers this — nothing was filed.");
     return;
   }
 
   if (!res.ok) {
-    show(proposalJson, res.error ?? "no proposal");
     if (res.guidance) {
       // Order matters. These checks first rendered BEFORE the headline and in the grey system
       // style, and a user read straight past them: "I didn't realize those instructions were
       // for me." So: the assistant speaks first and gives the checks context, THEN they appear
       // as a card that looks like something to act on, THEN it says what to do next.
-      show(proposalJson, { noCapabilityApplies: true, ...res.guidance });
-      renderFacts(res.facts ?? {});
+      proposed("Nothing I can do from here — this one needs a pair of hands at the machine.",
+        { noCapabilityApplies: true, ...res.guidance });
+      checked("Not applicable — nothing was proposed.", "not applicable");
+      done("Nothing has been changed on this machine this turn.", { executed: false, changes: [] });
       setState("apologising");
       await say(`${res.guidance.headline} ${res.guidance.cause}`, "idle");
       todoCard(res.guidance);
       return;
     }
+    proposed("No proposal.", res.error ?? "no proposal");
+    checked("Not applicable — nothing was proposed.", "not applicable");
     // The last resort: it tried and could not help. That is `apologising`, not `idle` (D232 / v7).
     setState("apologising");
     await say(res.reply ?? "I could not work out a safe next step for that.", "idle");
     return;
   }
 
-  const { proposal, validation, facts, reply } = res;
-  renderFacts(facts);
-  show(proposalJson, proposal);
+  const { proposal, validation, reply: replyText } = res;
+  proposed(validation.ok
+    ? `${validation.capability.title}.`
+    : "The model proposed something the broker would not allow.", proposal);
   // Compact on purpose: the full capability object is long enough to push everything below it
   // out of view, and the interesting part is the verdict.
-  show(validationJson, validation.ok
-    ? { ok: true, capability: validation.capability.id, tier: validation.capability.tier, rollback: validation.capability.rollback }
-    : { ok: false, errors: validation.errors });
+  checked(validation.ok
+    ? "Allowed on this machine, and its preconditions hold."
+    : `Refused: ${validation.errors.join(" ")}`,
+    validation.ok
+      ? { ok: true, capability: validation.capability.id, tier: validation.capability.tier, rollback: validation.capability.rollback }
+      : { ok: false, errors: validation.errors });
   // "tier0-state" deliberately does NOT get the "no cloud call made" line: a cloud call WAS
-  // attempted on that path and failed. Drawing that distinction is the honest thing to show.
+  // attempted on that path and failed. Drawing that distinction is the honest thing to show - and
+  // since 2026-09-10 it is shown HERE, in the inspector, rather than as a line at the user, who
+  // has no use for the word "tier0" and was reading it on every single turn.
   const SOURCE_NOTE = {
     tier0: "  (no cloud call made)",
     "tier0-state": "  (from machine state alone - nothing matched what was typed, and the cloud was unreachable)",
@@ -611,41 +906,45 @@ async function handleTurn(text) {
     hub: "  (sent to the hub; where it went from there is the hub's claim, not this machine's knowledge)",
   };
   const hubClaim = proposal.source === "hub" ? `; hub claims provider: ${proposal.hubProvider ?? "unstated"}` : "";
-  bubble(`source: ${proposal.source}${SOURCE_NOTE[proposal.source] ?? ""}${hubClaim}`, "sys");
+  devlog(`[router] source: ${proposal.source}${SOURCE_NOTE[proposal.source] ?? ""}${hubClaim}`);
 
   if (!validation.ok) {
-    // The broker refused the model's proposal. This is the safety invariant working, and it
-    // is shown, not hidden (§13).
-    bubble(`broker refused: ${validation.errors.join(" ")}`, "sys bad");
+    // The broker refused the model's proposal. This is the safety invariant working, and it is
+    // shown, not hidden (§13) - in plain words here, with the refusal itself in the inspector.
     setState("apologising");
-    await say(reply ?? `I can't do that one. ${validation.errors[0]}`, "idle");
+    await say(replyText ?? `I can't do that one. ${validation.errors[0]}`, "idle");
+    note("I checked that against what I'm allowed to do on this machine, and it isn't allowed. Nothing was changed.");
     return;
   }
 
-  await say(reply ?? `I think this is the fix. ${validation.capability.title}.`, "listening");
+  await say(replyText ?? `I think this is the fix. ${validation.capability.title}.`, "listening");
+
+  // The evidence, at the moment it matters, rather than as a row in a band nobody opens - the
+  // design's single largest change to how a proposal reads.
+  //
+  // IT IS A RESTATEMENT OF A PROBE VALUE AND NOTHING ELSE. Not the model's reasoning (that is
+  // labelled as the model's, inside the card), not a claim that the fix will work, and not
+  // assembled when the probe has nothing to say about the service in question - in which case
+  // there is no line, rather than a line hedged into meaninglessness.
+  const evidence = evidenceFor(proposal, res.facts);
+  if (evidence) why("Why", evidence);
 
   // Consent step 1 (D130): the BROKER renders the card and keeps the proposal. From here on the
   // renderer holds a nonce and the text to paint, and never sends the proposal again.
   const prepared = await window.matic.prepareConsent(proposal, navigator.language);
   if (!prepared.ok) {
-    bubble(`broker refused to render a consent card: ${prepared.error}`, "sys bad");
+    consented("The broker refused to render a consent card, so you were never asked.", { error: prepared.error });
     setState("apologising");
     await say(`I can't ask you to approve that one. ${prepared.error}`, "idle");
+    note("Nothing was changed.");
     return;
   }
   const request = prepared.request;
-  show(consentJson, {
-    nonce: request.nonce,
-    renderedBy: "broker",
-    locale: request.locale,
-    expiresAt: new Date(request.expiresAt).toISOString(),
-    awaiting: "the user's decision",
-  });
 
   const approved = await askConsent(request, proposal);
   if (!approved) {
-    consentJson.textContent = "denied — the nonce was never presented back; nothing was executed";
-    bubble("consent denied — nothing was executed", "sys");
+    consented("You did not approve it. The nonce was never presented back and nothing ran.",
+      { nonce: request.nonce, approved: false });
     setState("idle");
     await say("Understood, I won't change anything.", "idle");
     return;
@@ -654,13 +953,13 @@ async function handleTurn(text) {
   // Consent step 2: the nonce and nothing else. The broker runs what IT rendered.
   setState("accept");
   const exec = await window.matic.execute(request.nonce);
-  show(consentJson, {
+  consented("You approved it, and the broker ran what it had rendered.", {
     nonce: request.nonce,
     singleUse: true,
     brokerExecutedWhatItRendered: true,
     auditId: exec.auditId,
   });
-  show(executionJson, exec);
+  done(exec.ok ? "Done on this machine." : "It ran and did not help.", exec);
 
   if (exec.ok) {
     setState("success");
@@ -669,8 +968,9 @@ async function handleTurn(text) {
     // A deployment fault - the unprivileged half was asked to do privileged work - so `error`
     // ("a technical fault on our side"), not `escalating`: no ticket was raised (D232).
     setState("error");
-    bubble("ACCESS_DENIED — the agent half cannot do this; it needs the privileged broker.", "sys bad");
+    done("It could not run: this half of the app is not allowed to.", exec);
     await say(exec.message, "idle");
+    note("That needs the privileged half of this application, which isn't running. Nothing was changed.");
   } else {
     // A fix that ran and did not help is `apologising`, not `error` - v7's placement rule, verbatim:
     // "Do not put error on a failed fix — that is apologising." The assistant tried and could not
@@ -680,34 +980,56 @@ async function handleTurn(text) {
   }
 }
 
-// ---- hub connectivity (D49/D51, D233) ----
+/**
+ * Checks the USER has to carry out. Rendered as a card rather than as running text because a user
+ * missed them completely when they were grey system messages: they read as logging, not as
+ * instructions.
+ */
+function todoCard({ checks, nextStep }) {
+  const box = framed(el("div", "bp todo-card"));
+  const head = el("div", "consent-head");
+  head.append(el("b", "", "Over to you"), el("span", "", "Things I can't check from here"));
+  const list = el("ol");
+  for (const c of checks) {
+    const li = el("li");
+    li.append(el("b", "", c.label), el("span", "", c.detail));
+    list.append(li);
+  }
+  box.append(head, list, el("div", "next", nextStep));
+  turn().append(box);
+  scrollDown();
+}
+
+// ═══ hub connectivity (D49/D51, D233) ═════════════════════════════════════════════════════════
 //
-// The pill is the persistent surface (D120's Status destination, in miniature). The transcript
-// carries each TRANSITION, because D51 says a mid-session capability loss is stated to the user
-// rather than silently degraded - and the face carries it too while it is idle: `error` is v7's
-// "I've lost my connection to the service desk", the one state that goes static. It is not forced
-// over a turn in progress; the next turn's own states take the face back, and the pill keeps the
-// fact.
+// THE RAIL IS THE PERSISTENT SURFACE and the band under the utility bar is the standing sentence;
+// the transcript carries each TRANSITION, because D51 says a mid-session capability loss is stated
+// to the user rather than silently degraded. The face carries it too while it is idle: `error` is
+// v7's "I've lost my connection to the service desk", the one state that goes static. It is not
+// forced over a turn in progress; the next turn's own states take the face back.
+//
+// THE WORDS HERE AND THE WORDS agent.js SAYS IN THE SAME CONDITION MUST AGREE. 700d920 fixed a
+// reply claiming the hub was unreachable while the pill beside it said reachable; the same defect
+// is available to any panel that describes a state in its own vocabulary.
 let lastHubState = null;
 function applyHubStatus(s) {
   if (!s) return;
-  const when = (t) => (t ? new Date(t).toLocaleTimeString() : "never");
-  const text = {
-    standalone: "hub: standalone (no hub configured)",
-    checking: "hub: checking…",
-    reachable: `hub: reachable · last ok ${when(s.lastOkAt)}`,
-    unreachable: `hub: UNREACHABLE (${s.consecutiveFailures} failures) · last ok ${when(s.lastOkAt)}`,
-  }[s.state] ?? `hub: ${s.state}`;
-  hubPill.textContent = text;
-  hubPill.className = `pill ${s.state === "reachable" ? "on" : s.state === "unreachable" ? "bad" : "off"}`;
-  hubPill.title = `${s.basis}${s.authenticated ? "" : " - identified by shape, NOT device-authenticated (D50 needs D61)"}${s.lastError ? `\nlast error: ${s.lastError}` : ""}`;
+  // D49's three states become the design's three, and `checking` shows as the standalone reading
+  // until the first probe answers - the quietest of the three, and never a warning.
+  root.dataset.hub = s.state === "reachable" ? "ok" : s.state === "unreachable" ? "unreachable" : "none";
+
+  const since = s.lastOkAt ? Math.round((Date.now() - new Date(s.lastOkAt).getTime()) / 60000) : null;
+  const checkedWords = since === null ? "" : since <= 1 ? "Checked a moment ago." : since < 60 ? `Last reached ${since} minutes ago.` : "Last reached over an hour ago.";
+  for (const span of document.querySelectorAll(".hub-checked")) span.textContent = checkedWords;
+
+  devlog(`[hub] ${s.state} · ${s.basis}${s.authenticated ? "" : " (identified by shape, NOT device-authenticated - D50 needs D61)"}${s.lastError ? ` · last error: ${s.lastError}` : ""}`);
 
   if (lastHubState !== null && s.state !== lastHubState) {
     if (s.state === "unreachable") {
-      bubble(`I've lost my connection to the service desk (${s.lastError ?? "no answer"}). I can still fix what this machine can fix on its own; questions and tickets will wait until it is back.`, "sys bad");
+      note(`I've lost my connection to the service desk. I can still fix what this machine can fix on its own; questions and tickets will wait until it's back.`, { label: "Just now" });
       if (avatar.state === "idle") setState("error");
     } else if (s.state === "reachable" && lastHubState === "unreachable") {
-      bubble("the service desk is reachable again", "sys good");
+      note("The service desk is reachable again.", { label: "Just now" });
       if (avatar.state === "error") setState("idle");
     }
   }
@@ -715,24 +1037,38 @@ function applyHubStatus(s) {
 }
 window.matic.onHubLink(applyHubStatus);
 
-sendBtn.onclick = async () => {
-  const text = inputEl.value.trim();
-  if (!text) return;
+// ═══ input ════════════════════════════════════════════════════════════════════════════════════
+
+let turnInFlight = false;
+/** The one way a sentence reaches the agent, whether it was typed, clicked as an opener, or
+ *  answered with the offer's own buttons. */
+async function submit(text) {
+  const sentence = String(text ?? "").trim();
+  if (!sentence || turnInFlight) return;
+  turnInFlight = true;
   inputEl.value = "";
   sendBtn.disabled = inputEl.disabled = true;
   try {
-    await handleTurn(text);
+    await handleTurn(sentence);
   } catch (err) {
-    bubble(`renderer error: ${err.message}`, "sys bad");
+    note(`Something went wrong inside the panel and this turn stopped: ${err.message}`, { unknown: true });
+    devlog(`[panel] ${err.stack ?? err.message}`);
     setState("error");
   } finally {
+    setBusy(false);
+    turnInFlight = false;
     sendBtn.disabled = inputEl.disabled = false;
+    scrollDown();
     inputEl.focus();
   }
-};
-inputEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendBtn.click();
-});
+}
+
+sendBtn.addEventListener("click", () => submit(inputEl.value));
+inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(inputEl.value); });
+// The first-run openers are real sentences, not shortcuts into a different code path.
+for (const b of document.querySelectorAll(".opener")) {
+  b.addEventListener("click", () => submit(b.textContent));
+}
 
 window.matic.onLog(devlog);
 
@@ -754,17 +1090,26 @@ const ttsSettled = new Promise((resolve) => {
 });
 
 (async () => {
-  voicePill.textContent = "voice: loading model…";
+  applyTheme(root.dataset.theme === "dark" ? "dark" : "light");
+
   const st = await ttsSettled;
   voiceReady = Boolean(st.ready);
-  voicePill.textContent = voiceReady ? `voice: piper ${st.sampleRate} Hz` : "voice: text-only";
-  voicePill.className = `pill ${voiceReady ? "on" : "off"}`;
-  if (!voiceReady && st.error) devlog(`[tts] ${st.error}`);
+  // The voice pill is gone from the surface (it was ours, not theirs). Whether Piper loaded is
+  // still worth knowing, so it is a developer-log line - and a failure still degrades to text with
+  // the mouth moving, which the user can see without being told.
+  devlog(voiceReady ? `[tts] piper ready, ${st.sampleRate} Hz` : `[tts] text-only: ${st.error ?? "the voice model did not load"}`);
 
   const facts = await window.matic.diagnose();
-  renderFacts(facts?.summary ?? {});
+  renderMachine(facts);
+  devlog(`[panel] ${facts?.computer ?? "this machine"} · ${facts?.user ?? "unknown user"} · adapter ${facts?.adapter ?? "-"} · ip ${facts?.ip ?? "-"} · gateway ${facts?.gateway ?? "-"}`);
+  renderTickets(await window.matic.ticketsFiled());
   applyHubStatus(await window.matic.hubStatus());
 
+  // The boot line opens the conversation, so it opens a turn - but the first-run panel stays until
+  // the USER says something, which is what `openTurn` would retire. So it is spoken into its own
+  // turn wrapper without switching the scene.
+  currentTurn = el("div", "transcript-turn");
+  transcriptEl.append(currentTurn);
   setState("greeting");
   await say(persona.boot[0], "idle");
   inputEl.focus();

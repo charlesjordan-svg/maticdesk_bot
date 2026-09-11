@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Matic Desk panel — check page</title>
+<!--
+  THE PANEL, RUNNING THE REAL RENDERER, WITH A FAKE BRIDGE. Opens from disk, offline, no build.
+
+  `avatar-check.html` is the precedent and the argument is the same one: no headless test can see
+  a screen, so the thing that finds defects is a page you can open and click. This one loads
+  `../index.html`'s own markup and `../renderer.js` itself - not a copy - and replaces exactly one
+  thing: `window.matic`, the preload bridge, which needs Electron.
+
+  WHAT THAT MEANS FOR WHAT IT PROVES. Everything the renderer does with a response is real: the
+  layout, the states, the consent card, the offer, the bands, the inspector, the theme. Everything
+  BEHIND the bridge is canned - no probe, no model, no broker, no hub, no Piper - so a green run
+  here says the panel handles those shapes, and says nothing whatever about whether the broker
+  produces them. The app is still the only place the integration is proven (acceptance item 10).
+
+  Type one of the prompts on the rail, or anything at all - an unrecognised sentence gets the
+  "I could not work out a safe next step" path, which is a real branch worth seeing too.
+-->
+<style>
+  /* The check page's own chrome, kept deliberately unlike the panel's so nothing on this page can
+     be mistaken for part of the product. */
+  body { margin: 0; font: 13px/1.5 system-ui, sans-serif; background: #33383d; color: #e8ecef; }
+  .checkbar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid #4a5058; flex-wrap: wrap; }
+  .checkbar b { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: #9fabb4; }
+  .checkbar button { font: inherit; padding: 4px 10px; background: #262b30; color: #e8ecef; border: 1px solid #5a626b; cursor: pointer; }
+  .checkbar button:hover { background: #3d444c; }
+  .checkbar span { font-size: 11px; color: #9fabb4; }
+  .frame { width: 100%; height: calc(100vh - 43px); border: 0; display: block; background: #f2f2f3; }
+</style>
+</head>
+<body>
+
+<div class="checkbar">
+  <b>Panel check</b>
+  <button data-say="my printer won't print">a fix, with consent</button>
+  <button data-say="what are your capabilities">the capability answer</button>
+  <button data-say="my dock stopped driving both screens">an answer with a citation</button>
+  <button data-say="can you move my mailbox to the new server">a decline, with an offer</button>
+  <button data-say="where's my ticket">tickets filed from here</button>
+  <button data-hub="unreachable">service desk: lost</button>
+  <button data-hub="reachable">service desk: back</button>
+  <button data-reload="1">reload</button>
+  <span>The bridge is FAKE. Nothing below talks to a broker, a hub or a model.</span>
+</div>
+
+<iframe class="frame" id="frame" src="./panel-check-frame.html"></iframe>
+
+<script>
+  /* The rail drives the framed panel through the same functions a user would reach: it types into
+     the composer and clicks Send. Nothing here reaches inside the renderer. */
+  const frame = document.getElementById("frame");
+  document.querySelector(".checkbar").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.reload) { frame.contentWindow.location.reload(); return; }
+    if (b.dataset.hub) { frame.contentWindow.__maticCheck?.hub(b.dataset.hub); return; }
+    const doc = frame.contentDocument;
+    doc.getElementById("input").value = b.dataset.say;
+    doc.getElementById("send").click();
+  });
+</script>
+</body>
+</html>

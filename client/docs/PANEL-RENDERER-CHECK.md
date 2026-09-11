@@ -1,0 +1,134 @@
+# Panel renderer check — for Charles to run
+
+**Written 2026-09-10 with the panel integration (D240–D243).** Same shape as
+[`AVATAR-RENDERER-CHECK.md`](AVATAR-RENDERER-CHECK.md) and
+[`D130-RENDERER-CHECK.md`](D130-RENDERER-CHECK.md): the renderer is not covered by `npm test`,
+because no headless test can see a screen, so this is the list a person looks at.
+
+**What the building session already saw, and where.** It drove the panel through
+`src/renderer/panel/panel-check.html` — the real `renderer.js`, a fake bridge — and watched: the
+first-run panel, the boot greeting, the consent flow end to end, the machine band, the tickets
+band, the inspector overlay with its payloads wrapped, dark mode, the escalation offer answered
+with its own buttons, the ticket review card, a filed ticket, a citation, and a hub transition
+from reachable to unreachable. §7 of the handover says what that does and does not establish.
+
+**What nobody has seen: the panel in Electron, against a real broker, a real probe and a real
+hub.** That is this document, and it is the acceptance item the design handover refused to make
+optional. Six of the last seven click-throughs on this project found something.
+
+## 0. Before starting
+
+```powershell
+cd C:\Users\Charles\Downloads\maticdesk_bot\client
+npm.cmd test
+```
+
+```powershell
+cd C:\Users\Charles\Downloads\maticdesk_bot\client
+npm.cmd run panel:check
+```
+
+Both green. Then start the hub (Desktop icon "Matic Desk Hub") and the agent ("Matic Desk Agent").
+
+If you want the fake-bridge page as well — it is quicker for looking at layout, and it needs no
+hub:
+
+```powershell
+py -3 -m http.server 8766 --directory C:\Users\Charles\Downloads\maticdesk_bot\client\src --bind 127.0.0.1
+```
+
+Then open `http://127.0.0.1:8766/renderer/panel/panel-check.html`. **Everything behind the bridge
+on that page is canned** — the machine is PLACEHOLDER-PC and no broker is running. It proves
+layout, never behaviour.
+
+## 1. The window opens as itself
+
+| # | Look at | Pass when |
+|---|---|---|
+| 1.1 | The first frame after launch | No flash of a light window before a dark one (or vice versa). The window is not shown until it has painted |
+| 1.2 | The whole window | The panel fills it. No stage padding, no drop shadow, no registration marks clipped at the edges |
+| 1.3 | The left rail | The avatar at 150px, the brand, and **no state name, no voice pill, no facts table** |
+| 1.4 | The transcript | "Tell me what's gone wrong", three openers, and Matic's spoken greeting below them |
+| 1.5 | Click an opener | It sends that sentence as if you had typed it |
+
+## 2. The theme (acceptance 1)
+
+| # | Do | Pass when |
+|---|---|---|
+| 2.1 | Click the circle button at the bottom of the rail | The whole panel changes theme, **and the avatar's field changes with it** (dark knocks the field out — v7 §05) |
+| 2.2 | Close the app. Reopen it | It comes back in the theme you left it in |
+| 2.3 | In dark, read: the reply text, the band rows, the inspector's JSON, the composer placeholder | All legible. Anything you have to lean in for is a finding |
+
+## 3. The inspector (acceptance 2)
+
+| # | Do | Pass when |
+|---|---|---|
+| 3.1 | Look at the top-right of the conversation | A small crosshair. **No panel of JSON is on screen** |
+| 3.2 | Click it | A drawer opens **over** the conversation, from the right, with a dimmed scrim behind it |
+| 3.3 | Read the four steps | Proposed / Checked / Consent / Done, each a sentence you could read aloud to a buyer |
+| 3.4 | Expand "Show the data" on each | The payload **wraps**. Nothing is cut off at the right edge, and there is no horizontal scrollbar |
+| 3.5 | Expand the developer log | `[router]`, `[hub]`, `[tts]`, `[avatar]` lines — ours, and only here |
+| 3.6 | Close it, look at the conversation | Nothing has moved. Nothing was reserved for it |
+
+## 4. A real fix, with consent (the D130 comparison, again)
+
+Ask it something a capability covers — "my printer won't print" with the spooler stopped
+(`npm.cmd run inject-fault`).
+
+| # | Look at | Pass when |
+|---|---|---|
+| 4.1 | Above the card | A **Why** line naming the service and its state, in plain words |
+| 4.2 | The card's heading | The broker's title. Beside it, "Nothing has changed yet" |
+| 4.3 | The card's words | **Byte-for-byte what `npm.cmd run show-consent` prints.** Not re-wrapped, not shortened, not sentence-cased. This is the check that matters most on the page |
+| 4.4 | "What is this, and why?" | Collapsed by default; opens to the model's own reasoning first, labelled as such |
+| 4.5 | Approve | The line beside the heading becomes "You approved this", the outcome is recorded on the card, and the reply follows |
+| 4.6 | Deny | "You did not approve this", and nothing runs |
+
+## 5. A decline, and an offer you can answer (acceptance 7, handover §6)
+
+Ask for something outside the catalog — "can you move my mailbox to the new server".
+
+| # | Look at | Pass when |
+|---|---|---|
+| 5.1 | The reply | **No red, no warning colour, no apology layout.** It reads as an answer |
+| 5.2 | The avatar | `declining` — round eyes, a `?`, no bow. Held while the offer is open |
+| 5.3 | Inside the reply | **Yes, open a ticket** / **No thanks**, and "What would you send?" |
+| 5.4 | Above the composer | "Waiting on your yes or no above — or just type instead." |
+| 5.5 | The rail | "Nothing running". It is waiting on you, and does not imply it is working |
+| 5.6 | Click Yes | "You said yes" stays on the message, the sentence goes through the composer path, and the interview or the review card follows |
+| 5.7 | Instead, type "yes please" | Identical behaviour. The buttons are not a second code path |
+
+## 6. A ticket, and what filing it does not mean (D86/D213)
+
+| # | Look at | Pass when |
+|---|---|---|
+| 6.1 | The review card | Every field that will be sent. Your details editable, the case note and category shown and fixed |
+| 6.2 | The caveat on the card | "No email is sent in this build, so nobody is alerted automatically" |
+| 6.3 | Send it | The reference is spoken, and a note repeats that nobody was alerted |
+| 6.4 | The tickets band's count | It has gone up by one |
+
+## 7. The two bands
+
+| # | Do | Pass when |
+|---|---|---|
+| 7.1 | Open "What I can see about this machine" | Your real machine name and user, printing and sound in plain words, the adapter, and the address rows. "Checked just now" |
+| 7.2 | Stop the spooler, reopen the band | It says Stopped. **The band re-reads the probe when it opens** — if it shows a stale value, that is a finding |
+| 7.3 | Open "Tickets you've opened" | The tickets **this machine** filed, each saying "Filed from here / Progress not visible" |
+| 7.4 | Read the note under them | It says progress cannot be checked in this build, in the same words the spoken answer uses |
+| 7.5 | Ask "where's my ticket?" | The spoken answer and the band agree. **Two surfaces describing one thing differently is the defect to look for** |
+
+## 8. The three connection states (acceptance 8)
+
+| # | Do | Pass when |
+|---|---|---|
+| 8.1 | Hub running | Rail: "Everything I need is available". No band across the top |
+| 8.2 | Stop the hub, wait for the link to notice | A line in the transcript saying the connection is lost, a standing band at the top, the rail at "Working with less than usual", and the avatar at `error` if it was idle |
+| 8.3 | Ask something that needs the hub | **The reply must not contradict the band.** Both say it cannot reach the service desk. This is the 700d920 defect and it is the one to hunt |
+| 8.4 | Start the hub again | "The service desk is reachable again", the band goes, the face returns to idle |
+| 8.5 | Run with no hub configured at all | "Working on this machine only", grey, no warning colour. It must read as a configuration, not a fault |
+
+## 9. What to write down
+
+For anything that fails: what you did, what you saw, and what you expected. A screenshot of the
+panel plus the inspector open on the same turn is worth more than a description — the inspector
+holds what the panel deliberately no longer says.

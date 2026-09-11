@@ -25,7 +25,9 @@
     "e2e:ticket": "node eval/e2e-ticket.mjs",
     "avatar:build": "node scripts/build-avatar-assets.mjs",
     "avatar:check": "node scripts/build-avatar-assets.mjs --check",
-    "avatar:compare": "node scripts/compare-phoneme-maps.mjs"
+    "avatar:compare": "node scripts/compare-phoneme-maps.mjs",
+    "panel:build": "node scripts/build-panel-assets.mjs",
+    "panel:check": "node scripts/build-panel-assets.mjs --check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
