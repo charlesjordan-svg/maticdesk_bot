@@ -8,6 +8,21 @@
  */
 import { restartService, queryService } from "../win32/scm.js";
 import { flushDnsCache, renewDhcp, resetAdapter, listAdapters, getInterfaceStatus } from "../win32/net.js";
+import catalog from "../catalog.json" with { type: "json" };
+
+/**
+ * WHAT WINDOWS CALLS THE SERVICE, from the catalog (D247). `serviceName` is a registry key —
+ * `spooler`, `audiosrv` — and the broker's report of what it did is SPOKEN to the user, so it said
+ * "Restarted the spooler service" to someone whose printer had stopped. A user going to look for
+ * that service in Windows would not find it under that name; Windows calls it "Print Spooler".
+ *
+ * It is catalog data for the same reason `plain.*` is: it is text a user reads, so it is reviewable
+ * and signable rather than written wherever it was first needed. An unmapped key falls back to
+ * itself — the honest fallback, and `broker.test.mjs` fails before that can ship.
+ */
+const SERVICE_DISPLAY_NAMES =
+  catalog.capabilities.find((c) => c.id === "restart_service")?.plain?.serviceNames ?? {};
+const serviceDisplayName = (key) => SERVICE_DISPLAY_NAMES[key] ?? key;
 
 export const EXECUTORS = {
   async restart_service({ serviceName }) {
@@ -63,19 +78,26 @@ export const EXECUTORS = {
  * happens during rehearsal, and what happens on stage if the fault injection is forgotten.
  *
  * The STOPPED -> RUNNING wording is kept verbatim: it is the money line for Scenario 1.
+ *
+ * WHAT CHANGED ON 2026-09-10 (D247) IS THE NAME AND NOTHING ELSE. These four sentences are SPOKEN,
+ * and they named the service by its registry key — "Restarted the spooler service" — which is our
+ * key, not a name a user could look up. The before → after pair is untouched, because that pair IS
+ * the money line: it is the proof that something happened, and it is the reason the sentence is
+ * worth saying at all.
  */
 export function describeServiceRestart(serviceName, detail) {
   const { stateBefore, stateAfter, steps = [] } = detail ?? {};
+  const svc = serviceDisplayName(serviceName);
   if (stateAfter !== "RUNNING") {
-    return `Tried to restart the ${serviceName} service, but it is ${stateAfter ?? "in an unknown state"} now, not running.`;
+    return `Tried to restart the ${svc} service, but it is ${stateAfter ?? "in an unknown state"} now, not running.`;
   }
   if (stateBefore !== stateAfter) {
-    return `Restarted the ${serviceName} service — it went ${stateBefore} → ${stateAfter}.`;
+    return `Restarted the ${svc} service — it went ${stateBefore} → ${stateAfter}.`;
   }
   if (steps.includes("stopped")) {
-    return `Restarted the ${serviceName} service — it was already running, so it was stopped and started again. It is running now.`;
+    return `Restarted the ${svc} service — it was already running, so it was stopped and started again. It is running now.`;
   }
-  return `The ${serviceName} service is running, but it was not actually stopped and started.`;
+  return `The ${svc} service is running, but it was not actually stopped and started.`;
 }
 
 /**

@@ -3,6 +3,7 @@
  * Run: node test/broker.test.mjs
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InProcessBroker } from "../src/broker/in-process-broker.js";
@@ -184,6 +185,49 @@ if (faulted.length > 0) {
   const weird = await agent.propose("my chair is broken and my monitor is cracked");
   check("no proposal invented", !weird.proposal, JSON.stringify(weird.proposal));
   console.log("      reply:", weird.reply);
+}
+
+// ==============================================================================================
+console.log("=== 11. WHAT THE BROKER SAYS OUT LOUD, and what it keeps for the record (D247) ===");
+//
+// The renderer SPEAKS `ExecutionResult.message` on every path — success, failure, needs-broker and
+// every consent-gate refusal. It used to carry the machine's own vocabulary into the avatar's
+// mouth: `OpenServiceW(spooler) failed (Win32 error 5)`, `refused at execution time: capability
+// "reset_adapter" …`, `no consent nonce was presented`. The diagnostics are not gone — they are on
+// `detail` and in the audit record, which is where the question they answer gets asked.
+//
+// `validate().errors` is DELIBERATELY NOT on this list. Those strings name capability ids, adapter
+// GUIDs and control masks on purpose — they are the gate explaining itself, they go to the
+// inspector, and §2/§3/§4 above assert their content. What changed is that the renderer no longer
+// interpolates one into `say()`.
+{
+  /** Anything that is ours rather than the user's: an API name, a key, a code, a GUID, an id. */
+  const OURS = /\b(Win32|OpenServiceW|OpenSCManagerW|GetAdaptersInfo|IpRenewAddress|SetIfEntry|DnsFlushResolverCache)\b|\bnonce\b|0x[0-9a-f]+|\{[0-9A-Fa-f-]{8}|\b[a-z][a-z0-9]*_[a-z0-9_]+\b/;
+
+  const spoken = [];
+  spoken.push(["nothing presented", (await broker.execute(null)).message]);
+  spoken.push(["a forged nonce", (await broker.execute("00000000-0000-4000-8000-000000000000")).message]);
+
+  // A real run, whichever way it goes: flush_dns works unelevated, so this is the success line on
+  // this machine and the failure line on one where it does not.
+  const req = broker.prepareConsent({ capabilityId: "flush_dns", parameters: {}, reasoning: "r", confidence: 1, source: "tier0" }, { locale: "en" });
+  const ran = await broker.execute(req.nonce);
+  spoken.push([ran.ok ? "a successful run" : "a failed run", ran.message]);
+  if (!ran.ok) {
+    check("a failed run keeps the Win32 call site, in detail", typeof ran.detail?.win32 === "string", JSON.stringify(ran.detail));
+  }
+
+  for (const [label, line] of spoken) {
+    check(`${label}: the spoken line names nothing of ours — "${String(line).slice(0, 44)}…"`,
+      typeof line === "string" && line.length > 0 && !OURS.test(line), line);
+  }
+
+  // And the service name: `spooler` is a registry key, and the report of a restart is spoken.
+  const cap = JSON.parse(readFileSync(join(ROOT, "src/broker/catalog.json"), "utf8"))
+    .capabilities.find((c) => c.id === "restart_service");
+  check("the catalog carries a display name for every service in the enum (D247)",
+    cap.parameters.properties.serviceName.enum.every((k) => typeof cap.plain?.serviceNames?.[k] === "string"),
+    JSON.stringify(cap.plain?.serviceNames));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

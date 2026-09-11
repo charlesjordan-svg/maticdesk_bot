@@ -658,7 +658,15 @@ function askConsent(request, proposal) {
 
   const verbatim = el("div", "consent-verbatim");
   verbatim.append(el("p", "", r.what));
-  if (r.detail) verbatim.append(el("p", "", r.detail));
+  // `r.detail` is `capabilityId(param=value)` — "restart_service(serviceName=spooler)" — and it was
+  // painted as a paragraph, the same size and face as the plain-language sentence above it. NOT ONE
+  // BYTE OF IT IS CHANGED HERE (D130: this is displayed, never authored), and it is NOT hidden: the
+  // contract calls it the exact call built from the validated parameters, `docs/D130-RENDERER-CHECK.md`
+  // checks it by name, and it is the same disclosure D244 refused to hide on the review card. It is
+  // given that card's treatment instead — mono, smaller, underneath — so the sentence a person reads
+  // is the sentence, and the exact call is available and subordinate. Whether it should also be
+  // GLOSSED is a change to the rendered contract and is D248, proposed, awaiting Charles.
+  if (r.detail) verbatim.append(el("p", "exact", r.detail));
   if (r.rollbackNote) {
     // The broker phrases R2's note as a warning; R1's is a quiet reassurance. Same field, and the
     // tier decides the weight it is given - never the colour of a failure.
@@ -1003,12 +1011,18 @@ async function handleTurn(text) {
     // The broker refused the model's proposal. This is the safety invariant working, and it is
     // shown, not hidden (§13) - in plain words here, with the refusal itself in the inspector.
     setState("apologising");
-    await say(replyText ?? `I can't do that one. ${validation.errors[0]}`, "idle");
+    // THE BROKER'S GATE MESSAGE IS NOT SPOKEN (D247). It names capability ids, adapter GUIDs,
+    // Win32 control masks and the Service Control Manager — `validation.errors[0]` used to be the
+    // fallback here, so a missing `reply` put a hex mask in the avatar's mouth. It is one line up,
+    // in the inspector, where `checked()` already puts it. The fallback is now a sentence.
+    await say(replyText || "I can't do that one — it isn't something I'm allowed to do on this machine.", "idle");
     note("I checked that against what I'm allowed to do on this machine, and it isn't allowed. Nothing was changed.");
     return;
   }
 
-  await say(replyText ?? `I think this is the fix. ${validation.capability.title}.`, "listening");
+  // `||` rather than `??`: a provider that returns an empty `reasoning` gives an empty `reply`, and
+  // `??` would have spoken silence. The title is the capability's own name and is fine to say.
+  await say(replyText || `I think this is the fix. ${validation.capability.title}.`, "listening");
 
   // The evidence, at the moment it matters, rather than as a row in a band nobody opens - the
   // design's single largest change to how a proposal reads.
@@ -1025,8 +1039,12 @@ async function handleTurn(text) {
   const prepared = await window.matic.prepareConsent(proposal, navigator.language);
   if (!prepared.ok) {
     consented("The broker refused to render a consent card, so you were never asked.", { error: prepared.error });
+    devlog(`[broker] prepareConsent refused: ${prepared.error}`);
     setState("apologising");
-    await say(`I can't ask you to approve that one. ${prepared.error}`, "idle");
+    // `prepared.error` is the broker's thrown message — "refusing to prepare consent for an invalid
+    // proposal: capability "x" is not in the catalog". It was interpolated straight into speech,
+    // with no fallback guarding it (D247). It is in the inspector and the developer log now.
+    await say("I can't ask you to approve that one, so I'm not going to do it.", "idle");
     note("Nothing was changed.");
     return;
   }

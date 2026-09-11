@@ -103,6 +103,16 @@ matic-avatar { display: block; }
    question for the next delivery, so subordination is bought by DARKENING THE GLOSS rather than by
    fading the raw value, which stays at the colour every other `.fixed` row already uses. Position
    and size do the rest. */
+/* The consent card's exact call — `restart_service(serviceName=spooler)` (D247). The delivery draws
+   `.consent-verbatim p` as body prose, and this field is not prose: it is the machine-readable form
+   of what will run, and D130 requires it on screen. Same treatment as the glossed rows below —
+   mono, a step down, subordinate by size and position — and NOT hidden, because a user approving an
+   action is entitled to see the exact thing being approved. The TEXT is the broker's, verbatim. */
+.consent-verbatim p.exact {
+  font-family: var(--matic-ui-font-mono); font-size: 12px; line-height: 1.5;
+  color: var(--matic-ui-ink-muted); margin-top: 6px; overflow-wrap: anywhere;
+}
+
 .ticket-review .fixed.glossed { color: var(--matic-ui-ink); }
 .ticket-review .fixed .raw {
   display: block; font-size: 11px; margin-top: 3px; color: var(--matic-ui-ink-muted);

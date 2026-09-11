@@ -152,7 +152,13 @@ console.log("=== 1. POSITIVE CONTROL: the honest path across the pipe, two steps
   check("the BROKER rendered the card (title, what, detail)",
     req.rendered.title === "Permission needed — Disruptive" && req.rendered.detail === `reset_adapter(adapterId=${GUID})` && /network adapter off/.test(req.rendered.what),
     JSON.stringify(req.rendered));
-  check("R2 carries the broker-authored rollback warning", /disruptive.*rollback is: reset_adapter/i.test(req.rendered.rollbackNote ?? ""), req.rendered.rollbackNote);
+  // D247: the rollback is named by the capability's TITLE, not by its id. This sentence is on the
+  // consent card, and "the rollback is: reset_adapter" was our identifier on the screen where a
+  // person grants permission. Pinned as the property (disruptive + names the rollback) rather than
+  // as the exact string, which is what broke here.
+  check("R2 carries the broker-authored rollback warning", /disruptive.*rollback is: .+/i.test(req.rendered.rollbackNote ?? ""), req.rendered.rollbackNote);
+  check("…and it names the rollback by its title, not by its capability id",
+    !/\breset_adapter\b/.test(req.rendered.rollbackNote ?? "") && req.rendered.rollbackNote.includes("Disable and re-enable a network adapter"), req.rendered.rollbackNote);
   check("no token crossed the pipe", !("proposalHash" in req) && !("consentTokenId" in req) && !("token" in req));
   check("the locale actually used is stated", req.locale === "en" && req.rendered.locale === "en");
   console.log("      shown:", JSON.stringify({ title: req.rendered.title, what: req.rendered.what, detail: req.rendered.detail }));
@@ -196,7 +202,7 @@ let shownReq;
 
   // 2c. Avenue one: a nonce the broker never issued, hoping it maps to something.
   const forged = await agent.execute("00000000-0000-4000-8000-00000000dead");
-  check("2c. a forged nonce is refused", forged.ok === false && /no consent request was issued/.test(forged.message), forged.message);
+  check("2c. a forged nonce is refused", forged.ok === false && /no consent request was issued/.test(forged.detail?.consent), JSON.stringify(forged.detail));
   const forgedRec = (await auditRecords()).at(-1);
   check("acceptance 1: the refusal is audited with gate \"consent\"", forgedRec?.outcome === "refused" && forgedRec.gate === "consent", JSON.stringify(forgedRec));
   check("acceptance 1: ...and carries consentRendered = the card on screen at the time", sameRendering(forgedRec?.consentRendered, shownReq.rendered), JSON.stringify(forgedRec?.consentRendered));
@@ -228,7 +234,7 @@ console.log("=== 4. the remaining acceptance additions (design §6) ===");
 {
   // acceptance 3: replay. The spooler nonce was consumed in 2d; present it again.
   const replay = await agent.execute(shownReq.nonce);
-  check("acceptance 3: a replayed nonce is refused", replay.ok === false && /already been used/.test(replay.message), replay.message);
+  check("acceptance 3: a replayed nonce is refused", replay.ok === false && /already been used/.test(replay.detail?.consent), JSON.stringify(replay.detail));
   const replayRec = (await auditRecords()).at(-1);
   check("acceptance 3: ...and audited, gate consent, with the rendering it was issued for", replayRec?.gate === "consent" && replayRec.consentNonce === shownReq.nonce && sameRendering(replayRec.consentRendered, shownReq.rendered), JSON.stringify(replayRec));
   const executedAfterReplay = (await agent.call("__executed")).length;
@@ -238,7 +244,7 @@ console.log("=== 4. the remaining acceptance additions (design §6) ===");
   const late = await agent.prepareConsent(resetProposal);
   await agent.call("__advanceClock", { ms: 121000 });
   const expired = await agent.execute(late.request.nonce);
-  check("acceptance 2: an expired nonce is refused", expired.ok === false && /expired/.test(expired.message), expired.message);
+  check("acceptance 2: an expired nonce is refused", expired.ok === false && /expired/.test(expired.detail?.consent), JSON.stringify(expired.detail));
   const expiredRec = (await auditRecords()).at(-1);
   check("acceptance 2: ...and audited with gate consent and its own rendering", expiredRec?.gate === "consent" && sameRendering(expiredRec.consentRendered, late.request.rendered), JSON.stringify(expiredRec));
   const executedAfterExpiry = (await agent.call("__executed")).length;
@@ -249,7 +255,7 @@ console.log("=== 4. the remaining acceptance additions (design §6) ===");
   check("card rendered while offline", mid.ok === true);
   await agent.call("__setProbe", { probeState: ONLINE });
   const recovered = await agent.execute(mid.request.nonce);
-  check("acceptance 4: refused at execution time, not executed", recovered.ok === false && /refused at execution time/.test(recovered.message), recovered.message);
+  check("acceptance 4: refused at execution time, not executed", recovered.ok === false && /refused at execution time/.test(recovered.detail?.refusal), JSON.stringify(recovered.detail));
   const recoveredRec = (await auditRecords()).at(-1);
   // The gate is `precondition`: requires.machineOnline is a catalog-declared precondition on live
   // machine state (attack notes F5). The design's §6 calls this the machine-state refusal; both gates
@@ -260,8 +266,35 @@ console.log("=== 4. the remaining acceptance additions (design §6) ===");
   check("acceptance 4: the burned nonce cannot be retried once the machine is offline again", await (async () => {
     await agent.call("__setProbe", { probeState: OFFLINE });
     const retry = await agent.execute(mid.request.nonce);
-    return retry.ok === false && /already been used/.test(retry.message);
+    return retry.ok === false && /already been used/.test(retry.detail?.consent);
   })());
+}
+
+// ==============================================================================================
+console.log("=== 4b. the consent gate's refusals are SPOKEN, and the protocol's words are not (D247) ===");
+//
+// Every string above reaches `say()` in the renderer. They said "no consent nonce was presented -
+// nothing was executed" out loud; the expired one is not exotic, because the window is 120 seconds
+// and a user who reads a card properly will meet it. The protocol's vocabulary moved to
+// `detail.consent`, which the inspector shows and the audit record keeps - the assertions above
+// read it there now, which is where a gate's identity belonged in the first place.
+{
+  const OURS = /\bnonce\b|\bconsent request\b|\bexecuted\b|\bcapabilityId\b|\bgate\b/i;
+  const one = await agent.prepareConsent(spoolerProposal);
+  await agent.execute(one.request.nonce);                      // burn it, so the replay below refuses
+  const refusals = [
+    ["nothing presented", await agent.execute("")],
+    ["a nonce we never issued", await agent.execute("not-a-nonce")],
+    ["a replay of a burned one", await agent.execute(one.request.nonce)],
+  ];
+  for (const [label, r] of refusals) {
+    check(`${label} is refused`, r.ok === false, JSON.stringify(r.detail));
+    check(`…and nothing of the protocol is in what is SPOKEN: "${String(r.message).slice(0, 44)}…"`,
+      typeof r.message === "string" && r.message.length > 0 && !OURS.test(r.message), r.message);
+    check("…and it says plainly that nothing changed",
+      /not changed anything|Nothing was changed/i.test(r.message), r.message);
+    check("…while the protocol's own words survive, in detail", OURS.test(r.detail?.consent ?? ""), JSON.stringify(r.detail));
+  }
 }
 
 console.log("=== 5. what D130 does not fix, and what it leaves in the trail (design §5, attack notes F2) ===");
@@ -275,7 +308,7 @@ console.log("=== 5. what D130 does not fix, and what it leaves in the trail (des
   const superseded = (await auditRecords()).find((r) => r.consentNonce === x.request.nonce && /superseded/.test(r.message ?? ""));
   check("the supersession is audited: gate consent, with the superseded card's rendering", superseded?.gate === "consent" && superseded.outcome === "refused" && sameRendering(superseded.consentRendered, x.request.rendered), JSON.stringify(superseded));
   const staleX = await agent.execute(x.request.nonce);
-  check("the superseded nonce no longer executes", staleX.ok === false && /superseded/.test(staleX.message), staleX.message);
+  check("the superseded nonce no longer executes", staleX.ok === false && /superseded/.test(staleX.detail?.consent), JSON.stringify(staleX.detail));
   const runY = await agent.execute(y.request.nonce);
   check("the current card executes, and is audited with ITS rendering", runY.ok === true && runY.capabilityId === "reset_adapter");
   console.log("      residual (design §5): the agent may have PAINTED the spooler card while approving the adapter reset. The broker cannot see pixels.");

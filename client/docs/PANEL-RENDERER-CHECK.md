@@ -110,6 +110,24 @@ Ask for something outside the catalog — "can you move my mailbox to the new se
 | 6.6 | The tickets band's count | It has gone up by one |
 | 6.7 | The new row in the band | Same fact as the card, in the past tense, and also not "the hub" |
 
+## 4a. A fix that does NOT work (D247) — three branches nobody had run
+
+The fake bridge returned success and only success until 2026-09-10, so none of these had been seen.
+In the real app: **4a.1 and 4a.2** need a service that will not start (stop the spooler and deny the
+account, or run unelevated); **4a.3** just needs you to leave the consent card on screen for more
+than two minutes. (On `panel-check.html`: *next fix: fails*, *next fix: needs permission*, *next fix:
+consent expired*.)
+
+| # | Look at | Pass when |
+|---|---|---|
+| 4a.1 | A fix that ran and failed | Spoken: a plain sentence. **No Win32 call, no `OpenServiceW`, no error number, no service key.** It used to say `That did not work: OpenServiceW(spooler) failed (Win32 error 5)` out loud |
+| 4a.2 | A fix the unprivileged half may not do | Spoken: short — *"I couldn't do that one from here."* The `.turn-note` under it is what explains. **If the two say the same thing in different words, that is the defect** (it was, once, in this pass) |
+| 4a.3 | An approved card that sat too long | Spoken: it timed out and nothing was changed. **Not "no consent nonce was presented"** — that is the protocol's phrasing and belongs in the record |
+| 4a.4 | The inspector, on all three | `detail` carries the Win32 call site (`detail.win32`) or the gate's own words (`detail.consent` / `detail.refusal`). **If `detail` is empty, the diagnostic was lost** |
+| 4a.5 | A fix that WORKED, on the printer | *"Restarted the **Print Spooler** service — it went STOPPED → RUNNING."* **Not "the spooler service"** — that is the registry key, and a user cannot look it up under that name (D247). The before → after pair must survive; it is the proof |
+| 4a.6 | The consent card's third line | `restart_service(serviceName=spooler)`, in mono, smaller, under the plain sentence. **It must still be there** — it is what will run, and D130 requires it on screen. Whether it should also be glossed is D248, proposed |
+| 4a.7 | The rollback line on an R2 card | It names the action by its title — *"Disable and re-enable a network adapter"* — not by `reset_adapter` |
+
 ## 6a. A ticket that does NOT get through (D246) — the branch nobody had run
 
 Reaching this in the app needs a hub up enough to make the offer and down enough to refuse the

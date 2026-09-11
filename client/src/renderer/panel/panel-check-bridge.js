@@ -21,6 +21,8 @@
      than a mode, because the failure path is something you drive THROUGH (offer -> yes -> card ->
      send) and a sticky toggle makes the next run confusing. */
   let nextFilingFails = null;
+  /** Same one-shot trick for the three ways `execute()` can come back refused or failed (D247). */
+  let nextFixFails = null;
 
   const FACTS = {
     computer: "PLACEHOLDER-PC",
@@ -152,7 +154,13 @@
         rendered: {
           title: "Your approval needed",
           what: "Matic Desk is requesting permission to restart the Print Spooler service on PLACEHOLDER-PC. This will stop and start the service that manages printing.",
-          detail: "Documents currently queued may need to be sent again. This action can be reversed by restarting the service or the computer. Approving this request applies to this action only.",
+          // THE SHAPE IS THE BROKER'S, not prose (D247). `rendered.detail` is
+          // `capabilityId(param=value)` built from the validated parameters — see
+          // `broker.d.ts` — and this fixture carried a paragraph instead, so the card on the check
+          // page had never shown the field in the form the app actually renders. The prose fields
+          // around it stay placeholder on purpose (see this file's header); a call signature is not
+          // prose and cannot be mistaken for product copy.
+          detail: "restart_service(serviceName=spooler)",
           rollbackNote: "It can be undone by restarting the service again.",
           notice: "Printing will pause for a few seconds.",
           undo: "Yes — restarting the service again puts it back.",
@@ -161,7 +169,37 @@
         },
       },
     }),
-    execute: async () => ({ ok: true, message: "Printing is running again. Try sending your document once more.", auditId: "placeholder-audit" }),
+    // The failure shapes are InProcessBroker.execute's, field for field (D247): a plain sentence in
+    // `message`, and the machine's own vocabulary in `detail`, where the inspector shows it. Until
+    // 2026-09-10 `message` carried both, so the avatar said `OpenServiceW(spooler) failed (Win32
+    // error 5)` out loud - and nobody had ever seen these three paths rendered, because the bridge
+    // only ever returned success.
+    execute: async () => {
+      const mode = nextFixFails;
+      nextFixFails = null;
+      if (mode === "denied") {
+        return {
+          ok: false, needsBroker: true, capabilityId: "restart_service", auditId: "placeholder-audit",
+          message: "I couldn't do that one from here.",
+          detail: { code: 5, call: "OpenServiceW(spooler)", win32: "OpenServiceW(spooler) failed (Win32 error 5) (canned)" },
+        };
+      }
+      if (mode === "failed") {
+        return {
+          ok: false, needsBroker: false, capabilityId: "restart_service", auditId: "placeholder-audit",
+          message: "I tried that and it didn't work. Nothing on this machine was changed by it.",
+          detail: { code: 1062, call: "StartServiceW(spooler)", win32: "StartServiceW(spooler) failed (Win32 error 1062) (canned)" },
+        };
+      }
+      if (mode === "expired") {
+        return {
+          ok: false, needsBroker: false, capabilityId: "restart_service", auditId: "placeholder-audit",
+          message: "That request timed out while it was waiting, so I've not changed anything. Ask me again and I'll put it back up.",
+          detail: { consent: "this consent request has expired - nothing was executed (canned)" },
+        };
+      }
+      return { ok: true, message: "Printing is running again. Try sending your document once more.", auditId: "placeholder-audit" };
+    },
     fileTicket: async (draft) => {
       // The failure shapes are HubClient.fileTicket's, field for field: a user sentence in
       // `error`, the diagnostic in `detail`, and `filed` carrying the one distinction that matters
@@ -202,6 +240,10 @@
     /** Arm the NEXT filing attempt to fail: "unreachable" (nothing stored) or "timeout" (unknown). */
     filing(mode) {
       nextFilingFails = mode === "none" ? null : mode;
+    },
+    /** Arm the NEXT approved fix to come back "failed", "denied" (needs the broker) or "expired". */
+    fix(mode) {
+      nextFixFails = mode === "none" ? null : mode;
     },
   };
 })();

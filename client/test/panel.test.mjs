@@ -238,6 +238,18 @@ for (const s of elText) {
 check("`hub` still appears in the renderer, in the inspector and the developer log",
   /devlog\(`\[hub\]/.test(rendererCode) && /hub: "  \(sent to the hub/.test(rendererCode));
 
+// D247: the renderer must not interpolate a BROKER diagnostic into speech either. Those strings
+// name capability ids, adapter GUIDs, Win32 control masks and the Service Control Manager.
+check("the broker's gate message is not spoken", !/say\([^)]*validation\.errors/.test(rendererCode));
+check("…and it is still shown, one line up, in the inspector", /checked\(validation\.ok[\s\S]{0,200}validation\.errors\.join/.test(rendererCode));
+check("the broker's prepareConsent error is not spoken", !/say\([^)]*prepared\.error/.test(rendererCode));
+check("…and it goes to the inspector and the developer log",
+  /consented\("The broker refused[\s\S]{0,80}error: prepared\.error/.test(rendererCode)
+  && /devlog\(`\[broker\] prepareConsent refused/.test(rendererCode));
+// `??` only falls back on null/undefined, so an empty `reasoning` from a provider spoke silence.
+check("an empty reply falls back to a sentence rather than to silence",
+  !/say\(replyText \?\?/.test(rendererCode) && /say\(replyText \|\|/.test(rendererCode));
+
 console.log("\n--- 5 (continued) ---");
 check("the state label is gone from the surface", !indexHtml.includes('id="state"'));
 check("the voice pill is gone from the surface", !indexHtml.includes('id="voicePill"'));
@@ -250,7 +262,11 @@ console.log("\n=== 6. the honesty rules the redesign must not have loosened (han
 // `request.rendered`, and every one of them is assigned as text, not built from parts.
 check("the consent card renders the broker's title verbatim", /el\("b", "", r\.title\)/.test(rendererJs));
 check("the consent card renders the broker's `what` verbatim", /el\("p", "", r\.what\)/.test(rendererJs));
-check("the consent card renders the broker's `detail` verbatim", /el\("p", "", r\.detail\)/.test(rendererJs));
+// D247: still verbatim, and now carrying a class so it can be set apart. The text is untouched —
+// `el(tag, cls, text)` puts `r.detail` in as textContent exactly as before.
+check("the consent card renders the broker's `detail` verbatim", /el\("p", "exact", r\.detail\)/.test(rendererJs));
+check("…and it is set apart rather than hidden, the way the review card's raw value is (D244/D128)",
+  /\.consent-verbatim p\.exact/.test(appCss) && /font-family: var\(--matic-ui-font-mono\)/.test(appCss));
 check("nothing in the renderer builds consent text from the catalog",
   !/catalog/i.test(rendererCode) && !/listCapabilities/.test(rendererCode));
 check("the renderer never uses innerHTML (D130's verbatim rule, mechanically)",
@@ -283,13 +299,24 @@ check("the failed-filing branch speaks `error` and never `detail`",
   /say\(filed\.error, "error"\)/.test(rendererCode) && !/say\(filed\.detail/.test(rendererCode));
 check("`detail` reaches the inspector", /done\("The ticket could not be sent\.", \{ error: filed\.error, detail: filed\.detail/.test(rendererCode));
 check("`detail` reaches the developer log", /devlog\(`\[ticket\] filing failed: \$\{filed\.detail/.test(rendererCode));
+// D245/D247: the `needsBroker` branch is the other place a spoken line sits directly above a note.
+// The note explains; the spoken line must not explain it again in different words.
+const needsBrokerNote = rendererCode.match(/note\("(That needs the privileged half[^"]*)"\)/)?.[1] ?? "";
+check("the needs-privilege note is the one that explains it", /privileged half/.test(needsBrokerNote));
+check("…and the renderer speaks the broker's short line rather than restating the note",
+  /exec\.needsBroker[\s\S]{0,400}say\(exec\.message, "idle"\)[\s\S]{0,120}note\("That needs the privileged half/.test(rendererCode));
+
 // D245 again, on this path: the spoken line and the note beside it divide the two halves. The
 // timeout fact used to be stated twice, three lines apart, in two wordings.
 check("the note states what it means for the ticket, which is the half that must survive",
   /whether the ticket was stored is unknown/.test(rendererCode) && /"Nothing was filed\."/.test(rendererCode));
+const checkPage = readFileSync(join(PANEL, "panel-check.html"), "utf8");
 check("the check page can actually drive the failed-filing branch",
-  /data-filing="unreachable"/.test(readFileSync(join(PANEL, "panel-check.html"), "utf8"))
-  && /data-filing="timeout"/.test(readFileSync(join(PANEL, "panel-check.html"), "utf8")));
+  /data-filing="unreachable"/.test(checkPage) && /data-filing="timeout"/.test(checkPage));
+// D247: and the three ways an APPROVED fix comes back other than done. The bridge returned success
+// and only success until 2026-09-10, so none of them had ever been rendered.
+check("…and the three failed-fix branches, all of which are spoken",
+  ["failed", "denied", "expired"].every((m) => checkPage.includes(`data-fix="${m}"`)));
 // The fake bridge reads the REAL persona lines rather than carrying copies, or it keeps passing on
 // the day the real ones change.
 check("the fake bridge reads persona.json rather than copying the sentences",

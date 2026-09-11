@@ -278,8 +278,10 @@ app.whenReady().then(async () => {
     try {
       return await agent.propose(String(text ?? ""));
     } catch (err) {
+      // `err.message` is a JavaScript exception and it was SPOKEN (D247). The stack is already in
+      // the log above and the message is on `error`, which the renderer puts in the inspector.
       log(`[agent] propose threw: ${err.stack}`);
-      return { ok: false, error: err.message, reply: `Something went wrong working that out: ${err.message}` };
+      return { ok: false, error: err.message, reply: "Something went wrong while I was working that out, and I'd rather stop than guess. Try telling me again, differently." };
     }
   });
   ipcMain.handle("broker:validate", (_e, proposal) => broker.validate(proposal));

@@ -89,7 +89,11 @@ console.log("=== 4. execute() re-checks it, so a card rendered earlier cannot ou
   b.probe = () => HEALTHY;                        // the network came back inside the 120 s window
   const res = await b.execute(request.nonce);
   check("refused at execution time", res.ok === false, res.message);
-  check("nothing was attempted", /refused at execution time/.test(res.message), res.message);
+  // D247: the gate's identity is on `detail.refusal` now; `message` is the sentence the avatar says,
+// and it may not carry the gate messages' capability ids, GUIDs and control masks.
+check("nothing was attempted", /refused at execution time/.test(res.detail?.refusal), JSON.stringify(res.detail));
+check("…and what is SPOKEN about it names no capability id and no machine internal",
+  typeof res.message === "string" && !/_|0x[0-9a-f]|\{[0-9A-F-]{8}/i.test(res.message), res.message);
 }
 
 console.log("=== 5. capabilities with no preconditions are untouched ===");

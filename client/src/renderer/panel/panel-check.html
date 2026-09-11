@@ -49,6 +49,12 @@
        to refuse. "not stored" and "unknown" are different outcomes and must read differently. -->
   <button data-filing="unreachable">next filing: fails</button>
   <button data-filing="timeout">next filing: times out</button>
+  <!-- The three ways an APPROVED fix can come back other than done. The bridge only ever returned
+       success until 2026-09-10, so nobody had seen any of them rendered - and all three are spoken
+       (D247). "Expired" is the ordinary one: the consent window is 120 seconds. -->
+  <button data-fix="failed">next fix: fails</button>
+  <button data-fix="denied">next fix: needs permission</button>
+  <button data-fix="expired">next fix: consent expired</button>
   <button data-reload="1">reload</button>
   <span>The bridge is FAKE. Nothing below talks to a broker, a hub or a model.</span>
 </div>
@@ -65,6 +71,7 @@
     if (b.dataset.reload) { frame.contentWindow.location.reload(); return; }
     if (b.dataset.hub) { frame.contentWindow.__maticCheck?.hub(b.dataset.hub); return; }
     if (b.dataset.filing) { frame.contentWindow.__maticCheck?.filing(b.dataset.filing); b.blur(); return; }
+    if (b.dataset.fix) { frame.contentWindow.__maticCheck?.fix(b.dataset.fix); b.blur(); return; }
     const doc = frame.contentDocument;
     doc.getElementById("input").value = b.dataset.say;
     doc.getElementById("send").click();

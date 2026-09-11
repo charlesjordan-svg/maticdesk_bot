@@ -363,9 +363,15 @@ export class InProcessBroker {
 
     let rollbackNote = null;
     if (capability.rollback !== null && capability.rollback !== undefined) {
+      // `capability.rollback` IS A CAPABILITY ID and this sentence is on the consent card, so the
+      // card said "this can be undone with: restart_service" (D247). Resolved to that capability's
+      // own title, which is catalog data and is already what the assistant says out loud when it
+      // proposes one. An id with no capability behind it falls back to itself rather than to
+      // silence - the honest fallback, and `validate()` would have refused the proposal first.
+      const undoneBy = this.catalog.capabilities?.find((c) => c.id === capability.rollback)?.title ?? capability.rollback;
       rollbackNote = capability.tier === "R2"
-        ? `This is disruptive. If it goes wrong, the rollback is: ${capability.rollback}.`
-        : `If needed, this can be undone with: ${capability.rollback}.`;
+        ? `This is disruptive. If it goes wrong, the rollback is: ${undoneBy}.`
+        : `If needed, this can be undone with: ${undoneBy}.`;
     }
 
     return {
@@ -442,8 +448,16 @@ export class InProcessBroker {
     // broker still knows it, otherwise the outstanding card (attack notes F6).
     const shown = record ?? (this.outstanding ? this.consents.get(this.outstanding) : undefined) ?? null;
 
-    /** A consent-gate refusal: audited with the nonce and the text the user actually saw. */
-    const refuseConsent = async (message) => {
+    /**
+     * A consent-gate refusal: audited with the nonce and the text the user actually saw.
+     *
+     * TWO STRINGS AGAIN (D247). `message` is spoken by the avatar; `audited` is what goes in the
+     * record, and it keeps the protocol's own vocabulary because the record is read by someone
+     * asking what the gate did. These said "no consent nonce was presented - nothing was executed"
+     * out loud, and the expired case is not exotic: the window is 120 seconds and a user who reads
+     * a card carefully will meet it.
+     */
+    const refuseConsent = async (message, audited) => {
       const auditId = await this.audit.record({
         capabilityId: shown?.proposal.capabilityId ?? null,
         parameters: shown?.proposal.parameters ?? null,
@@ -454,30 +468,42 @@ export class InProcessBroker {
         consentRendered: shown?.rendered ?? null,
         outcome: "refused",
         gate: "consent",
-        message,
+        message: audited,
       });
       return {
         ok: false,
         capabilityId: shown?.proposal.capabilityId ?? "unknown",
         message,
-        detail: {},
+        detail: { consent: audited },
         needsBroker: false,
         rollbackWith: null,
         auditId,
       };
     };
 
-    if (typeof nonce !== "string" || nonce.length === 0) return refuseConsent("no consent nonce was presented - nothing was executed");
-    if (!record) return refuseConsent("no consent request was issued for this nonce - nothing was executed");
+    // The FIRST string of each pair is SPOKEN; the SECOND is the audit record's, and it keeps the
+    // protocol's own words because that record exists to answer what the gate did.
+    if (typeof nonce !== "string" || nonce.length === 0) {
+      return refuseConsent("I didn't get your approval back, so I've not changed anything.",
+        "no consent nonce was presented - nothing was executed");
+    }
+    if (!record) {
+      return refuseConsent("I can't match that back to something I asked you about, so I've not changed anything.",
+        "no consent request was issued for this nonce - nothing was executed");
+    }
     if (record.used) {
-      return refuseConsent(record.superseded
-        ? "this consent request was superseded before it was approved - nothing was executed"
-        : "this consent has already been used - nothing was executed");
+      return record.superseded
+        ? refuseConsent("Something else came up before you answered that one, so I've not changed anything.",
+          "this consent request was superseded before it was approved - nothing was executed")
+        : refuseConsent("That one has already been answered, and I don't act on the same approval twice. Nothing was changed.",
+          "this consent has already been used - nothing was executed");
     }
     if (now > record.expiresAt) {
       record.used = true;
       if (this.outstanding === nonce) this.outstanding = null;
-      return refuseConsent("this consent request has expired - nothing was executed");
+      // NOT EXOTIC: the window is 120 seconds and a user who reads the card properly will meet it.
+      return refuseConsent("That request timed out while it was waiting, so I've not changed anything. Ask me again and I'll put it back up.",
+        "this consent request has expired - nothing was executed");
     }
 
     // BURN. Single-use, decided here, before any await.
@@ -492,7 +518,10 @@ export class InProcessBroker {
     // audit:false - the refusal record below is this path's one record, with the nonce on it.
     const validation = this.validate(proposal, { audit: false });
     if (!validation.ok) {
-      const message = `refused at execution time: ${validation.errors.join("; ")}`;
+      // The gate messages name capability ids, adapter GUIDs and control masks; they belong in the
+      // record and the inspector, not in a sentence the avatar says (D247).
+      const audited = `refused at execution time: ${validation.errors.join("; ")}`;
+      const message = "Something about this machine changed while you were deciding, and what I checked before no longer holds — so I've not run it. Ask me again and I'll take a fresh look.";
       const auditId = await this.audit.record({
         capabilityId: proposal.capabilityId,
         parameters: proposal.parameters ?? {},
@@ -504,9 +533,9 @@ export class InProcessBroker {
         outcome: "refused",
         gate: validation.gate,
         reasons: validation.reasons,
-        message,
+        message: audited,
       });
-      return { ok: false, capabilityId: proposal.capabilityId, message, detail: {}, needsBroker: false, rollbackWith: null, auditId };
+      return { ok: false, capabilityId: proposal.capabilityId, message, detail: { refusal: audited, reasons: validation.reasons }, needsBroker: false, rollbackWith: null, auditId };
     }
     const capability = /** @type {Capability} */ (validation.capability);
 
@@ -541,10 +570,26 @@ export class InProcessBroker {
     } catch (err) {
       // Honest failure (§13). ERROR_ACCESS_DENIED is reported as "this needs the broker",
       // never as a user error (§12).
+      //
+      // `message` IS SPOKEN BY THE AVATAR AND `err.message` IS A WIN32 CALL SITE (D247). It reads
+      // `OpenServiceW(spooler) failed (Win32 error 5)` — an API name, a registry key and an error
+      // number, said out loud to someone whose printer had stopped. The same defect D246 fixed one
+      // layer up, and the same fix: the sentence says what happened, and the machine detail goes to
+      // `detail`, which the inspector shows and the audit record already kept in full (`error`
+      // below, untouched). **Nothing is lost** — `detail.win32` is new and `detail.code`/`.call`
+      // were already there. "The privileged broker" went with it: the renderer's note beside this
+      // line already says "that needs the privileged half of this application", in the user's words
+      // and in the place a system statement belongs.
+      //
+      // THE needsBroker LINE IS SHORT ON PURPOSE, and the first draft of it was not. The renderer
+      // puts a `.turn-note` directly beneath it that already says "that needs the privileged half
+      // of this application, which isn't running. Nothing was changed." A spoken line explaining
+      // the same thing in different words is D245's defect, and driving the check page is what
+      // showed it - it does not read wrong until you see the two together.
       const needsBroker = Boolean(err.needsBroker);
       const message = needsBroker
-        ? `I could not do that from here - this action needs the privileged broker. (${err.message})`
-        : `That did not work: ${err.message}`;
+        ? "I couldn't do that one from here."
+        : "I tried that and it didn't work. Nothing on this machine was changed by it.";
       const auditId = await this.audit.record({
         capabilityId: capability.id,
         parameters: proposal.parameters ?? {},
@@ -560,7 +605,9 @@ export class InProcessBroker {
         ok: false,
         capabilityId: capability.id,
         message,
-        detail: { code: err.code ?? null, call: err.call ?? null },
+        // `win32` is the sentence that used to be spoken. It is the one string that answers "why"
+        // and it now goes where that question is asked - the inspector and the developer log.
+        detail: { code: err.code ?? null, call: err.call ?? null, win32: err.message },
         needsBroker,
         rollbackWith: null,
         auditId,
