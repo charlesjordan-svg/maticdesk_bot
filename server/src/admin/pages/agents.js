@@ -87,14 +87,39 @@ function pendingTable(ctx, pending) {
   </table>`;
 }
 
+/**
+ * D273 — TEMPORARY BY DESIGN; BOTH SENTENCES REVERT WHEN P3 LANDS.
+ *
+ * "Last seen" was the column's heading and `last_seen_at` is the column. It is written in exactly
+ * three places, all in src/devices/enrollment.js, all on the enroll / approve / re-submit paths —
+ * nothing stamps it when a device talks to the hub, because nothing identifies a device on a call
+ * (D61 is not built). So the value is the enrollment date wearing a heartbeat's name, and an
+ * operator reading "3 days ago" against an endpoint that spoke to the hub a minute ago would be
+ * misled by a true number. The heading now says what the column measures, and the muted line under
+ * the table says what it does not.
+ *
+ * Likewise the Revoke control: `revokeDevices()` changes a row's status, and no route checks device
+ * identity, so a revoked endpoint can still `/v1/ask` and `/v1/ticket`. REVOKED reads as "access
+ * withdrawn" to anyone who has used another console; here it means "standing withdrawn", and the
+ * sentence beside the button says so.
+ *
+ * When P3 presents a credential on every request, `last_seen_at` gets a real writer (one UPDATE)
+ * and revocation becomes a real control — and BOTH of these notes become false and must go. That
+ * is why they are written as conditions on the current build rather than as permanent copy, and
+ * why test/admin-static.test.mjs §6a fails the day client/src calls the enrollment route.
+ */
+const LAST_ACTIVITY_NOTE = "Not a heartbeat. Nothing updates this when a device talks to the hub, because nothing identifies a device on a call (D61).";
+const REVOKE_NOTE = "Revoking removes the row's standing. It does not block anything — no route checks device identity, so a revoked endpoint can still ask and file (D61).";
+
 function devicesTable(ctx, devices) {
   if (!devices.length) return empty("No device has enrolled yet.");
   const manage = canManage(ctx);
+  const revocable = manage && devices.some((d) => d.status !== "revoked");
   return html`
 <form method="post" action="/admin/agents/revoke">
   ${csrfField(ctx.csrf)}
   <table>
-    <thead><tr>${manage ? html`<th></th>` : ""}<th>Device</th><th>Mode</th><th>Status</th><th>Enrolled</th><th>Last seen</th></tr></thead>
+    <thead><tr>${manage ? html`<th></th>` : ""}<th>Device</th><th>Mode</th><th>Status</th><th>Enrolled</th><th>Last enrollment activity</th></tr></thead>
     <tbody>${devices.map((d) => html`<tr>
       ${manage ? html`<td>${d.status !== "revoked" ? html`<input type="checkbox" name="device_${d.id}" value="1">` : ""}</td>` : ""}
       <td class="mono">${d.deviceKeyId}</td>
@@ -104,7 +129,11 @@ function devicesTable(ctx, devices) {
       <td>${d.lastSeenAt ? html`${when(d.lastSeenAt)} <span class="muted">(${ago(d.lastSeenAt)})</span>` : html`<span class="muted">never</span>`}</td>
     </tr>`)}</tbody>
   </table>
-  ${manage && devices.some((d) => d.status !== "revoked") ? html`<div class="row" style="margin-top:10px"><button type="submit">Revoke selected</button><span class="muted" style="font-size:13px">Bulk, by batch (D83a) — a row with no checkbox is already revoked.</span></div>` : ""}
+  <p class="muted" style="font-size:13px;margin:8px 0 0">${LAST_ACTIVITY_NOTE}</p>
+  <div class="row" style="margin-top:10px">
+    ${revocable ? html`<button type="submit">Revoke selected</button>` : ""}
+    <span class="muted" style="font-size:13px">${REVOKE_NOTE}${revocable ? " Bulk, by batch (D83a) — a row with no checkbox is already revoked." : ""}</span>
+  </div>
 </form>`;
 }
 
