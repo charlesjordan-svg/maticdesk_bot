@@ -203,6 +203,36 @@ blocking on it, and the same job reaches exactly one worker.
 `fail()` truncates the error to 500 characters, and the comment says why: an error string is the
 most likely accidental route for customer data into the cross-tenant table.
 
+### 7.1 The runtime (D270, 2026-09-12)
+
+For eight days these were primitives nobody called: `runOne()`'s only caller was `test/db.test.mjs`.
+`src/jobs/runner.js` is the loop — an in-process poller that `src/index.js` starts inside its listen
+callback and never awaits, so a database that is down when the hub starts is logged once and polled
+through rather than stopping the hub (`/v1/health` already had that property; the runner must not
+take it away). `MATIC_JOBS_POLL_MS`: default 5000, floor 250, 0 disables.
+
+**The contract is at-least-once, and idempotency is the handler's job.** A process that dies after
+the handler's work committed and before `finish()` leaves the row `running`; `reapStuck()` returns it
+to `queued` (attempt count kept — `claim()` already counts) or to `failed` once it has been claimed
+five times; and the next tick runs it again. Every handler in `src/jobs/handlers.js` therefore
+re-checks its own precondition from the tenant's rows. The registry is empty until the lifecycle
+plan's P5 adds `ticket.autoclose`, which must be bound to the resolution that enqueued it and not to
+the ticket.
+
+**A process claims only the types it has handlers for.** `claim(workerId, { types })` filters; a hub
+with an empty registry claims nothing and logs how many due jobs of other types are waiting,
+whenever the figure changes. Failing an unknown type was built first and reversed: a dev hub polling
+the shared database would have failed every job the test suite enqueues, and a rolling restart would
+let an old hub destroy a new hub's work. `cancelJobsFor(type, refId)` withdraws QUEUED rows into the
+new `cancelled` status (`control/007`); a running job is in a handler and cannot be recalled, which is
+one more reason the handler's precondition check is the guarantee and cancel is the fast path.
+
+The runner asserts no tenant of its own — `withTenant()` is the one door and it already does — and
+reaches the queue only through this file's primitives. `test/jobs.test.mjs` proves the loop with
+fakes on every `npm test`; `db.test.mjs` §6b proves it live: two runners racing one due job run it
+exactly once, a future job waits, the reaper unsticks an abandoned claim, the cap fails a job on its
+fifth claim, cancel cancels a queued job and leaves done and running ones alone.
+
 ---
 
 ## 8. Migrations
@@ -301,3 +331,12 @@ B0 still stateless, tenant migrations unqualified, the extension installed once 
 - **`sessions` stores no transcript content.** D154 puts transcript access behind the
   audience-change predicate and three tiers; storing the text before that mechanism exists would be
   storing something we have not decided who may read.
+- **The job runner (D270) is in-process, unmeasured, and has never run a real job type.** The
+  ten-minute stuck timeout, the five-attempt cap and the twenty-jobs-a-tick drain are development
+  figures. Two racing runners were two `tick()` calls in one test process, not two hubs. A hub now
+  makes two cheap queries every five seconds with nothing to do; that cost is not measured either.
+  And **the at-least-once contract is a sentence in two headers until P5 writes the first handler**
+  — the test that will matter is the one that runs `ticket.autoclose` twice.
+- **A migration cannot be edited once applied, comments included** — the ledger checksums the whole
+  file. tenant/004's false comment about `close_note` therefore stands as written; tenant/005's
+  header retracts it and `db-static` pins 004's checksum. Write a new migration, always.

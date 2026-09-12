@@ -9,8 +9,9 @@ persistence into it; `test/db-static.test.mjs` §6 fails if `src/turn.js` or `sr
 imports anything under `src/db/`. Everything else the hub will be — device auth, tenancy
 enforcement, KB retrieval, audit ingestion, TLS, spend caps — is still unbuilt.
 
-**B1's six exit criteria pass**: `npm.cmd run test:db`, 56 assertions on PostgreSQL 17.11 with
-pgvector, including against a destroyed-and-rebuilt volume. See
+**B1's six exit criteria pass**: `npm.cmd run test:db`, 84 assertions on PostgreSQL 17.11 with
+pgvector, including against a destroyed-and-rebuilt volume, and since 2026-09-12 the job queue's
+RUNTIME (D270: `src/jobs/runner.js`, started by the hub after listen; at-least-once). See
 [`docs/B1-CONTROL-PLANE.md`](docs/B1-CONTROL-PLANE.md) — and its §6 before answering any question
 about tenant isolation.
 
@@ -22,8 +23,10 @@ about tenant isolation.
 | [`test/turn.test.mjs`](test/turn.test.mjs) | Headless, stub provider. Pins pass-through, the no-repair rule, the prompt import, the loopback rule and the auth stamp. 33 assertions. |
 | [`docs/B1-CONTROL-PLANE.md`](docs/B1-CONTROL-PLANE.md) | **B1.** The schema, the migration path, and §6 — what tenant isolation actually proves and what it does not. Read §6 before answering a security question about tenancy. |
 | [`src/db/tenant.js`](src/db/tenant.js) | **The security-relevant file.** `withTenant()` is the only way to reach a tenant's tables; it asserts the schema against `control.tenants` before it sets `search_path`, because `SET` takes no bind parameter and the allow-list *is* the injection defence. |
-| [`test/db-static.test.mjs`](test/db-static.test.mjs) | B1's design rules, no database needed. 43 assertions, in `npm test`. |
-| [`test/db.test.mjs`](test/db.test.mjs) | B1's six exit criteria. **56 assertions, passing.** Needs Postgres: `npm.cmd run db:up && npm.cmd run test:db`. Creates and removes its own `b1-test-*` tenants, and migrates first, so it is safe on a fresh or an in-use database. |
+| [`test/db-static.test.mjs`](test/db-static.test.mjs) | B1's design rules, no database needed. 60 assertions, in `npm test` — including that tenant/004 is byte-for-byte what the ledgers hold (its checksum is pinned) and that tenant/005's rename is guarded. |
+| [`test/db.test.mjs`](test/db.test.mjs) | B1's six exit criteria plus the runtime (§6b). **84 assertions, passing.** Needs Postgres: `npm.cmd run db:up && npm.cmd run test:db`. Creates and removes its own `b1-test-*` tenants, and migrates first, so it is safe on a fresh or an in-use database. |
+| [`src/jobs/runner.js`](src/jobs/runner.js) | **The job queue's runtime (D270).** Read its header before writing a handler: AT-LEAST-ONCE, idempotency is the handler's job, a process claims only the types in `src/jobs/handlers.js` and reports what it leaves. |
+| [`test/jobs.test.mjs`](test/jobs.test.mjs) | The runner's loop with fake primitives, and its source rules. 67 assertions, in `npm test`. |
 | [`docs/2026-09-03-B0-walking-skeleton-spec.md`](docs/2026-09-03-B0-walking-skeleton-spec.md) | The B0 spec, filed 2026-09-03 night. **Read its status block first** — its §5 "35/40" target is superseded — and §5a for what each acceptance item maps to. |
 | [`SPEC-2026-09-02-hub-server-side.md`](SPEC-2026-09-02-hub-server-side.md) | The hub specification, v1. **Partially stale**: the register's §3 and §4 list every delta. Read it with the register open. |
 | [`../docs/decisions/DECISION-REGISTER.md`](../docs/decisions/DECISION-REGISTER.md) | Every decision that amends the spec. |

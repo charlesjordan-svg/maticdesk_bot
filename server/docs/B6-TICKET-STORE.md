@@ -132,6 +132,19 @@ References come from `ticket_reference_seq`: `MD-1000`, `MD-1001`, … A rolled-
 number, because sequences are non-transactional. That is correct — a reference must never be reused,
 and a gap in `MD-####` means nothing to anyone who reads one.
 
+**`tickets.internal_resolution_note` (tenant/004 as `close_note`; renamed by tenant/005, D269,
+2026-09-12).** The human's own account of what fixed it — D239's "somewhere for the second-phase
+result to land", the KB draft loop's eventual input. **INTERNAL:** written from the console's state
+form or `bin/tickets.mjs state --note`, read by the detail page and `show`, and both readers say the
+requester never sees it. Optional; trimmed; capped at 4000; a later move with no note keeps the
+earlier one. For two days this column had a SELECT and nothing else while 004's comment said the
+form offered it and both readers read it — none of that was true, and 005's header is the record.
+**Every column of `tickets` and `users` now has code that names it or a reserved-list entry** with a
+reason and a decision number, enforced by `test/admin-db.test.mjs` §5c; every field `getTicket()`
+returns has a reader, enforced by `test/admin-static.test.mjs` §5c. The name is deliberate: ServiceNow's
+*requester-facing* resolution text is called `close_notes`, and the plan's P2 adds a requester-visible
+`resolution_notes` beside this one.
+
 ---
 
 ## 4. Reading the queue
@@ -141,6 +154,7 @@ npm.cmd run tickets -- list
 npm.cmd run tickets -- list --state new --limit 20
 npm.cmd run tickets -- show MD-1000
 npm.cmd run tickets -- state MD-1000 open
+npm.cmd run tickets -- state MD-1000 resolved --note "swapped the dock"   # the INTERNAL note; show prints it
 npm.cmd run tickets -- users
 ```
 
@@ -161,6 +175,14 @@ same thing to the person waiting for help.
   `reporter.osUsername` is refused (400). A null `suggestedOwner` is accepted.
 - B1's six exit criteria and B7a's retrieval tests still pass with 003 applied
   (`npm.cmd run test:db`, 108 assertions).
+- **The internal resolution note round-trips (2026-09-12, D269):** written from the console's state
+  form with surrounding whitespace and a CRLF, it lands trimmed, renders escaped on the detail page
+  under a heading that says it is internal, prints from `bin/tickets.mjs show`, and is audited as
+  `noted: true` without its text; a blank note on the next move keeps it; `state --note` from the
+  CLI shows up on the console page (`admin-db.test.mjs` §5). Against the dev tenant by hand:
+  `state MD-1000 new --note "swapped the dock"` then `show MD-1000` printed it.
+- **tenant/005's rename is a no-op the second time** and renames forward against a tenant still
+  carrying `close_note` (`db.test.mjs` §4). `npm run migrate` on `t_devco`: applied 1, then nothing.
 - End to end through a real agent, a real hub and a real model: `npm.cmd run e2e:ticket` from
   `client/`. Escalate → offer → interview → draft → filed, plus a decline and the
   new-problem-after-an-offer case.
