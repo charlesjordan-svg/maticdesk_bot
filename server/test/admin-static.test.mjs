@@ -303,9 +303,13 @@ console.log("\n=== 10. the development TOTP bypass cannot drift into skipping th
   check("…and consults it exactly once", (routerJs.match(/bypass\.on/g) ?? []).length === 1);
   check("…inside the step === null branch, not beside the password", /step === null\)\s*\{[\s\S]{0,600}?bypass\.on/.test(routerJs));
 
-  // Guard 1, structurally: exactly one place reads the variable, so there is one verdict.
-  const readers = allSrc.filter((f) => /MATIC_ADMIN_INSECURE_NO_TOTP/.test(readFileSync(f, "utf8")) && !/dev-bypass\.js$/.test(f));
-  check("only src/admin/dev-bypass.js names the environment variable", readers.length === 0, readers.map(rel).join(","));
+  // Guard 1, structurally: exactly one place READS the variable, so there is one verdict.
+  // bin/dev.mjs (D268, `npm run start:dev`) SETS it for the child hub and reads nothing — it is the
+  // launcher the mode was missing, not a second reader. It is exempted by name so a third file
+  // naming the variable still fails here.
+  const readers = allSrc.filter((f) => /MATIC_ADMIN_INSECURE_NO_TOTP/.test(readFileSync(f, "utf8")) && !/dev-bypass\.js$/.test(f) && rel(f) !== "bin/dev.mjs");
+  check("only src/admin/dev-bypass.js reads the environment variable (bin/dev.mjs sets it, by exemption)", readers.length === 0, readers.map(rel).join(","));
+  check("bin/dev.mjs sets the variable on the CHILD's environment and never consults it", /env: \{[^}]*MATIC_ADMIN_INSECURE_NO_TOTP/.test(read("bin/dev.mjs")) && !/process\.env\.MATIC_ADMIN_INSECURE_NO_TOTP/.test(jsCode(read("bin/dev.mjs"))));
   check("the variable name incriminates itself — INSECURE is in it", /MATIC_ADMIN_INSECURE_NO_TOTP/.test(bypassJs));
 
   // Guard 2, structurally: the address comes from the SOCKET, not from a constant or an env var.
