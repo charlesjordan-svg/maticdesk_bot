@@ -330,6 +330,15 @@ td .mono a { font-weight: 500 }
 .pill.open { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-ink) }
 .pill.resolved { border-color: var(--line-2); color: var(--ink) }
 .pill.closed { border-color: var(--line); color: var(--faint) }
+/* the timeline's visibility label (D275). The WORDS carry the meaning — "internal" / "public" plus
+   a clause — and this only makes the internal one read as a mark rather than as a state. */
+.pill.internal { border-color: var(--accent-ink); color: var(--accent-ink) }
+
+/* --- the ticket timeline (D275): entries newest last, each headed by its label ------------- */
+.entry { padding: 10px 0 4px; border-top: 1px solid var(--line) }
+.entry:first-of-type { border-top: 0; padding-top: 0 }
+.entry-head { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline }
+.entry blockquote { margin: 6px 0 0 }
 
 /* --- the honest stub -----------------------------------------------------
    Not broken, not a warning: a reserved area on a drawing. Steel hairline,

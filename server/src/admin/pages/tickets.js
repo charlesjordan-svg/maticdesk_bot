@@ -13,14 +13,89 @@
  *
  * "NOBODY HAS BEEN EMAILED" travels here too. That makes six surfaces for D213's caveat, and the
  * redundancy is the point (B6-TICKET-STORE.md §0).
+ *
+ * THE TIMELINE, SINCE 2026-09-12 (tenant/006, D275) — WORK NOTES ONLY. The detail page lists every
+ * entry through `listEntries(…, { visibility: "all" })` — the console is the one reader entitled
+ * to the internal rows, and it asks for them in words — and each entry carries its visibility AS
+ * A LABEL, not only a colour, so a screenshot cannot lose it. ONE composer: "Add work note",
+ * internal. There is deliberately NO "reply to requester" composer: nothing can deliver one until
+ * P4 (gated on D271), and a button that reaches nobody for three phases is this project's signature
+ * defect built on purpose (plan v3 §0 finding 8). `ticket.worknote` joins the audit log with who
+ * and when and never the words. A state change writes its own entry inside `setTicketState()`.
+ *
+ * D276 — THE AGE, NOT THE COUNT. Both ticket screens carry, beside "NOBODY HAS BEEN EMAILED", the
+ * age of the oldest requester comment nobody has answered. It reads "none" in this build because
+ * no requester can comment yet, and it says why in words rather than drawing an empty cell. When
+ * P4 lands the sentence changes on its own: `oldestUnansweredRequesterComment()` already reads the
+ * clock (`tickets.awaiting_agent_since`) that P4 will start writing.
  */
 import { html, notYet, empty, when, ago, csrfField, limit } from "../html.js";
 import { route } from "../route.js";
-import { countTicketsByState, getTicket, listTickets, setTicketState, NEXT_STATES, TICKET_STATES } from "../../tickets/query.js";
+import {
+  countTicketsByState, getTicket, listTickets, setTicketState, NEXT_STATES, TICKET_STATES,
+  addEntry, listEntries, oldestUnansweredRequesterComment,
+} from "../../tickets/query.js";
 
 const NOBODY_EMAILED = "Nobody has been emailed about any of these. This build has no outbound email (D86), so this list is the queue: if you do not look here, nobody knows.";
 
 const pill = (state) => html`<span class="pill ${state}">${state}</span>`;
+
+/** The console user as a timeline author: control-plane id recorded, email snapshotted (D143). */
+const consoleAuthor = (ctx) => ({ kind: "console_user", adminUserId: ctx.user.id, label: ctx.user.email });
+
+/**
+ * D276's indicator. An AGE — "3" is ignorable, "41 h ago" is not. Null today, and the sentence
+ * says why instead of showing nothing: no requester can comment until P4.
+ */
+function unansweredLimit(oldest) {
+  if (!oldest) {
+    return limit(html`<strong>Oldest unanswered requester comment: none.</strong> No requester can comment in this build — the panel has no ticket view and the hub has no comment route (P4, after D271). When one can, this line carries the <strong>age</strong> of the oldest comment nobody has answered, never a count.`);
+  }
+  return limit(html`<strong>Oldest unanswered requester comment: ${ago(oldest.since)}</strong>, on <a class="mono" href="/admin/tickets/${oldest.reference}">${oldest.reference}</a> — waiting since ${when(oldest.since)}.`);
+}
+
+const KIND_WORDS = { work_note: "work note", state_change: "state change", comment: "comment", resolution: "resolution" };
+
+/**
+ * One timeline entry. The visibility is a LABEL IN WORDS on every row (plan §7.4: it has to survive
+ * a screenshot); the pill colour is secondary. "public" is honest about what it means today.
+ */
+function entryRow(e) {
+  const vis = e.visibility === "internal"
+    ? html`<span class="pill internal">internal</span> <span>the requester never sees this</span>`
+    : html`<span class="pill">public</span> <span>reaches nobody in this build (D86) — requester-visible once P4 delivers</span>`;
+  return html`<div class="entry">
+    <div class="entry-head">${vis} · ${KIND_WORDS[e.kind] ?? e.kind} · <span class="mono">${e.authorLabel ?? e.authorKind}</span> · <span title="${e.createdAt.toISOString()}">${when(e.createdAt)} (${ago(e.createdAt)})</span></div>
+    <blockquote>${e.body}</blockquote>
+  </div>`;
+}
+
+/**
+ * The timeline panel: every entry newest LAST, then the ONE composer this build has.
+ *
+ * NO "REPLY TO REQUESTER". Not an omission — a decision (D275, plan v3 §0 finding 8). Nothing can
+ * deliver a requester-visible entry until P4, so a composer for one would be a control that reaches
+ * nobody, three lines above a note saying so. It ships with the delivery path or not at all.
+ */
+function timelinePanel(ctx, t, entries) {
+  const composer = !ctx.permissions.has("tickets.write")
+    ? html`<p class="muted">Your roles (${ctx.roles.join(", ")}) can read the timeline but not add to it.</p>`
+    : html`<form method="post" action="/admin/tickets/${t.reference}/worknote" style="margin-top:14px">
+    ${csrfField(ctx.csrf)}
+    <label for="body">Add work note (internal)</label>
+    <textarea id="body" name="body" rows="3" maxlength="4000" placeholder="What you did, found, or are waiting on — for the desk." style="max-width:100%"></textarea>
+    <p class="muted" style="font-size:13px;margin:4px 0 0">Internal: the requester never sees a work note. There is no reply-to-requester here on purpose — nothing can deliver one yet (P4, after D271).</p>
+    <div class="row">
+      <button class="primary" type="submit">Add work note</button>
+      <span class="muted" style="font-size:13px">Recorded in the audit log as who wrote one and when — never the words.</span>
+    </div>
+  </form>`;
+  return html`<div class="panel">
+  <h2>Timeline<span class="count">${entries.length}</span></h2>
+  ${entries.length ? entries.map(entryRow) : empty("Nothing yet. A state change writes an entry; so does a work note.")}
+  ${composer}
+</div>`;
+}
 const owner = (o) => o ? o.replace(/_/g, " ") : html`<span class="muted">unrouted</span>`;
 const category = (c) => c.replace(/_/g, " ");
 
@@ -36,11 +111,13 @@ async function listPage(ctx) {
   const pages = Math.max(1, Math.ceil(inFilter / PAGE));
   const page = Math.min(Math.max(Number(ctx.url.searchParams.get("page")) || 1, 1), pages);
   const rows = await listTickets(schema, { state: filter, limit: PAGE, offset: (page - 1) * PAGE });
+  const oldest = await oldestUnansweredRequesterComment(schema);
   const pageHref = (p) => `/admin/tickets?${filter ? `state=${filter}&` : ""}page=${p}`;
   const body = html`
 <h1>Tickets</h1>
 <p class="lede">${total} in ${ctx.tenant.displayName}.</p>
 ${limit(NOBODY_EMAILED)}
+${unansweredLimit(oldest)}
 <p class="filters"><strong>Show</strong><a href="/admin/tickets" class="${filter ? "" : "current"}">All<span class="n">${total}</span></a>${TICKET_STATES.map((s) => html`<a href="/admin/tickets?state=${s}" class="${filter === s ? "current" : ""}">${s}<span class="n">${counts[s]}</span></a>`)}</p>
 <div class="panel" style="padding:0 0 4px">
   ${rows.length ? html`
@@ -98,13 +175,21 @@ async function detailPage(ctx) {
   const next = NEXT_STATES[t.state] ?? [];
   const flash = ctx.url.searchParams.get("changed");
   const noted = ctx.url.searchParams.get("noted");
+  const workNoted = ctx.url.searchParams.get("worknote");
+  // "all": this page is the one reader entitled to internal rows, and it says so in the call (D275).
+  const [entries, oldest] = await Promise.all([
+    listEntries(ctx.tenant.schemaName, ref, { visibility: "all" }),
+    oldestUnansweredRequesterComment(ctx.tenant.schemaName),
+  ]);
 
   const body = html`
 <p><a href="/admin/tickets">← Tickets</a></p>
 <h1><span class="mono">${t.reference}</span> ${pill(t.state)}</h1>
 <p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
 ${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
+${unansweredLimit(oldest)}
 ${flash ? html`<div class="flash">State changed to ${t.state}.${noted ? " Internal note recorded." : ""}</div>` : ""}
+${workNoted ? html`<div class="flash">Work note added — internal, on the timeline below.</div>` : ""}
 
 <div class="detail">
 <div>
@@ -122,9 +207,11 @@ ${flash ? html`<div class="flash">State changed to ${t.state}.${noted ? " Intern
 </div>
 
 <div class="panel">
-  <h2>State — the one action on this page</h2>
+  <h2>State</h2>
   ${stateBlock(ctx, t, next)}
 </div>
+
+${timelinePanel(ctx, t, entries)}
 </div>
 <div>
   <div class="panel">
@@ -152,10 +239,10 @@ ${flash ? html`<div class="flash">State changed to ${t.state}.${noted ? " Intern
 </div>
 
 ${notYet({
-  heading: "Assignment, comments, attachments, notification",
-  missing: "This ticket cannot be assigned to a person, commented on, or sent anywhere.",
-  why: "The store is create plus a four-state machine (B6-lite, D213). OPEN-4's subset — assign, visibility-split comments (D69), attachments, search — and D86's outbound email are not built, so a state change here tells nobody.",
-  arrives: "B6 proper",
+  heading: "Assignment, requester comments, attachments, notification",
+  missing: "This ticket cannot be assigned to a person, commented on by the requester, or sent anywhere. The work notes above are internal and reach nobody outside this console.",
+  why: "The store is create plus a four-state machine (B6-lite, D213) and, since 2026-09-12, an internal timeline (D275). OPEN-4's subset — assign, requester-visible comments (D69; P4, after D271), attachments, search — and D86's outbound email are not built, so a state change or a work note here tells nobody.",
+  arrives: "B6 proper; requester comments with P4's delivery path",
 })}`;
   await ctx.render(200, body, { title: t.reference, current: "/admin/tickets" });
 }
@@ -173,11 +260,29 @@ async function statePost(ctx) {
   // this one is blank. The audit records THAT a note was written, never what it said (D156's audit
   // is about who touched which record; the note is the record).
   const note = typeof ctx.form.note === "string" ? ctx.form.note : null;
-  const moved = await setTicketState(ctx.tenant.schemaName, ref, next, { note });
+  const moved = await setTicketState(ctx.tenant.schemaName, ref, next, { note, author: consoleAuthor(ctx) });
   if (!moved) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
   await ctx.audit("ticket.state", { subject: ref, detail: { from: moved.from, to: moved.to, noted: moved.noted } });
   ctx.log(`[admin] ${ctx.user.email} moved ${ref} ${moved.from} -> ${moved.to}${moved.noted ? " with an internal note" : ""}`);
   ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?changed=1${moved.noted ? "&noted=1" : ""}`);
+}
+
+/**
+ * The work-note composer's POST (D275). Internal, always: `addEntry()` decides the visibility from
+ * the kind and takes none from here. The audit row carries the entry's id and never its text —
+ * D156's audit is about who touched which record; the note IS the record.
+ */
+async function worknotePost(ctx) {
+  const ref = ctx.params.ref;
+  const body = typeof ctx.form.body === "string" ? ctx.form.body.trim() : "";
+  if (!body) {
+    return ctx.render(400, html`<h1>A work note needs words</h1><p class="lede">Nothing was added to ${ref}.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Nothing to add", current: "/admin/tickets" });
+  }
+  const added = await addEntry(ctx.tenant.schemaName, ref, { kind: "work_note", body, author: consoleAuthor(ctx) });
+  if (!added) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
+  await ctx.audit("ticket.worknote", { subject: ref, detail: { entry: added.id } });
+  ctx.log(`[admin] ${ctx.user.email} added a work note to ${ref}`);
+  ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?worknote=1`);
 }
 
 const REF = "(?<ref>MD-\\d{1,12})";
@@ -185,4 +290,5 @@ export const ticketRoutes = [
   route("GET", /^\/admin\/tickets\/?$/, "tickets.read", listPage),
   route("GET", new RegExp(`^/admin/tickets/${REF}$`), "tickets.read", detailPage),
   route("POST", new RegExp(`^/admin/tickets/${REF}/state$`), "tickets.write", statePost),
+  route("POST", new RegExp(`^/admin/tickets/${REF}/worknote$`), "tickets.write", worknotePost),
 ];

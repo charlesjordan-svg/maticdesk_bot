@@ -55,7 +55,7 @@ import { migrate } from "../src/db/migrate.js";
 import { createTenant, dropTenantForTests } from "../src/db/tenants.js";
 import { getPool, closePool, withControl } from "../src/db/pool.js";
 import { createTicket } from "../src/tickets/file.js";
-import { listTickets, getTicket } from "../src/tickets/query.js";
+import { listTickets, getTicket, listEntries, addEntry } from "../src/tickets/query.js";
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { corpusStatus } from "../src/kb/ingest.js";
 import { gapFeed } from "../src/admin/queries.js";
@@ -431,6 +431,56 @@ try {
     check("bin/tickets.mjs state --note writes through the same function and says so", cliState.status === 0 && /internal note recorded/.test(cliState.stdout) && (await getTicket(schema, ref)).internalResolutionNote === "reopened: the dock failed again", cliState.stderr.slice(0, 200));
     const page3 = await owner.go(`/admin/tickets/${ref}`);
     check("…and the console shows what the CLI wrote", page3.text.includes("reopened: the dock failed again"));
+
+    // D275/D276: THE TIMELINE. The four moves above each wrote a public state_change entry inside
+    // the move's own transaction — three attributed to the console user's email, one to
+    // bin/tickets.mjs — and the work note is the ONE composer this build has. Then the rule that
+    // matters: listEntries(public) cannot return the internal row, and there is no default.
+    const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const before6 = await listEntries(schema, ref, { visibility: "all" });
+    check("the four state changes above each wrote a state_change entry, public, in order",
+      before6.length === 4 && before6.every((e) => e.kind === "state_change" && e.visibility === "public") && before6.map((e) => e.body).join("|") === "new → open|open → resolved|resolved → closed|closed → open",
+      before6.map((e) => `${e.kind}:${e.visibility}:${e.body}`).join("|"));
+    check("three are attributed to the console user's email (snapshot, D143) and one to bin/tickets.mjs",
+      before6.filter((e) => e.authorKind === "console_user" && e.authorLabel === made.owner.email).length === 3 && before6.filter((e) => e.authorKind === "system" && e.authorLabel === "bin/tickets.mjs").length === 1);
+    const page4 = await owner.go(`/admin/tickets/${ref}`);
+    check("the detail page draws the timeline: 4 entries, each labelled public IN WORDS", /Timeline<span class="count">4<\/span>/.test(page4.text) && (page4.text.match(/reaches nobody in this build \(D86\)/g) ?? []).length === 4);
+    check("D276: the indicator reads none, with the reason in words (no requester can comment in this build)", /Oldest unanswered requester comment: none\./.test(page4.text) && /No requester can comment in this build/.test(page4.text));
+    check("D276: the list page carries the same indicator", /Oldest unanswered requester comment: none\./.test((await owner.go("/admin/tickets")).text));
+    check("the page offers ONE composer — Add work note — and no reply-to-requester", new RegExp(`action="/admin/tickets/${ref}/worknote"`).test(page4.text) && !/[Rr]eply to requester/.test(page4.text) && !/name="visibility"/.test(page4.text));
+    const csrf4 = csrfOf(page4.text);
+    const NOTE_BODY = "called the user; <dock> firmware & cable both replaced";
+    const noCsrfWn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: NOTE_BODY } });
+    check("POST worknote without the token -> 403", noCsrfWn.status === 403);
+    const emptyWn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: "   ", _csrf: csrf4 } });
+    check("an empty work note -> 400 saying it needs words, and nothing was added", emptyWn.status === 400 && /needs words/.test(emptyWn.text) && (await listEntries(schema, ref, { visibility: "all" })).length === 4);
+    const wn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: `  ${NOTE_BODY}\r\n`, _csrf: csrf4 } });
+    check("POST worknote with the token -> 303 back to the ticket, flagged worknote=1", wn.status === 303 && wn.location === `/admin/tickets/${ref}?worknote=1`, `${wn.status} ${wn.location}`);
+    const all6 = await listEntries(schema, ref, { visibility: "all" });
+    const note6 = all6.find((e) => e.kind === "work_note");
+    check("listEntries(all) returns the work note: trimmed, INTERNAL, attributed to the console user's email",
+      all6.length === 5 && Boolean(note6) && note6.body === NOTE_BODY && note6.visibility === "internal" && note6.authorKind === "console_user" && note6.authorLabel === made.owner.email, JSON.stringify(note6));
+    const pub6 = await listEntries(schema, ref, { visibility: "public" });
+    check("listEntries(public) CANNOT return the internal row — 4 entries, none internal, no work note (P1 exit criterion 2)",
+      pub6.length === 4 && pub6.every((e) => e.visibility === "public") && !pub6.some((e) => e.kind === "work_note"));
+    check("listEntries() with no visibility THROWS — there is no default", await listEntries(schema, ref, {}).then(() => false, (e) => /no default/.test(e.message)));
+    check("…and so does visibility: 'internal' — only 'public' and 'all' exist", await listEntries(schema, ref, { visibility: "internal" }).then(() => false, (e) => /public, all/.test(e.message)));
+    check("addEntry() REFUSES a comment in this build (WRITABLE_KINDS): no requester-visible entry can be written before P4 can deliver one",
+      await addEntry(schema, ref, { kind: "comment", body: "x", author: { kind: "console_user", label: "x" } }).then(() => false, (e) => /P4/.test(e.message)));
+    const page5 = await owner.go(`/admin/tickets/${ref}`);
+    check("the detail page renders the work note ESCAPED, labelled internal in words, newest last",
+      page5.text.includes(escapeHtml(NOTE_BODY)) && !page5.text.includes("<dock>") && /pill internal">internal<\/span> <span>the requester never sees this/.test(page5.text) && page5.text.indexOf(escapeHtml(NOTE_BODY)) > page5.text.lastIndexOf("closed → open"));
+    check("…and the redirect target shows the flash", /Work note added — internal/.test((await owner.go(`/admin/tickets/${ref}?worknote=1`)).text));
+    const cliTl = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: cliEnv });
+    check("bin/tickets.mjs show prints the timeline through the SAME listEntries(): 5 entries, the work note [INTERNAL], the four moves [public] (P1 exit criterion 1)",
+      cliTl.status === 0 && /timeline \(5 entries/.test(cliTl.stdout)
+      && new RegExp(`\\[INTERNAL\\]  work note\\s+${reEsc(made.owner.email)}\\s+${reEsc(NOTE_BODY)}`).test(cliTl.stdout)
+      // Entry LINES only: the timeline's heading also says "[public]" while explaining the label.
+      && (cliTl.stdout.match(/^\s+\d{4}-\d\d-\d\d \d\d:\d\d  \[public\]/gm) ?? []).length === 4 && /bin\/tickets\.mjs\s+closed → open/.test(cliTl.stdout),
+      cliTl.stdout.slice(-700) + cliTl.stderr.slice(0, 200));
+    const wnRow = (await auditRows()).find((r) => r.action === "ticket.worknote");
+    check("audited as ticket.worknote with actor, subject and the entry id — and NOT the words",
+      Boolean(wnRow) && wnRow.email === made.owner.email && wnRow.subject === ref && wnRow.detail.entry === note6.id && !/firmware|dock/.test(JSON.stringify(wnRow)), JSON.stringify(wnRow?.detail));
   }
 
   console.log("\n=== 5c. no orphan columns: every column of the ticket store has code that names it, or a reserved-list entry (D269) ===");
@@ -455,6 +505,11 @@ try {
      */
     const RESERVED_COLUMNS = {
       tickets: {},
+      ticket_entries: {
+        // tenant/006's header carries the reason at length; one line each here (D269's rule).
+        notified_at: "D275 → P4 — hub-stamped when an entry is handed to the endpoint; nothing delivers in this build",
+        read_by_requester_at: "D275 → P4 — hub-stamped on the endpoint's ack, never client-sent; nothing acks in this build",
+      },
       users: {
         logon_sid: "D148 — the broker-attested identity; the pipe that would carry it is designed and not built (D200/D201)",
         external_id: "D55/D145 — written by a directory sync (SCIM) that does not exist",
@@ -1247,8 +1302,8 @@ try {
   {
     const rows = await auditRows();
     const actions = new Set(rows.map((r) => r.action));
-    check("the run produced login.failed, login.ok, ticket.view, csrf.refused, ticket.state.refused, ticket.state, access.denied, session.logout",
-      ["login.failed", "login.ok", "ticket.view", "csrf.refused", "ticket.state.refused", "ticket.state", "access.denied", "session.logout"].every((a) => actions.has(a)), [...actions].join(","));
+    check("the run produced login.failed, login.ok, ticket.view, csrf.refused, ticket.state.refused, ticket.state, ticket.worknote, access.denied, session.logout",
+      ["login.failed", "login.ok", "ticket.view", "csrf.refused", "ticket.state.refused", "ticket.state", "ticket.worknote", "access.denied", "session.logout"].every((a) => actions.has(a)), [...actions].join(","));
     check("every row has a timestamp and an action", rows.every((r) => r.at instanceof Date && typeof r.action === "string"));
     check("every row that is an admin's action names the actor", rows.filter((r) => !/^login\.failed|^admin\./.test(r.action)).every((r) => r.email));
   }

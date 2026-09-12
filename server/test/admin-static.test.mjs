@@ -118,8 +118,10 @@ for (const f of pageFiles) check(`${rel(f)} has no inline event handler or scrip
 console.log("\n=== 5. one query layer for tickets (D224) ===");
 const ticketWriters = ["src/tickets/query.js", "src/tickets/file.js"];
 const allSrc = [...walk(join(SERVER, "src")), ...walk(join(SERVER, "bin"))].filter((f) => /\.(m?js)$/.test(f));
-const offenders = allSrc.filter((f) => !ticketWriters.includes(rel(f)) && /\b(FROM|UPDATE|INTO)\s+tickets\b/.test(jsCode(readFileSync(f, "utf8"))));
-check("only src/tickets/ touches the tickets table — the CLI and the console both read through query.js", offenders.length === 0, offenders.map(rel).join(", "));
+// Since tenant/006 (D275) the rule covers ticket_entries too: the timeline's SQL lives in query.js
+// and nowhere else, or the console and the CLI could disagree about which rows exist.
+const offenders = allSrc.filter((f) => !ticketWriters.includes(rel(f)) && /\b(FROM|UPDATE|INTO)\s+(tickets|ticket_entries)\b/.test(jsCode(readFileSync(f, "utf8"))));
+check("only src/tickets/ touches the tickets and ticket_entries tables — the CLI and the console both read through query.js", offenders.length === 0, offenders.map(rel).join(", "));
 check("bin/tickets.mjs imports from src/tickets/query.js and holds no SQL", /from "\.\.\/src\/tickets\/query\.js"/.test(read("bin/tickets.mjs")) && !/SELECT|UPDATE/.test(jsCode(read("bin/tickets.mjs"))));
 check("the console's ticket page imports the same module", /from "\.\.\/\.\.\/tickets\/query\.js"/.test(read("src/admin/pages/tickets.js")));
 check("the console's ticket page says nobody has been emailed (D213's sixth surface)", /[Nn]obody has been emailed/.test(read("src/admin/pages/tickets.js")));
@@ -165,9 +167,47 @@ console.log("\n=== 5c. every field the ticket query layer returns has a reader (
   check("the note is rendered by the detail page AND printed by the CLI", noteField && readBy(noteField) === 2);
   check("the detail page labels it internal, in words, and says the requester never sees it", /Internal resolution note/.test(pageJs) && /requester never sees it/.test(pageJs));
   check("the CLI labels it the same way", /internal resolution note/.test(cliJs) && /requester never sees it/.test(cliJs));
-  check("the state form carries a <textarea name=\"note\"> and statePost passes it to setTicketState()", /<textarea id="note" name="note"/.test(pageJs) && /setTicketState\(ctx\.tenant\.schemaName, ref, next, \{ note \}\)/.test(pageJs));
-  check("the CLI's state command takes --note and passes it the same way", /setTicketState\(tenant, ref, next, \{ note: flag\("note"\) \}\)/.test(cliJs));
+  // Since D275 the call also carries the AUTHOR of the state_change entry the move writes.
+  check("the state form carries a <textarea name=\"note\"> and statePost passes it to setTicketState()", /<textarea id="note" name="note"/.test(pageJs) && /setTicketState\(ctx\.tenant\.schemaName, ref, next, \{ note, author: consoleAuthor\(ctx\) \}\)/.test(pageJs));
+  check("the CLI's state command takes --note and passes it the same way", /setTicketState\(tenant, ref, next, \{ note: flag\("note"\), author: \{ kind: "system", label: "bin\/tickets\.mjs" \} \}\)/.test(cliJs));
   check("neither reader makes the note mandatory (the mandatory field is the requester-visible one, P2)", !/name="note"[^>]*required/.test(pageJs) && !/note.*required/i.test(cliJs));
+}
+
+console.log("\n=== 5d. the timeline: visibility is the KIND's, never the caller's; one composer; no default (D275/D276) ===");
+{
+  // THE RULE THAT MATTERS EIGHTEEN MONTHS FROM NOW. listEntries() has a required visibility and no
+  // default, so a requester-facing caller (P4) cannot receive internal rows by forgetting an
+  // argument; the INSERT takes visibility from the kind, so no caller can make a work note public;
+  // and WRITABLE_KINDS refuses 'comment' until something can deliver one — the plan's finding 8,
+  // enforced rather than remembered. Each is asserted on the SOURCE so it holds with no database.
+  const q = read("src/tickets/query.js"), qCode = jsCode(q);
+  check("listEntries() takes a REQUIRED visibility with no default", /export async function listEntries\(schema, reference, \{ visibility \}\)/.test(qCode));
+  check("…and throws on anything but 'public' and 'all'", /ENTRY_VISIBILITIES = Object\.freeze\(\["public", "all"\]\)/.test(qCode) && /if \(!ENTRY_VISIBILITIES\.includes\(visibility\)\)/.test(qCode));
+  check("…and the public branch filters in SQL (visibility = 'public'), not in JavaScript after the rows arrived", /visibility === "public" \? "AND e\.visibility = 'public'" : ""/.test(qCode));
+  check("KIND_VISIBILITY is frozen: work_note -> internal; comment, state_change, resolution -> public", /KIND_VISIBILITY = Object\.freeze\(\{[^}]*work_note: "internal"[^}]*\}\)/.test(qCode) && /comment: "public"/.test(qCode) && /state_change: "public"/.test(qCode) && /resolution: "public"/.test(qCode));
+  check("the INSERT takes visibility from KIND_VISIBILITY[kind]; no writer accepts one from a caller", /KIND_VISIBILITY\[kind\]/.test(qCode) && !/function (addEntry|insertEntry|setTicketState)\([^)]*visibility/.test(qCode));
+  check("WRITABLE_KINDS is exactly work_note and state_change — no comment (P4), no resolution (P2)", /WRITABLE_KINDS = Object\.freeze\(\["work_note", "state_change"\]\)/.test(qCode) && /WRITABLE_KINDS\.includes\(kind\)/.test(qCode));
+  check("setTicketState() writes its state_change entry INSIDE the same transaction (insertEntry on the same client)", /await insertEntry\(c, rows\[0\]\.id, \{ kind: "state_change"/.test(qCode));
+  const shapeEntry = q.slice(q.indexOf("const shapeEntry"), q.indexOf("});", q.indexOf("const shapeEntry")));
+  check("shapeEntry returns neither notified_at nor read_by_requester_at (P4's; reserved in admin-db §5c)", !/notified_at|read_by_requester_at/.test(jsCode(shapeEntry)));
+
+  const page = read("src/admin/pages/tickets.js"), pageCode = jsCode(page), cli = read("bin/tickets.mjs"), cliCode = jsCode(cli);
+  check("the console asks for 'all' in words, and so does the CLI — the two readers (D224)", /listEntries\(ctx\.tenant\.schemaName, ref, \{ visibility: "all" \}\)/.test(pageCode) && /listEntries\(tenant, ref, \{ visibility: "all" \}\)/.test(cliCode));
+  check("ONE composer — the work note — and no reply-to-requester composer, visibility control or comment route", (pageCode.match(/action="\/admin\/tickets\/\$\{t\.reference\}\/worknote"/g) ?? []).length === 1 && !/[Rr]eply to requester/.test(pageCode) && !/name="visibility"/.test(pageCode) && !/\/comment/.test(pageCode));
+  check("the composer says the requester never sees a work note, and why there is no reply-to-requester", /the requester never sees a work note/.test(page) && /no reply-to-requester here on purpose/.test(page));
+  check("every entry is labelled in WORDS — internal and public — not only by pill colour (plan §7.4)", /<span class="pill internal">internal<\/span> <span>the requester never sees this<\/span>/.test(page) && /<span class="pill">public<\/span> <span>reaches nobody in this build/.test(page));
+  check("the CLI labels every line [INTERNAL] or [public]", /"\[INTERNAL\]"/.test(cliCode) && /"\[public\]  "/.test(cliCode));
+  check("the worknote POST is audited as ticket.worknote with the entry id and never the body", /ctx\.audit\("ticket\.worknote", \{ subject: ref, detail: \{ entry: added\.id \} \}\)/.test(pageCode) && !/ctx\.audit\("ticket\.worknote"[^)]*body/.test(pageCode));
+  check("the worknote route requires tickets.write", /route\("POST", new RegExp\(`\^\/admin\/tickets\/\$\{REF\}\/worknote\$`\), "tickets\.write", worknotePost\)/.test(pageCode));
+  check("the state_change entry is attributed: the console user by email, the CLI as itself", /author: consoleAuthor\(ctx\)/.test(pageCode) && /consoleAuthor = \(ctx\) => \(\{ kind: "console_user", adminUserId: ctx\.user\.id, label: ctx\.user\.email \}\)/.test(pageCode) && /author: \{ kind: "system", label: "bin\/tickets\.mjs" \}/.test(cliCode));
+  check("there is no work-note command in the CLI — the one composer is the console's", !/worknote|work_note/.test(cliCode.replace(/\[INTERNAL\]|never reaches the requester/g, "")));
+
+  // D276: an AGE, never a count, on both ticket screens, saying why it is empty today.
+  check("D276: both ticket screens draw unansweredLimit(oldest) from oldestUnansweredRequesterComment()", (pageCode.match(/\$\{unansweredLimit\(oldest\)\}/g) ?? []).length === 2 && (pageCode.match(/oldestUnansweredRequesterComment\(/g) ?? []).length >= 2);
+  check("D276: it renders an AGE via ago(oldest.since) and never a count", /ago\(oldest\.since\)/.test(pageCode) && !/oldest\.length|unanswered[^;]*count\(/i.test(pageCode));
+  check("D276: with nothing to show it says none AND why (no requester can comment in this build; P4, after D271)", /Oldest unanswered requester comment: none\./.test(page) && /No requester can comment in this build/.test(page) && /P4, after D271/.test(page));
+  check("D276: the query reads tickets.awaiting_agent_since (tenant/006) and nothing writes it yet — the docblock says so", /FROM tickets WHERE awaiting_agent_since IS NOT NULL ORDER BY awaiting_agent_since ASC LIMIT 1/.test(qCode) && /NO WRITER/.test(q) && !/SET awaiting_agent_since/.test(qCode));
+  check("the detail page's notYet() names requester comments as missing and no longer says the ticket cannot be commented on at all", /commented on by the requester/.test(page) && !/cannot be assigned to a person, commented on, or sent anywhere/.test(page));
 }
 
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");

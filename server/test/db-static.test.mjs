@@ -108,6 +108,28 @@ console.log("\n=== 2a. tenant/005 renames close_note guarded, and retracts 004 r
   check("no JavaScript under src/ or bin/ names close_note or closeNote any more", namesOld.length === 0, namesOld.join(", "));
 }
 
+console.log("\n=== 2b. tenant/006 — the timeline's visibility is the KIND's, the database enforces it, and retention is decided (D275–D277) ===");
+{
+  const m006 = tenant.find((m) => /ticket-timeline/.test(m.version));
+  check("tenant/006-ticket-timeline.sql exists", Boolean(m006));
+  const sql = m006?.sql ?? "", code = sqlCode(sql);
+  check("it carries decision provenance with the status held when written (register §5.7b)",
+    /DECISION PROVENANCE/.test(sql) && /D275 \(PROPOSED 2026-09-12\)/.test(sql) && /D276 \(PROPOSED 2026-09-12\)/.test(sql) && /D277 \(PROPOSED 2026-09-12\)/.test(sql) && /D269 \(RATIFIED 2026-09-12\)/.test(sql));
+  check("ticket_entries has the four kinds, two visibilities and four author kinds as CHECKs",
+    /kind IN \('comment', 'work_note', 'state_change', 'resolution'\)/.test(code) && /visibility IN \('public', 'internal'\)/.test(code) && /author_kind IN \('requester', 'console_user', 'agent', 'system'\)/.test(code));
+  check("a work note can never be public and a requester can never write an internal row — in the DATABASE, not only in query.js",
+    /CHECK \(kind <> 'work_note' OR visibility = 'internal'\)/.test(code) && /CHECK \(author_kind <> 'requester' OR visibility = 'public'\)/.test(code));
+  check("author_admin_user_id carries NO foreign key (a control-plane id in tenant data, D143); author_label is a snapshot",
+    /author_admin_user_id\s+uuid,/.test(code) && !/author_admin_user_id\s+uuid\s+REFERENCES/.test(code) && /author_label\s+text/.test(code));
+  check("the two indexes: (ticket_id, created_at) and the partial unnotified-requester scan",
+    /ON ticket_entries \(ticket_id, created_at\)/.test(code) && /WHERE author_kind = 'requester' AND notified_at IS NULL/.test(code));
+  check("tickets gains awaiting_agent_since (D276's clock)", /ALTER TABLE tickets ADD COLUMN IF NOT EXISTS awaiting_agent_since timestamptz/.test(code));
+  check("RETENTION is decided in the header: names D277 and D229, refuses the per-column sweep, points at OPEN-12",
+    /RETENTION \(D277\)/.test(sql) && /D229/.test(sql) && /OPEN-12/.test(sql) && /NOTHING here is\s+-- swept/.test(sql));
+  check("it says in words why there is no requester-visible composer (plan v3 §0 finding 8)", /WHY NOT A REQUESTER-VISIBLE COMPOSER/.test(sql) && /finding 8/.test(sql));
+  check("no jsonb, no payload-shaped column: body is the one free-text field", !/jsonb/i.test(code));
+}
+
 console.log("\n=== 3. the extension is installed once, database-wide ===");
 const c001 = control.find((m) => /control-plane/.test(m.version)).sql;
 check("control/001 creates the shared `extensions` schema", /CREATE SCHEMA IF NOT EXISTS extensions/i.test(c001));

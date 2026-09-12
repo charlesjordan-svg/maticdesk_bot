@@ -12,6 +12,13 @@
  * it, kept for the desk and never shown to the requester. `show` prints it. Blank keeps the
  * previous one.
  *
+ * `show` also prints the TIMELINE (tenant/006, D275) — every entry, oldest first, each line
+ * labelled [INTERNAL] or [public] in words. It asks `listEntries()` for "all" explicitly; the
+ * console does the same, so the two cannot disagree about which rows exist (D224). A `state` move
+ * from here writes its own state_change entry, attributed to this program, because no person is
+ * attached to a CLI call. There is no work-note command here: the one composer this build has is
+ * the console's, on purpose.
+ *
  * ===============================================================================================
  * THIS COMMAND IS THE QUEUE, AND THAT IS THE POINT OF IT EXISTING
  * ===============================================================================================
@@ -41,7 +48,7 @@
  */
 import { closePool } from "../src/db/pool.js";
 import { resolveTicketTenant } from "../src/tickets/file.js";
-import { TICKET_STATES, countTicketsByState, getTicket, listReporters, listTickets, setTicketState } from "../src/tickets/query.js";
+import { TICKET_STATES, countTicketsByState, getTicket, listEntries, listReporters, listTickets, setTicketState } from "../src/tickets/query.js";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "list";
@@ -105,6 +112,17 @@ if (!tenant) {
           console.log(`    ${t.whatWasChecked ?? "-"}`);
           console.log("  internal resolution note (the desk's own record; the requester never sees it):");
           console.log(`    ${t.internalResolutionNote ?? "-"}`);
+          // The timeline, through the same function the console's detail page calls (D224, D275).
+          // "all" is asked for in words: this is an operator's tool and is entitled to internal rows.
+          const entries = await listEntries(tenant, ref, { visibility: "all" });
+          console.log("");
+          console.log(`  timeline (${entries.length} entr${entries.length === 1 ? "y" : "ies"}, oldest first — [INTERNAL] never reaches the requester; [public] reaches nobody in this build):`);
+          if (!entries.length) console.log("    (none yet — a state change or a console work note writes one)");
+          for (const e of entries) {
+            const label = e.visibility === "internal" ? "[INTERNAL]" : "[public]  ";
+            const body = e.body.replace(/\r?\n/g, "\n" + " ".repeat(6));
+            console.log(`    ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")}  ${label}  ${e.kind.replace(/_/g, " ").padEnd(12)} ${(e.authorLabel ?? e.authorKind).padEnd(24)} ${body}`);
+          }
         }
       }
     } else if (cmd === "state") {
@@ -114,7 +132,8 @@ if (!tenant) {
         // Any state to any state: this is the operator's correction tool. The console offers only
         // NEXT_STATES; the CLI does not, on purpose. The note goes through the same function the
         // console's form calls, so `show` and the detail page cannot disagree about it (D224).
-        const moved = await setTicketState(tenant, ref, next, { note: flag("note") });
+        // The state_change entry is attributed to this program: a CLI call has no person on it.
+        const moved = await setTicketState(tenant, ref, next, { note: flag("note"), author: { kind: "system", label: "bin/tickets.mjs" } });
         if (!moved) die(`no ticket ${ref} in ${tenant}`);
         else console.log(`  ${ref}: ${moved.from} -> ${moved.to}${moved.noted ? " (internal note recorded)" : ""}`);
       }

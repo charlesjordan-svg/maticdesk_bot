@@ -16,6 +16,13 @@
  *
  * `createTicket()` stays in src/tickets/file.js: it is the route's write and it upserts the
  * reporter in the same transaction, which neither reader needs.
+ *
+ * SINCE 2026-09-12 THE TIMELINE IS HERE TOO (tenant/006, D275): `addEntry()`, `listEntries()`
+ * and `oldestUnansweredRequesterComment()` are the only code that touches `ticket_entries`
+ * (test/admin-static.test.mjs §5 fails if SQL against it appears anywhere else). Visibility is a
+ * property of the KIND and is decided in KIND_VISIBILITY below — no caller passes one — and
+ * `listEntries()` takes a REQUIRED visibility with no default, because a default is how an
+ * internal work note reaches a requester's screen eighteen months from now.
  */
 import { withTenant } from "../db/tenant.js";
 
@@ -36,6 +43,163 @@ export const NEXT_STATES = {
   resolved: ["closed", "open"],
   closed: ["open"],
 };
+
+// ---- the timeline (tenant/006, D275) ------------------------------------------------------------
+
+/** Every kind the table accepts. The shape is declared in full so P2 and P4 add no columns. */
+export const ENTRY_KINDS = ["comment", "work_note", "state_change", "resolution"];
+
+/**
+ * VISIBILITY IS A PROPERTY OF THE KIND, DECIDED HERE AND NOWHERE ELSE. A work note is internal:
+ * the requester can never see or be sent one (D69, D275). A comment, a state change and a
+ * resolution are public — requester-visible the day something can deliver them, which nothing
+ * can yet. No function in this file takes a visibility from its caller; tenant/006's two CHECKs
+ * refuse the combinations this table forbids even if this map is edited.
+ */
+export const KIND_VISIBILITY = Object.freeze({
+  comment: "public",
+  work_note: "internal",
+  state_change: "public",
+  resolution: "public",
+});
+
+/**
+ * THE KINDS THIS BUILD WRITES. `comment` is refused until P4 ships the delivery path — a
+ * requester-visible entry that reaches nobody is this project's signature defect (plan v3 §0
+ * finding 8) and this list is what stops it being built by accident. `resolution` is P2's, with
+ * the resolution code. test/admin-static.test.mjs §5d pins this list.
+ */
+export const WRITABLE_KINDS = Object.freeze(["work_note", "state_change"]);
+
+export const ENTRY_AUTHOR_KINDS = ["requester", "console_user", "agent", "system"];
+
+/** The two arguments `listEntries()` accepts. "all" is the console's and the CLI's explicit choice. */
+export const ENTRY_VISIBILITIES = Object.freeze(["public", "all"]);
+
+/** The one author when nobody is attached: the CLI, or the hub acting on its own. */
+const SYSTEM_AUTHOR = Object.freeze({ kind: "system", label: null });
+
+/**
+ * @typedef {object} EntryAuthor
+ * @property {"requester"|"console_user"|"agent"|"system"} kind
+ * @property {string|null} [adminUserId]  control.admin_users.id — recorded, never joined (D143)
+ * @property {string|null} [userId]       the tenant's users.id, for a requester
+ * @property {string|null} [label]        what to show: the console user's email as at write time
+ */
+
+/**
+ * @typedef {object} TicketEntry
+ * @property {string} id
+ * @property {string} kind
+ * @property {"public"|"internal"} visibility
+ * @property {string} body
+ * @property {string} authorKind
+ * @property {string|null} authorLabel
+ * @property {Date} createdAt
+ */
+
+const shapeEntry = (r) => ({
+  id: r.id,
+  kind: r.kind,
+  visibility: r.visibility,
+  body: r.body,
+  authorKind: r.author_kind,
+  authorLabel: r.author_label ?? null,
+  createdAt: r.created_at,
+  // notified_at and read_by_requester_at are NOT returned: P4's, reserved (admin-db §5c).
+});
+
+/**
+ * The one INSERT. Takes the tenant-scoped client because `setTicketState()` writes its
+ * state_change entry inside the same transaction as the move.
+ *
+ * @param {any} client
+ * @param {string} ticketId
+ * @param {{ kind: string, body: string, author?: EntryAuthor }} e
+ * @returns {Promise<{ id: string, createdAt: Date }>}
+ */
+async function insertEntry(client, ticketId, { kind, body, author = SYSTEM_AUTHOR }) {
+  if (!WRITABLE_KINDS.includes(kind)) {
+    throw new Error(`entry kind must be one of: ${WRITABLE_KINDS.join(", ")} in this build (comment arrives with P4's delivery path, resolution with P2's code); got ${JSON.stringify(kind)}`);
+  }
+  if (!ENTRY_AUTHOR_KINDS.includes(author?.kind)) throw new Error(`author.kind must be one of: ${ENTRY_AUTHOR_KINDS.join(", ")}`);
+  const text = typeof body === "string" ? body.trim().slice(0, 4000) : "";
+  if (!text) throw new Error("an entry needs a body");
+  const { rows } = await client.query(
+    `INSERT INTO ticket_entries (ticket_id, kind, visibility, body, author_kind, author_user_id, author_admin_user_id, author_label)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, created_at`,
+    [ticketId, kind, KIND_VISIBILITY[kind], text, author.kind, author.userId ?? null, author.adminUserId ?? null, author.label ?? null],
+  );
+  return { id: rows[0].id, createdAt: rows[0].created_at };
+}
+
+/**
+ * Add an entry to a ticket's timeline. In this build only a work note can be added this way
+ * (WRITABLE_KINDS; state changes come from `setTicketState()`). Returns null when no such ticket.
+ *
+ * Nothing here refuses a work note on a closed ticket: `closed` becomes terminal in the console in
+ * P2, and until then the desk may annotate any ticket it can see.
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ kind: string, body: string, author: EntryAuthor }} e
+ * @returns {Promise<{ id: string, createdAt: Date }|null>}
+ */
+export async function addEntry(schema, reference, { kind, body, author }) {
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query("SELECT id FROM tickets WHERE reference = $1", [reference]);
+    if (!rows.length) return null;
+    return insertEntry(c, rows[0].id, { kind, body, author });
+  });
+}
+
+/**
+ * One ticket's timeline, oldest first (the console and the CLI both render newest LAST).
+ *
+ * `visibility` IS REQUIRED AND HAS NO DEFAULT. "public" returns only rows a requester may see;
+ * "all" is the console's and the CLI's explicit request for the internal rows too. Anything else —
+ * including nothing — throws, so a requester-facing caller (P4) cannot get internal rows by
+ * forgetting an argument, and test/admin-db.test.mjs §5 proves "public" cannot return one.
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ visibility: "public"|"all" }} opts
+ * @returns {Promise<TicketEntry[]>}  empty when no such ticket or no entries
+ */
+export async function listEntries(schema, reference, { visibility }) {
+  if (!ENTRY_VISIBILITIES.includes(visibility)) {
+    throw new Error(`listEntries needs visibility: one of ${ENTRY_VISIBILITIES.join(", ")} — no default, on purpose (D275)`);
+  }
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      `SELECT e.id, e.kind, e.visibility, e.body, e.author_kind, e.author_label, e.created_at
+         FROM ticket_entries e JOIN tickets t ON t.id = e.ticket_id
+        WHERE t.reference = $1 ${visibility === "public" ? "AND e.visibility = 'public'" : ""}
+        ORDER BY e.created_at ASC, e.id ASC`,
+      [reference],
+    );
+    return rows.map(shapeEntry);
+  });
+}
+
+/**
+ * D276's indicator: the oldest requester comment nobody has answered, as the moment it began
+ * waiting — the console turns that into an AGE, never a count. Reads `tickets.awaiting_agent_since`
+ * (tenant/006), which in this build has NO WRITER: no requester can comment until P4. So this
+ * returns null today, and both ticket screens say why rather than drawing an empty cell.
+ *
+ * @param {string} schema
+ * @returns {Promise<{ reference: string, since: Date }|null>}
+ */
+export async function oldestUnansweredRequesterComment(schema) {
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      "SELECT reference, awaiting_agent_since FROM tickets WHERE awaiting_agent_since IS NOT NULL ORDER BY awaiting_agent_since ASC LIMIT 1",
+    );
+    return rows.length ? { reference: rows[0].reference, since: rows[0].awaiting_agent_since } : null;
+  });
+}
 
 /**
  * @typedef {object} TicketRow
@@ -196,13 +360,19 @@ export async function ticketCountsBySession(client, sessionIds) {
  * writer existed; none of them did (tenant/005's header has the record). The ticket-close-to-draft
  * loop is the thing this column exists for and is NOT built.
  *
+ * SINCE tenant/006 (D275) A MOVE ALSO WRITES A `state_change` ENTRY — "open → resolved", public,
+ * attributed to `author` — in the same transaction, so the timeline and the row cannot disagree
+ * about when the state changed. A move to the state the ticket is already in (the CLI's
+ * correction tool allows it) writes no entry: nothing changed. The internal note is NOT copied
+ * into the entry; it stays the column D269 wired, read by the two readers that label it internal.
+ *
  * @param {string} schema
  * @param {string} reference
  * @param {string} next
- * @param {{ note?: string|null }} [opts]
+ * @param {{ note?: string|null, author?: EntryAuthor }} [opts]  `author` defaults to the system
  * @returns {Promise<{ from: string, to: string, noted: boolean }|null>}  `noted` — a note was written by THIS call
  */
-export async function setTicketState(schema, reference, next, { note = null } = {}) {
+export async function setTicketState(schema, reference, next, { note = null, author = SYSTEM_AUTHOR } = {}) {
   if (!TICKET_STATES.includes(next)) throw new Error(`state must be one of: ${TICKET_STATES.join(", ")}`);
   const trimmed = typeof note === "string" && note.trim() ? note.trim().slice(0, 4000) : null;
   return withTenant(schema, async (c) => {
@@ -210,11 +380,13 @@ export async function setTicketState(schema, reference, next, { note = null } = 
       `UPDATE tickets t SET state = $2, updated_at = now(), internal_resolution_note = COALESCE($3, t.internal_resolution_note)
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
         WHERE t.id = prev.id
-        RETURNING prev.was`,
+        RETURNING t.id, prev.was`,
       [reference, next, trimmed],
     );
     if (!rows.length) return null;
-    return { from: rows[0].was, to: next, noted: trimmed !== null };
+    const from = rows[0].was;
+    if (from !== next) await insertEntry(c, rows[0].id, { kind: "state_change", body: `${from} → ${next}`, author });
+    return { from, to: next, noted: trimmed !== null };
   });
 }
 

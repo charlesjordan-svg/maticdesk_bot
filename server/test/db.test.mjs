@@ -198,6 +198,27 @@ async function main() {
   check("and against a tenant still carrying close_note it renames forward (the guard's rename branch - the not-yet-migrated tenant)",
     after.includes("internal_resolution_note") && !after.includes("close_note"), after.join(","));
 
+  // D275: tenant/006 is all IF NOT EXISTS. Running it a second time against a migrated tenant must
+  // leave the catalog - columns, indexes, constraints - byte for byte where it was (P1 exit
+  // criterion 3), and its two visibility CHECKs must refuse what query.js's map forbids even when
+  // asked directly in SQL.
+  const m006 = readMigrations("tenant").find((m) => /ticket-timeline/.test(m.version));
+  const timelineCatalog = () => withTenant(SC, async (c) => JSON.stringify({
+    cols: (await c.query("SELECT table_name || '.' || column_name AS x FROM information_schema.columns WHERE table_schema = current_schema() AND table_name IN ('tickets', 'ticket_entries') ORDER BY 1")).rows.map((r) => r.x),
+    idx: (await c.query("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'ticket_entries' ORDER BY 1")).rows.map((r) => r.indexname),
+    cons: (await c.query("SELECT conname FROM pg_constraint WHERE conrelid = (current_schema() || '.ticket_entries')::regclass ORDER BY 1")).rows.map((r) => r.conname),
+  }));
+  const snap006 = await timelineCatalog();
+  check("tenant/006 gave the fresh tenant ticket_entries with both visibility CHECKs, the partial index, and tickets.awaiting_agent_since",
+    Boolean(m006) && /ticket_entries_work_note_internal/.test(snap006) && /ticket_entries_requester_public/.test(snap006) && /ticket_entries_unnotified/.test(snap006) && /tickets\.awaiting_agent_since/.test(snap006), snap006);
+  await withTenant(SC, (c) => c.query(m006.sql));
+  check("running tenant/006's SQL a SECOND time changes nothing in the catalog (all IF NOT EXISTS)", (await timelineCatalog()) === snap006);
+  const refused = (sql) => withTenant(SC, async (c) => { try { await c.query(sql); return ""; } catch (e) { return e.message; } });
+  check("the DATABASE refuses a public work note, whatever the code asked for (ticket_entries_work_note_internal)",
+    /ticket_entries_work_note_internal/.test(await refused("INSERT INTO ticket_entries (ticket_id, kind, visibility, body, author_kind) VALUES (gen_random_uuid(), 'work_note', 'public', 'x', 'system')")));
+  check("...and an internal row from a requester (ticket_entries_requester_public)",
+    /ticket_entries_requester_public/.test(await refused("INSERT INTO ticket_entries (ticket_id, kind, visibility, body, author_kind) VALUES (gen_random_uuid(), 'comment', 'internal', 'x', 'requester')")));
+
   // =============================================================================================
   console.log("\n=== 5. a job for tenant B is picked up by a worker that sees only B's data ===");
   const bSessionId = await withTenant(SB, async (c) =>
