@@ -9,6 +9,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHubServer, isLoopback, authenticate, banner, BANNER_WIDTH } from "../src/index.js";
+import { bypassStartupBanner } from "../src/admin/dev-bypass.js";
 import { checkTurnRequest, buildProviderInput } from "../src/turn.js";
 import { systemPrompt, machineStateBlock } from "../../client/src/agent/prompt.js";
 
@@ -184,6 +185,19 @@ console.log("\n=== 7. the startup banners close ===");
   check("banner() does not truncate an over-long line - it overflows, and this test is the guard",
     banner(["x".repeat(200)])[1].length > BANNER_WIDTH,
     "truncating would silently cut the warning text these boxes exist to carry");
+
+  // D267's startup banner is drawn ONLY when the bypass is live, so the stdout capture below can
+  // never reach it and it went to a real terminal 87 characters wide on its first run. Its lines
+  // live in dev-bypass.js precisely so they can be measured here without setting the variable.
+  {
+    const box = banner(bypassStartupBanner());
+    const over = bypassStartupBanner().filter((l) => l.length > BANNER_WIDTH - 4);
+    check("the insecure-mode startup banner fits the box - a fourth instance of the padding defect",
+      over.length === 0 && box.every((l) => l.length === BANNER_WIDTH),
+      over.map((l) => `${l.length}: ${l}`).join(" | "));
+    check("…and it still says the password is required and that this is development only",
+      /password is still required/i.test(box.join(" ")) && /DEVELOPMENT ONLY/.test(box.join(" ")));
+  }
 
   // The real thing: every banner the hub actually prints on startup, measured. Captures stdout
   // rather than re-deriving the strings, so it fails if a banner is edited badly.

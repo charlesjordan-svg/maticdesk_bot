@@ -12,8 +12,17 @@
  */
 import { html } from "../html.js";
 
-/** @param {{ error?: string|null, email?: string }} p */
-export function loginPage({ error = null, email = "" }) {
+/**
+ * `bypass` (D267) changes the FORM, not only the copy. The code input carries `required` and
+ * `pattern="[0-9]{6}"`, so with the bypass on and the field left empty the browser refuses to
+ * submit and the mode saves nobody anything — the server would never see the request. When the
+ * bypass is live the field becomes optional and says so; when it is refused the page says THAT,
+ * because "I set the variable and it still wants a code" is exactly the confusion D266 was about.
+ *
+ * @param {{ error?: string|null, email?: string, bypass?: import("../dev-bypass.js").BypassStatus|null }} p
+ */
+export function loginPage({ error = null, email = "", bypass = null }) {
+  const bypassOn = Boolean(bypass?.on);
   return html`
 <div class="signin">
   <div class="signin-field">
@@ -33,15 +42,18 @@ export function loginPage({ error = null, email = "" }) {
   </div>
   <div class="signin-form">
     <h1>Sign in</h1>
-    <p class="lede">Password and a six-digit authenticator code.</p>
+    <p class="lede">${bypassOn ? "Password only — this hub is running with the authenticator code disabled." : "Password and a six-digit authenticator code."}</p>
     ${error ? html`<div class="error">${error}</div>` : ""}
+    ${bypass?.refused ? html`<div class="error">${bypass.reason}</div>` : ""}
     <form method="post" action="/admin/login" autocomplete="on">
       <label for="email">Email</label>
       <input id="email" type="email" name="email" value="${email}" required autofocus autocomplete="username">
       <label for="password">Password</label>
       <input id="password" type="password" name="password" required autocomplete="current-password">
-      <label for="code">Authenticator code</label>
-      <input id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" placeholder="6 digits">
+      <label for="code">Authenticator code${bypassOn ? html` <span class="muted" style="text-transform:none;letter-spacing:0">— not required on this hub; leave it empty</span>` : ""}</label>
+      ${bypassOn
+        ? html`<input id="code" type="text" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="leave empty">`
+        : html`<input id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" placeholder="6 digits">`}
       <p class="go"><button class="primary" type="submit">Sign in</button></p>
     </form>
   </div>

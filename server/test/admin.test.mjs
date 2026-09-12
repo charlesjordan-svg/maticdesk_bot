@@ -16,6 +16,8 @@ import { parseCookies, sessionCookie, clearedCookie, csrfToken, csrfValid, cooki
 import { tierOf, transcriptAccess } from "../src/admin/tiers.js";
 import { DESTINATIONS, PERMISSIONS } from "../src/admin/permissions.js";
 import { route } from "../src/admin/route.js";
+import { BYPASS_ENV, bypassBannerLine, bypassStatus } from "../src/admin/dev-bypass.js";
+import { loginPage } from "../src/admin/pages/login.js";
 import { NEXT_STATES, TICKET_STATES } from "../src/tickets/query.js";
 
 let pass = 0, fail = 0;
@@ -129,6 +131,53 @@ check("the nav order is the handover's: review, tickets, knowledge, agents, metr
 throws("a route without a permission cannot be constructed", () => route("GET", /x/, undefined, async () => {}), /needs a permission/);
 check("every NEXT_STATES target is a real state and no state moves to itself",
   Object.entries(NEXT_STATES).every(([from, tos]) => TICKET_STATES.includes(from) && tos.every((t) => TICKET_STATES.includes(t) && t !== from)));
+
+console.log("\n=== 9. the development TOTP bypass: the verdict function, and what the form does (D267) ===");
+{
+  const ON = { [BYPASS_ENV]: "1" };
+  const verdict = (env, boundAddress) => bypassStatus({ env, boundAddress });
+
+  // Guard 1: off unless explicitly set, and only to exactly "1".
+  check("unset -> off", verdict({}, "127.0.0.1").on === false);
+  check("set to something other than 1 -> off, not 'truthy'",
+    verdict({ [BYPASS_ENV]: "true" }, "127.0.0.1").on === false && verdict({ [BYPASS_ENV]: "0" }, "127.0.0.1").on === false);
+  check("unset is not 'refused' either — nothing was asked for", verdict({}, "127.0.0.1").refused === false);
+
+  // Guard 2: the listener, not the peer.
+  check("set + loopback -> ON", verdict(ON, "127.0.0.1").on === true);
+  check("set + ::1 -> ON (loopback has more than one spelling)", verdict(ON, "::1").on === true);
+  check("set + ::ffff:127.0.0.1 -> ON", verdict(ON, "::ffff:127.0.0.1").on === true);
+  check("set + 0.0.0.0 -> REFUSED, and it says so", verdict(ON, "0.0.0.0").on === false && verdict(ON, "0.0.0.0").refused === true);
+  check("set + a routable address -> REFUSED", verdict(ON, "192.168.1.40").on === false && verdict(ON, "192.168.1.40").refused === true);
+  // An unreadable address is the branch most likely to be written the wrong way round.
+  check("set + an UNKNOWN address -> REFUSED, because not knowing is not a loopback binding",
+    verdict(ON, null).on === false && verdict(ON, null).refused === true);
+  check("a refusal names the address it refused on", /0\.0\.0\.0/.test(verdict(ON, "0.0.0.0").reason));
+
+  // Guard 5's line, and the distinction the banner must keep.
+  check("the banner line is null when nothing was asked for", bypassBannerLine(verdict({}, "127.0.0.1")) === null);
+  check("an ACTIVE bypass and a REFUSED one produce DIFFERENT banner lines — 'I set it' is not 'it is on'",
+    bypassBannerLine(verdict(ON, "127.0.0.1")) !== bypassBannerLine(verdict(ON, "0.0.0.0"))
+    && /REFUSED/.test(bypassBannerLine(verdict(ON, "0.0.0.0"))));
+
+  // The banner is drawn on the BARE sign-in page too, which is the page a locked-out reader sees.
+  const bare = page({ title: "t", body: raw("<p>x</p>"), bare: true, insecure: bypassBannerLine(verdict(ON, "127.0.0.1")) });
+  check("page(bare) draws the insecure banner", /class="insecure"/.test(bare));
+  check("page(bare) without it draws nothing", !/class="insecure"/.test(page({ title: "t", body: raw("<p>x</p>"), bare: true })));
+  check("the full page draws it too", /class="insecure"/.test(page({ title: "t", body: raw("<p>x</p>"), insecure: "X" })));
+
+  // THE FORM, not only the copy. With `required` still on the input the browser refuses to submit
+  // an empty code and the mode would save nobody anything — the server would never see the request.
+  const offPage = String(loginPage({ bypass: verdict({}, "127.0.0.1") }));
+  const onPage = String(loginPage({ bypass: verdict(ON, "127.0.0.1") }));
+  check("normally the code field is required and patterned", /name="code"[^>]*\srequired[\s>]/.test(offPage) && /pattern="\[0-9\]\{6\}"/.test(offPage));
+  check("under the bypass the code field is NOT required", !/name="code"[^>]*\srequired[\s>]/.test(onPage));
+  check("…and carries no 6-digit pattern, which would reject an empty submit just as hard", !/pattern="\[0-9\]\{6\}"/.test(onPage));
+  check("…and the page says password only", /Password only/.test(onPage));
+  const refusedPage = String(loginPage({ bypass: verdict(ON, "0.0.0.0") }));
+  check("a REFUSED bypass still demands a code on the form", /name="code"[^>]*\srequired[\s>]/.test(refusedPage));
+  check("…and tells the reader why, rather than silently ignoring the variable", /REFUSED/.test(refusedPage));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

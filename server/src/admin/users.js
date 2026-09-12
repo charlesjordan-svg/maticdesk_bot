@@ -216,12 +216,20 @@ export async function resetAdminCredentials({ adminUserId, password, keepTotp = 
   return { password: initial, totpSecret };
 }
 
-/** Record a successful login: the TOTP step just accepted (replay defence) and the time. */
+/**
+ * Record a successful login: the TOTP step just accepted (replay defence) and the time.
+ *
+ * `totpStep === null` means NO CODE WAS VERIFIED — today only the D267 development bypass — and
+ * then `totp_last_step` IS LEFT ALONE. Writing null would clear the replay defence, so a sign-in
+ * that skipped the second factor would also quietly re-arm a code an attacker had already seen.
+ * The bypass is allowed to skip a check; it is not allowed to undo one.
+ */
 export async function recordLogin(adminUserId, totpStep) {
-  await withControl((c) => c.query(
-    "UPDATE control.admin_users SET totp_last_step = $2, last_login_at = now() WHERE id = $1",
-    [adminUserId, totpStep],
-  ));
+  const sql = totpStep === null
+    ? "UPDATE control.admin_users SET last_login_at = now() WHERE id = $1"
+    : "UPDATE control.admin_users SET totp_last_step = $2, last_login_at = now() WHERE id = $1";
+  const params = totpStep === null ? [adminUserId] : [adminUserId, totpStep];
+  await withControl((c) => c.query(sql, params));
 }
 
 /** Disable a user. Their sessions are revoked by the caller (src/admin/session.js). */

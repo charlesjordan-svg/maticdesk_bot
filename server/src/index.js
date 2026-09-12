@@ -72,6 +72,7 @@ import { retrievalHealthReader } from "./kb/health.js";
 import { enrollHandler } from "./devices/route.js";
 import { questionLoggingEnabled, questionRetentionDays, QUESTION_RETENTION_MAX_DAYS } from "./kb/retrieve.js";
 import { adminHandler } from "./admin/router.js";
+import { bypassStartupBanner, bypassStatus } from "./admin/dev-bypass.js";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
@@ -123,6 +124,23 @@ export function authenticate(_req) {
  * Build the server. Exported so tests can start it on an ephemeral port with a stub provider.
  * @param {{ provider: import("./providers/openai-compatible-provider.js").Provider, hubProvider?: "local" | "cloud", log?: (s: string) => void }} deps
  */
+/**
+ * What `/` and `/v1/health` say about the console's authentication (D267 guard 4). ONE function, so
+ * the two pages cannot disagree about whether the second factor is live — and it reports the
+ * REFUSED state as loudly as the on state, because "I set the variable" and "the variable is doing
+ * something" are different facts and a reader needs to be able to tell them apart.
+ *
+ * @param {string|null} boundAddress
+ */
+function adminAuthReport(boundAddress) {
+  const s = bypassStatus({ boundAddress });
+  return {
+    totpRequired: !s.on,
+    insecureBypass: s.on ? "ACTIVE" : s.refused ? "REQUESTED AND REFUSED" : "off",
+    insecureBypassDetail: s.reason,
+  };
+}
+
 export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true, ticketTenant = null, admin = true }) {
   const handleTurn = turnHandler({ provider, hubProvider, log });
   // Built even when `kb` is false, so the route can answer 503 with a reason rather than 404 with
@@ -148,9 +166,19 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // It takes the SAME embedder instance handleAsk got, because the console's Knowledge search
   // exists to say what the endpoint's retrieval does. Two providers would make it a report about a
   // pipeline nobody runs. And the same health reader, for the same reason.
-  const handleAdmin = admin ? adminHandler({ log, embedder, retrievalHealth }) : null;
+  // D267 guard 2. The bypass is refused unless the listener is bound to loopback, and this is how
+  // the guard learns what it is bound to: the socket itself, read at sign-in time. Not a constant,
+  // not an environment variable, and not an assumption about what `listen` was called with — the
+  // address the server actually has. `httpServer` is assigned below, before it can accept anything.
+  /** @type {import("node:http").Server|null} */
+  let httpServer = null;
+  const getBoundAddress = () => {
+    const a = httpServer?.address();
+    return a && typeof a === "object" ? a.address : null;
+  };
+  const handleAdmin = admin ? adminHandler({ log, embedder, retrievalHealth, getBoundAddress }) : null;
 
-  return http.createServer(async (req, res) => {
+  httpServer = http.createServer(async (req, res) => {
     const send = (status, body) => {
       const json = JSON.stringify(body);
       res.writeHead(status, {
@@ -214,6 +242,9 @@ export function createHubServer({ provider, hubProvider = "local", log = console
         phase: "B0 walking skeleton + B7a knowledge base",
         auth: "none",
         tenancy: "none - MATIC_KB_TENANT_LABEL is a development label, not an authenticated tenant",
+        // D267 guard 4, the machine-readable half. A monitor, a preflight script or a reviewer
+        // should be able to answer "is the second factor disabled on that box" without a browser.
+        adminAuth: admin ? adminAuthReport(getBoundAddress()) : { enabled: false },
         provider: { name: provider.name, model: provider.model, hubProvider },
         embedder: health.embedder,
         corpus: health.corpus,
@@ -269,7 +300,13 @@ export function createHubServer({ provider, hubProvider = "local", log = console
         // with its own session authentication, not an API, and it must not read as one (exit
         // criterion 7 of the console handover).
         console: admin
-          ? { path: "/admin", what: "the admin console. HTML, for a browser. Local accounts with password + authenticator, roles, audit. Loopback only, like everything here, until the sign-in code has had a security review" }
+          ? {
+            path: "/admin", what: "the admin console. HTML, for a browser. Local accounts with password + authenticator, roles, audit. Loopback only, like everything here, until the sign-in code has had a security review",
+            // D267 guard 4. This page already tells the truth about authentication and tenancy; a
+            // reader must not be able to mistake a bypassed console for a normal one, and this is
+            // the object they are reading when they check.
+            ...adminAuthReport(getBoundAddress()),
+          }
           : { enabled: false },
         // The caveat that has to travel with any number this hub produces.
         rerankerPresent: false,
@@ -284,6 +321,8 @@ export function createHubServer({ provider, hubProvider = "local", log = console
       routes: ["GET /", "GET /v1/health", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session"],
     });
   });
+
+  return httpServer;
 }
 
 // ---- entry point ------------------------------------------------------------------------------
@@ -369,6 +408,20 @@ if (isMain) {
       "Device assertion -> token exchange (D61, D132) is not built. Every response",
       "carries x-matic-hub-auth: none so nobody can mistake this for a service.",
     ])) console.log(l);
+    // D267 guard 3. In the same place as the loopback and `auth: none` warnings, and read from the
+    // socket that is now actually listening, so the banner cannot claim a binding the server does
+    // not have. A REFUSED bypass is printed too: setting the variable and getting nothing must not
+    // look the same as not setting it.
+    {
+      const b = bypassStatus({ boundAddress: server.address()?.address ?? null });
+      if (b.on) {
+        console.log("");
+        for (const l of banner(bypassStartupBanner())) console.log(l);
+      } else if (b.refused) {
+        console.log("");
+        console.log(`[hub] ${b.reason}`);
+      }
+    }
     console.log(`[hub] listening on http://127.0.0.1:${port}`);
     console.log(`[hub]   POST /v1/turn   stateless, proposes a machine change, reaches no database`);
     console.log(`[hub]   POST /v1/ask    stateful, answers from the knowledge base (B7a)`);

@@ -64,7 +64,9 @@ import { verifyPassword } from "../src/admin/auth.js";
 import { revokeUserSessions } from "../src/admin/session.js";
 import { totpCode, totpStep } from "../src/admin/auth.js";
 import { logRetrieval, pruneQuestionText, questionRetentionDays } from "../src/kb/retrieve.js";
-import { resetLoginThrottle } from "../src/admin/router.js";
+import { adminHandler, resetLoginThrottle } from "../src/admin/router.js";
+import { BYPASS_ENV } from "../src/admin/dev-bypass.js";
+import http from "node:http";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SERVER = join(HERE, "..");
@@ -727,6 +729,131 @@ try {
       "SELECT detail FROM control.admin_audit WHERE tenant_id = $1 AND action = 'admin.totp_read' ORDER BY id", [tenantId]));
     check("every code read wrote an audit row saying whether the secret was shown",
       reads.rows.length === 2 && reads.rows[0].detail.secretShown === false && reads.rows[1].detail.secretShown === true);
+  }
+
+  console.log("\n=== KB-7c. the development TOTP bypass, end to end (D267) ===");
+  {
+    // The subject is a fresh account so this section cannot be affected by, or affect, the replay
+    // state of anything KB-6 or KB-7 signed in as.
+    const dev = await createAdminUser({ tenantId, email: `dev@${slug}.test`, roleName: "it_agent", password: "dev-password-12" });
+    const lastStep = async () => (await getPool().query("SELECT totp_last_step FROM control.admin_users WHERE id = $1", [dev.id])).rows[0].totp_last_step;
+    const post = (baseUrl, form) => fetch(`${baseUrl}/admin/login`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(form).toString(),
+    });
+
+    // ---- unset: today's behaviour, exactly (acceptance 8) ------------------------------------
+    delete process.env[BYPASS_ENV];
+    resetLoginThrottle();
+    check("UNSET: an empty code is refused", (await post(base, { email: dev.email, password: dev.password, code: "" })).status === 401);
+    check("UNSET: the right code still signs in", (await post(base, { email: dev.email, password: dev.password, code: totpCode(dev.totpSecret) })).status === 303);
+    check("UNSET: /v1/health says the second factor is required",
+      (await (await fetch(`${base}/v1/health`)).json()).adminAuth.totpRequired === true);
+    check("UNSET: no insecure banner anywhere on the sign-in page", !/class="insecure"/.test(await (await fetch(`${base}/admin/login`)).text()));
+
+    // ---- set, on a LOOPBACK listener: the code is not required, the password is ---------------
+    process.env[BYPASS_ENV] = "1";
+    resetLoginThrottle();
+    const stepBefore = await lastStep();
+
+    // THE ASSERTION THAT MATTERS. A bypass that skipped the password too would make this console
+    // reachable by anything running as this user, which is a different proposition entirely.
+    check("SET+loopback: a WRONG PASSWORD is still refused, with no code supplied",
+      (await post(base, { email: dev.email, password: "wrong-password-99", code: "" })).status === 401);
+    check("SET+loopback: an EMPTY password is refused",
+      (await post(base, { email: dev.email, password: "", code: "" })).status === 401);
+    check("SET+loopback: a wrong password with a VALID code is still refused",
+      (await post(base, { email: dev.email, password: "wrong-password-99", code: totpCode(dev.totpSecret) })).status === 401);
+    resetLoginThrottle(); // those three deliberate failures would otherwise trip the throttle
+
+    const ok = await post(base, { email: dev.email, password: dev.password, code: "" });
+    check("SET+loopback: the right password with NO code signs in", ok.status === 303, String(ok.status));
+    check("…and it set a session cookie", /matic_admin=/.test(ok.headers.get("set-cookie") ?? ""));
+
+    const bypassRow = (await auditRows()).find((r) => r.action === "login.ok" && r.email === dev.email && r.detail?.insecure);
+    const cls = bypassRow && (await getPool().query(
+      "SELECT event_class FROM control.admin_audit WHERE tenant_id = $1 AND action = 'login.ok' ORDER BY id DESC LIMIT 1", [tenantId])).rows[0].event_class;
+    check("…and wrote an audit row in its OWN event class, so it can never read as a normal sign-in",
+      cls === "insecure-dev-bypass", String(cls));
+    check("…whose detail says a code was not required", /no authenticator code was required/.test(bypassRow?.detail?.insecure ?? ""));
+    check("…and totp_last_step was LEFT ALONE: the bypass skips a check, it does not undo one",
+      (await lastStep()) === stepBefore, `${stepBefore} -> ${await lastStep()}`);
+    const sess = (await getPool().query(
+      "SELECT totp_verified_at FROM control.admin_sessions WHERE admin_user_id = $1 ORDER BY created_at DESC LIMIT 1", [dev.id])).rows[0];
+    check("…and the session does NOT claim a second factor was verified (D157's clock stays honest)",
+      sess.totp_verified_at === null, String(sess?.totp_verified_at));
+
+    // FOUND BY THIS TEST FAILING, and worth pinning rather than tidying away: with the bypass on, a
+    // code that would be REFUSED AS A REPLAY still signs in — through the bypass, audited as one.
+    // That is correct (the mode means no code is required, so a bad one is no worse than none) and
+    // it is surprising, because the same request without the bypass is a 401.
+    check("SET+loopback: a REPLAYED code signs in via the bypass, and is audited as a bypass",
+      (await post(base, { email: dev.email, password: dev.password, code: totpCode(dev.totpSecret) })).status === 303
+      && (await getPool().query("SELECT event_class FROM control.admin_audit WHERE tenant_id = $1 AND action = 'login.ok' ORDER BY id DESC LIMIT 1", [tenantId])).rows[0].event_class === "insecure-dev-bypass");
+
+    // A genuinely fresh code has to come from a step this account has not used, because the replay
+    // defence is still armed under the bypass — which is the point of the previous assertion.
+    const clearReplay = () => getPool().query("UPDATE control.admin_users SET totp_last_step = NULL WHERE id = $1", [dev.id]);
+    await clearReplay();
+    check("SET+loopback: a FRESH valid code still works — the bypass widens what is accepted, it does not replace it",
+      (await post(base, { email: dev.email, password: dev.password, code: totpCode(dev.totpSecret) })).status === 303);
+    check("…and THAT one is audited as normal, not as a bypass",
+      (await getPool().query("SELECT event_class FROM control.admin_audit WHERE tenant_id = $1 AND action = 'login.ok' ORDER BY id DESC LIMIT 1", [tenantId])).rows[0].event_class === "normal");
+
+    // Guard 5 on an AUTHENTICATED page, which is the half a sign-in-page check cannot reach: the
+    // handover asks for the banner "on every page, not only at sign-in", because a reader who
+    // arrives at Tickets from a bookmark must not see a console that looks normal.
+    {
+      const c = client();
+      await c.go("/admin/login", { method: "POST", form: { email: dev.email, password: dev.password, code: "" } });
+      const inside = await c.go("/admin/tickets");
+      check("SET+loopback: an authenticated page carries the insecure banner too",
+        inside.status === 200 && /class="insecure"/.test(inside.text), String(inside.status));
+      check("…above the page's own header, so it cannot be scrolled past as a page element",
+        inside.text.indexOf('class="insecure"') < inside.text.indexOf('class="top"'));
+    }
+
+    // Guards 4 and 5, on the live surfaces.
+    const health = await (await fetch(`${base}/v1/health`)).json();
+    check("SET+loopback: /v1/health reports it ACTIVE and the factor not required",
+      health.adminAuth.insecureBypass === "ACTIVE" && health.adminAuth.totpRequired === false, JSON.stringify(health.adminAuth));
+    const index = await (await fetch(`${base}/`)).json();
+    check("SET+loopback: GET / reports it too, in the console object", index.console.insecureBypass === "ACTIVE");
+    const signin = await (await fetch(`${base}/admin/login`)).text();
+    check("SET+loopback: the sign-in page carries the insecure banner", /class="insecure"/.test(signin));
+    check("…and the code field is no longer required, so an empty submit actually reaches the server",
+      !/name="code"[^>]*\srequired[\s>]/.test(signin));
+
+    // ---- set, on a NON-LOOPBACK listener: refused outright (acceptance 5) ---------------------
+    // The router is mounted on a loopback socket and told the listener is bound to 0.0.0.0, which
+    // is the state guard 2 exists for. Driven this way rather than by really binding 0.0.0.0 so
+    // that running the suite cannot raise a Windows firewall prompt on the founder's machine; the
+    // guard reads whatever getBoundAddress() returns, and src/index.js supplies it from the real
+    // socket (asserted in admin-static.test.mjs).
+    const exposedHandler = adminHandler({ log: () => {}, embedder: stubEmbedder, getBoundAddress: () => "0.0.0.0" });
+    const exposed = http.createServer(async (req, res) => { if (!(await exposedHandler(req, res))) { res.writeHead(404); res.end(); } });
+    await new Promise((r) => exposed.listen(0, "127.0.0.1", r));
+    const exposedBase = `http://127.0.0.1:${exposed.address().port}`;
+    try {
+      resetLoginThrottle();
+      check("SET+non-loopback: sign-in STILL DEMANDS A CODE — the variable does nothing",
+        (await post(exposedBase, { email: dev.email, password: dev.password, code: "" })).status === 401);
+      resetLoginThrottle();
+      await clearReplay(); // the code above was consumed by the loopback sign-in a few lines up
+      check("SET+non-loopback: the right password AND the right code still work",
+        (await post(exposedBase, { email: dev.email, password: dev.password, code: totpCode(dev.totpSecret) })).status === 303);
+      const exposedPage = await (await fetch(`${exposedBase}/admin/login`)).text();
+      check("SET+non-loopback: the page says REFUSED rather than pretending nothing was asked",
+        /class="insecure"/.test(exposedPage) && /REFUSED/.test(exposedPage));
+      check("…and the code field is required again", /name="code"[^>]*\srequired[\s>]/.test(exposedPage));
+    } finally {
+      await new Promise((r) => exposed.close(r));
+      delete process.env[BYPASS_ENV];
+      resetLoginThrottle();
+    }
+    check("cleanup: with the variable removed the console demands a code again",
+      (await post(base, { email: dev.email, password: dev.password, code: "" })).status === 401);
   }
 
   console.log("\n=== KB-8. the article editor (D230): create, edit, and what it refuses ===");

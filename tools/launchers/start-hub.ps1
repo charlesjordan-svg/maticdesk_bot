@@ -256,6 +256,25 @@ if ($listen.Count -gt 0) {
 } else { Ok "port $port is free" }
 StopIfFailed 'the port is not usable'
 
+# ---- 7a. The admin console's second factor (D267) ----------------------------------------------
+# Same reasoning as the voice-configuration line, and higher stakes: a reviewer or a buyer must not
+# form a verdict on a console whose authentication has been deliberately weakened without being told.
+# This reports, it never fails - the mode is authorised, and a preflight that refuses to start a
+# development hub because it is in development mode would just be switched off.
+Step "7a. Admin console authentication"
+if ($env:MATIC_ADMIN_INSECURE_NO_TOTP -eq '1') {
+  Warn 'MATIC_ADMIN_INSECURE_NO_TOTP=1 - the admin console will NOT ask for an authenticator code.'
+  Warn '      The password is still required. Every such sign-in is audited as insecure-dev-bypass.'
+  Warn '      DEVELOPMENT ONLY. Do not demo, deploy or review this build while it is set.'
+  Warn '      Turn it off:   Remove-Item Env:MATIC_ADMIN_INSECURE_NO_TOTP     (this shell)'
+  Warn '                     [Environment]::SetEnvironmentVariable("MATIC_ADMIN_INSECURE_NO_TOTP",$null,"User")'
+  Warn '      Then restart the hub - it is read at sign-in, but the banners are drawn from the same value.'
+} elseif ($null -ne $env:MATIC_ADMIN_INSECURE_NO_TOTP) {
+  Info ("MATIC_ADMIN_INSECURE_NO_TOTP is set to '" + $env:MATIC_ADMIN_INSECURE_NO_TOTP + "', which is not '1' - the authenticator code IS required")
+} else {
+  Ok 'the authenticator code is required (no insecure bypass set)'
+}
+
 if ($CheckOnly) {
   Write-Host ''
   Write-Host 'CHECKS PASSED (-CheckOnly: nothing started, nothing warmed).' -ForegroundColor Green

@@ -247,6 +247,16 @@ nav.primary a.current { border-bottom-color: var(--accent); background: var(--ac
 }
 .notice.warn .mono { font-weight: 400; color: var(--muted) }
 
+/* The insecure-mode banner (D267, 2026-09-12). Deliberately the ugliest thing in the console, and
+   deliberately NOT the steel of .notice.warn: that one says "something is missing", this one says
+   "authentication has been weakened on purpose". It sits above the header on every page, including
+   the bare sign-in page, so no screenshot of this console taken while it is on can look normal. */
+.insecure {
+  background: #7f1d1d; color: #fff; padding: 10px var(--pad);
+  font: 600 13px/1.35 var(--head); letter-spacing: .02em; text-transform: uppercase;
+  border-bottom: 3px solid #450a0a;
+}
+
 main { max-width: var(--w); margin: 0 auto; padding: 28px var(--pad) 40px }
 
 /* --- type ---------------------------------------------------------------- */
@@ -617,7 +627,7 @@ td.mono { font-variant-numeric: tabular-nums }
  * reader on every authenticated page while retrieval is degraded, and it renders ABOVE `notice`
  * because a flash about the last action is less important than the state every action is made in.
  */
-export function page({ title, body, nav = [], current = "", who = null, csrf = null, notice = null, warning = null, bare = false }) {
+export function page({ title, body, nav = [], current = "", who = null, csrf = null, notice = null, warning = null, bare = false, insecure = null }) {
   const navHtml = nav.map((d) => html`<a href="${d.path}" class="${d.path === current ? "current" : ""}">${d.label}${
     d.count === null || d.count === undefined ? "" : html`<span class="badge ${d.count === 0 ? "zero" : ""}">${d.count}</span>`
   }</a>`);
@@ -629,6 +639,11 @@ export function page({ title, body, nav = [], current = "", who = null, csrf = n
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Matic Desk admin</title><style>${CSS}</style></head>
 <body>
+${/* D267 guard 5. OUTSIDE the `bare` ternary on purpose: the sign-in page is bare, and it is the
+     one page where a bypassed console most needs to announce itself. Drawn above everything,
+     including the degraded-retrieval warning, because it is a statement about the console's
+     authentication rather than about its data. */""}
+${insecure ? `<div class="insecure">${esc(insecure)}</div>` : ""}
 ${bare ? body : `<header class="top"><div class="brand">Matic Desk<small>admin console</small></div><nav class="primary">${navHtml.join("")}</nav>${whoHtml}</header>
 ${warning ? `<div class="notice warn">${esc(warning)}</div>` : ""}
 ${notice ? `<div class="notice">${esc(notice)}</div>` : ""}

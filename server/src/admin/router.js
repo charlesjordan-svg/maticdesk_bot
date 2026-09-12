@@ -43,6 +43,7 @@
  */
 import { URL } from "node:url";
 import { verifyPassword, verifyTotp } from "./auth.js";
+import { BYPASS_ENV, BYPASS_EVENT_CLASS, bypassBannerLine, bypassStatus } from "./dev-bypass.js";
 import { audit } from "./audit.js";
 import { html, page } from "./html.js";
 import { DESTINATIONS } from "./permissions.js";
@@ -181,7 +182,14 @@ async function navFor(ctx) {
  *
  * @param {{ log?: (s: string) => void, embedder?: any|null, retrievalHealth?: (() => Promise<{ degraded: boolean, mode: string, why: string|null }>)|null }} [deps]
  */
-export function adminHandler({ log = () => {}, embedder = null, retrievalHealth = null } = {}) {
+export function adminHandler({ log = () => {}, embedder = null, retrievalHealth = null, getBoundAddress = () => null } = {}) {
+  /**
+   * The bypass verdict, read FRESH on every use (D267). `getBoundAddress` is a getter rather than a
+   * value because the address does not exist until `listen` resolves, and this handler is built
+   * before that. Read per request, so nothing caches a permissive answer from start-up.
+   */
+  const bypassNow = () => bypassStatus({ boundAddress: getBoundAddress() });
+
   /**
    * The banner text, or null. Best-effort: a health reader that throws must not take the console
    * down with it, so the failure becomes a banner of its own rather than a 500.
@@ -256,11 +264,15 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
           title, body, nav, current,
           who: user ? { email: user.email, roles, tenant: tenant?.displayName ?? tenant?.slug ?? "no tenant" } : null,
           csrf: ctx.csrf, notice, warning,
+          // Guard 5 (D267). EVERY page, not only sign-in: a reader who lands on Tickets from a
+          // bookmark must not be able to mistake a bypassed console for a normal one.
+          insecure: bypassBannerLine(bypassNow()),
         }), true);
       },
       renderPublic: async (status, body, { title = "Matic Desk", notice = null } = {}) => {
-        // Public pages (sign-in) are their own composition: no header, nav or footer.
-        writeHtml(status, page({ title, body, notice, bare: true }), false);
+        // Public pages (sign-in) are their own composition: no header, nav or footer — but the
+        // insecure banner is drawn on them too, which is why `page()` renders it outside `bare`.
+        writeHtml(status, page({ title, body, notice, bare: true, insecure: bypassBannerLine(bypassNow()) }), false);
       },
       redirect: (path) => { res.writeHead(303, { location: path, "cache-control": "no-store", "x-matic-hub-auth": session ? "admin-session" : "none" }); res.end(); },
       audit: (action, { subject = null, detail = null } = {}) => audit({ adminUserId: user?.id ?? null, tenantId: tenant?.id ?? user?.tenantId ?? null, action, subject, detail }),
@@ -271,26 +283,36 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
       if (url.pathname === `${ADMIN_PREFIX}/login`) {
         if (method === "GET") {
           if (session) return void ctx.redirect(ADMIN_PREFIX), true;
-          return void (await ctx.renderPublic(200, loginPage({}), { title: "Sign in" })), true;
+          return void (await ctx.renderPublic(200, loginPage({ bypass: bypassNow() }), { title: "Sign in" })), true;
         }
         if (method === "POST") {
           const parsed = await readForm(req);
-          if (parsed.error) return void (await ctx.renderPublic(400, loginPage({ error: parsed.error }), { title: "Sign in" })), true;
+          if (parsed.error) return void (await ctx.renderPublic(400, loginPage({ error: parsed.error, bypass: bypassNow() }), { title: "Sign in" })), true;
           const { email = "", password = "", code = "" } = parsed.value;
-          const result = await attemptLogin({ email, password, code, log });
+          const result = await attemptLogin({ email, password, code, log, bypass: bypassNow() });
           if (!result.ok) {
             await audit({ tenantId: result.tenantId ?? null, adminUserId: result.userId ?? null, action: "login.failed", subject: email.slice(0, 200), detail: { why: result.why } });
-            return void (await ctx.renderPublic(401, loginPage({ error: result.message, email }), { title: "Sign in" })), true;
+            return void (await ctx.renderPublic(401, loginPage({ error: result.message, email, bypass: bypassNow() }), { title: "Sign in" })), true;
           }
-          const token = await createSession({ adminUserId: result.user.id, tenantId: result.user.tenantId, totpVerified: true });
+          // `totpVerified` is D157's step-up clock and it must tell the truth: under the bypass no
+          // authenticator code was verified, so nothing may later treat this session as having
+          // satisfied a second factor. Today nothing reads it (no D157 action exists yet); the day
+          // one does, this is the line that decides whether a bypassed session can perform it.
+          const token = await createSession({ adminUserId: result.user.id, tenantId: result.user.tenantId, totpVerified: !result.usedBypass });
+          // `null` leaves totp_last_step alone. Clearing it would re-open the replay window, and
+          // the bypass has no step to record — it verified no code.
           await recordLogin(result.user.id, result.step);
-          await audit({ adminUserId: result.user.id, tenantId: result.user.tenantId, action: "login.ok", subject: result.user.email });
+          await audit({
+            adminUserId: result.user.id, tenantId: result.user.tenantId, action: "login.ok", subject: result.user.email,
+            eventClass: result.usedBypass ? BYPASS_EVENT_CLASS : "normal",
+            detail: result.usedBypass ? { insecure: `no authenticator code was required (${BYPASS_ENV}=1)`, boundAddress: bypassNow().boundAddress } : null,
+          });
           log(`[admin] ${result.user.email} signed in`);
           res.writeHead(303, { location: ADMIN_PREFIX, "set-cookie": sessionCookie(token, secure), "cache-control": "no-store", "x-matic-hub-auth": "admin-session" });
           res.end();
           return true;
         }
-        return void (await ctx.renderPublic(405, loginPage({ error: "GET or POST" }), { title: "Sign in" })), true;
+        return void (await ctx.renderPublic(405, loginPage({ error: "GET or POST", bypass: bypassNow() }), { title: "Sign in" })), true;
       }
 
       if (url.pathname === `${ADMIN_PREFIX}/logout`) {
@@ -310,7 +332,7 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
       // ---- everything else needs a session --------------------------------------------------------
       if (!session || !user) {
         if (method === "GET") return void ctx.redirect(`${ADMIN_PREFIX}/login`), true;
-        return void (await ctx.renderPublic(401, loginPage({ error: "Your session has ended. Sign in again." }), { title: "Sign in" })), true;
+        return void (await ctx.renderPublic(401, loginPage({ error: "Your session has ended. Sign in again.", bypass: bypassNow() }), { title: "Sign in" })), true;
       }
 
       // Every tenant-scoped page needs a tenant. A session whose tenant row vanished is a broken
@@ -376,9 +398,14 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
  * not say which one was wrong. An account with no TOTP secret cannot sign in at all (D156): there
  * is no "TOTP not yet enrolled" path, because `createAdminUser()` always mints one.
  *
- * @returns {Promise<{ ok: true, user: import("./users.js").AdminUser, step: number } | { ok: false, message: string, why: string, userId?: string, tenantId?: string|null }>}
+ * `bypass` (D267) defaults to OFF. It is passed in rather than read from the environment here so
+ * that a test can drive both verdicts without mutating `process.env`, and so that the verdict the
+ * banners show and the verdict the login uses are the same object rather than two readings.
+ *
+ * @param {{ email: string, password: string, code: string, log?: (s: string) => void, bypass?: import("./dev-bypass.js").BypassStatus }} p
+ * @returns {Promise<{ ok: true, user: import("./users.js").AdminUser, step: number|null, usedBypass: boolean } | { ok: false, message: string, why: string, userId?: string, tenantId?: string|null }>}
  */
-export async function attemptLogin({ email, password, code, log = () => {} }) {
+export async function attemptLogin({ email, password, code, log = () => {}, bypass = { on: false, requested: false, refused: false, boundAddress: null, reason: "not supplied" } }) {
   const generic = "Sign in failed. Check the email, password and authenticator code.";
   const key = String(email).trim().toLowerCase();
   if (locked(key)) return { ok: false, message: "Too many attempts. Wait a minute and try again.", why: "locked" };
@@ -397,11 +424,24 @@ export async function attemptLogin({ email, password, code, log = () => {} }) {
   if (!user.passwordHash) { noteFailure(key); return { ok: false, message: generic, why: "no local password (federated user)", userId: user.id, tenantId: user.tenantId }; }
   if (!passwordOk) { noteFailure(key); return { ok: false, message: generic, why: "password", userId: user.id, tenantId: user.tenantId }; }
   if (!user.totpSecret) { noteFailure(key); return { ok: false, message: generic, why: "no TOTP secret on the account (D156 requires one)", userId: user.id, tenantId: user.tenantId }; }
-  if (step === null) { noteFailure(key); return { ok: false, message: generic, why: "totp (wrong, expired or replayed)", userId: user.id, tenantId: user.tenantId }; }
+  if (step === null) {
+    // THE ONLY POINT AT WHICH THE BYPASS IS CONSULTED (D267), and it is below every check above it.
+    // The password has already decided by the time control reaches here — `passwordOk` is three
+    // lines up and returns — so there is no arrangement of this function in which the bypass can
+    // stand in for a password. Keep it here. Moving it earlier is the change that turns a
+    // single-factor dev mode into an open door.
+    if (bypass.on) {
+      clearFailures(key);
+      log(`[admin] login ok for ${user.email} WITHOUT an authenticator code (${BYPASS_ENV}=1, loopback)`);
+      return { ok: true, user, step: null, usedBypass: true };
+    }
+    noteFailure(key);
+    return { ok: false, message: generic, why: "totp (wrong, expired or replayed)", userId: user.id, tenantId: user.tenantId };
+  }
 
   clearFailures(key);
   log(`[admin] login ok for ${user.email}`);
-  return { ok: true, user, step };
+  return { ok: true, user, step, usedBypass: false };
 }
 
 // ---- small bodies -------------------------------------------------------------------------------

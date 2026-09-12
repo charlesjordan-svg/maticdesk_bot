@@ -216,9 +216,12 @@ console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and 
   check("the review queue's gap row links into the search and only when the question text exists",
     /\/admin\/knowledge\/search\?q=\$\{encodeURIComponent\(g\.queryText\)/.test(read("src/admin/pages/review.js"))
     && /if \(!g\.queryText \|\| !ctx\.permissions\.has\("knowledge\.read"\)\) return "";/.test(read("src/admin/pages/review.js")));
+  // The rule is that the console gets the SAME instances the ask route got — not that the argument
+  // list never grows. Anchored on the two names in order rather than on a closing brace, so D267's
+  // getBoundAddress could be added without loosening what this actually defends.
   check("the console's embedder and retrieval health reader are the ones the ask route got, passed from src/index.js",
-    /adminHandler\(\{ log, embedder, retrievalHealth \}\)/.test(index)
-    && /embedder = null, retrievalHealth = null \} = \{\}\)/.test(routerJs));
+    /adminHandler\(\{ log, embedder, retrievalHealth[,}]/.test(index)
+    && /embedder = null, retrievalHealth = null[,}]/.test(routerJs));
 }
 
 console.log("\n=== 6. honest stubs: no zero stands in for an absent concept (exit criterion 6) ===");
@@ -284,6 +287,53 @@ const htmlJs = read("src/admin/html.js");
 check("html`` escapes every interpolation unless Safe", /if \(v instanceof Safe\) return v\.s;/.test(htmlJs) && /return esc\(v\);/.test(htmlJs));
 const rawUses = pageFiles.filter((f) => /\braw\(/.test(jsCode(readFileSync(f, "utf8"))));
 check("no page uses raw() — the escape-hatch stays unused until a sanitiser exists", rawUses.length === 0, rawUses.map(rel).join(","));
+
+console.log("\n=== 10. the development TOTP bypass cannot drift into skipping the password (D267) ===");
+{
+  const bypassJs = read("src/admin/dev-bypass.js");
+  const routerRaw = read("src/admin/router.js");
+
+  // THE ONE THAT MATTERS. The bypass is consulted at a single point, and that point is BELOW the
+  // password check. A later edit that moves it above — to "simplify the branches", say — turns a
+  // single-factor dev mode into an open door, and would otherwise pass every behavioural test
+  // written against the loopback case. Positions in the source, so the ordering itself is pinned.
+  const pwAt = routerJs.indexOf("if (!passwordOk)");
+  const bypassAt = routerJs.indexOf("bypass.on");
+  check("attemptLogin checks the password BEFORE it consults the bypass", pwAt > 0 && bypassAt > pwAt, `password@${pwAt} bypass@${bypassAt}`);
+  check("…and consults it exactly once", (routerJs.match(/bypass\.on/g) ?? []).length === 1);
+  check("…inside the step === null branch, not beside the password", /step === null\)\s*\{[\s\S]{0,600}?bypass\.on/.test(routerJs));
+
+  // Guard 1, structurally: exactly one place reads the variable, so there is one verdict.
+  const readers = allSrc.filter((f) => /MATIC_ADMIN_INSECURE_NO_TOTP/.test(readFileSync(f, "utf8")) && !/dev-bypass\.js$/.test(f));
+  check("only src/admin/dev-bypass.js names the environment variable", readers.length === 0, readers.map(rel).join(","));
+  check("the variable name incriminates itself — INSECURE is in it", /MATIC_ADMIN_INSECURE_NO_TOTP/.test(bypassJs));
+
+  // Guard 2, structurally: the address comes from the SOCKET, not from a constant or an env var.
+  check("src/index.js reads the bound address from the listening socket, not from configuration",
+    /httpServer\?\.address\(\)/.test(index) && /getBoundAddress/.test(index));
+  check("…and hands it to the console as a GETTER, since no address exists before listen() resolves",
+    /adminHandler\(\{[^)]*getBoundAddress \}\)/.test(index));
+  check("an unknown bound address is REFUSED, not treated as loopback",
+    /boundAddress === null \|\| boundAddress === undefined/.test(bypassJs) && /refused: true/.test(bypassJs));
+
+  // Guard 6: the audit class is a real constrained value, not a free-text detail key.
+  check("the event class is declared once and used by the router", /BYPASS_EVENT_CLASS = "insecure-dev-bypass"/.test(bypassJs) && /BYPASS_EVENT_CLASS/.test(routerJs));
+  const migration = read("migrations/control/006-dev-bypass-event-class.sql");
+  check("migration 006 widens the CHECK constraint rather than dropping it",
+    /ADD CONSTRAINT admin_audit_class_known/.test(migration) && /insecure-dev-bypass/.test(migration) && /CHECK \(event_class IN/.test(migration));
+  check("…and carries decision provenance with the status held when written (register §5.7b)",
+    /DECISION PROVENANCE/.test(migration) && /D267 \(DECIDED 2026-09-12/.test(migration) && /D156/.test(migration));
+
+  // The bypass must not be able to undo the replay defence on its way past it.
+  check("recordLogin leaves totp_last_step alone when no code was verified",
+    /totpStep === null/.test(usersJs) && /SET last_login_at = now\(\) WHERE id = \$1/.test(usersJs));
+
+  // Guard 5: drawn outside the `bare` ternary, or the sign-in page would never show it.
+  const htmlJs = read("src/admin/html.js");
+  const insecureAt = htmlJs.indexOf(`insecure ? `), bareAt = htmlJs.indexOf("${bare ? body");
+  check("the insecure banner is rendered BEFORE the bare/full branch, so sign-in shows it too",
+    insecureAt > 0 && bareAt > 0 && insecureAt < bareAt, `insecure@${insecureAt} bare@${bareAt}`);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
