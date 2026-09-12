@@ -4,7 +4,8 @@
 **Answers:** `2026-09-12-claude-code-handover-ticket-lifecycle-p0.md`, against
 `2026-09-12-ticket-lifecycle-plan-v3.md` §0, §6.1, §7.6.
 **Register:** §5.53 — **D269** (the note and the no-orphan-columns test) and **D270** (the job
-runtime), both PROPOSED. **Every D-number in the plan and the handover is void** (§5.53a): they were
+runtime), **both RATIFIED the same day** with conditions written into their rows (§5.53g), and
+**D271**, the deployment-topology GATE, opened with a register ID and left to the founder. **Every D-number in the plan and the handover is void** (§5.53a): they were
 written against a register at D243 when it stood at D268. The plan's "D253" is D269; the runtime half
 of its "D248" is D270.
 **Commits, in the handover's order:** `2260e24` (an inherited red test, first), `36edecf` (the
@@ -156,9 +157,12 @@ from it. No retry of a handler that threw; retry belongs to the reaper, for aban
 
 ## 5. For Charles
 
-- **D269 and D270 are PROPOSED.** Both built reversibly: the rename is one guarded migration back;
-  the runner stops with `MATIC_JOBS_POLL_MS=0` and jobs sit `queued`, which is the state they were in
-  yesterday.
+- **D269 and D270 are RATIFIED** (*"do the recommended"*, later the same day). Still reversible: the
+  rename is one guarded migration back; the runner stops with `MATIC_JOBS_POLL_MS=0` and jobs sit
+  `queued`, which is the state they were in yesterday. The conditions are in the register rows.
+- **D271 is yours and is the only thing P3–P5 wait on:** where does the hub run relative to the
+  endpoint — same machine, the customer's LAN, or hosted? The register row says what each answer
+  does to P3.
 - **Your hub now polls the database every five seconds.** It claims nothing and prints one line at
   start saying so. If that line bothers you, `MATIC_JOBS_POLL_MS=0`.
 - **The plan's open questions are untouched and still yours** — plan v3 §10, especially its "D257"
