@@ -2814,6 +2814,80 @@ held.
 
 ---
 
+### 5.44 D259–D261 — Matic is a service desk, its scope is three verbs, and its boundary is the company rather than the machine (2026-09-11)
+
+Charles widened the product from a **technical** service desk to a **service desk**: the knowledge
+base may hold anything the business puts in it — technical procedures, HR processes, facilities,
+cafeteria menus — and the assistant handles three verbs against it. Written up in
+`docs/handovers/2026-09-11-claude-code-handover-greeting-scope-and-voice.md`; this section records
+what was decided and what was changed.
+
+| Verb | Shipped today |
+|---|---|
+| **Fix** | Yes — the four `catalog.json` capabilities |
+| **Find** | Yes — company guidance through the hub's KB |
+| **Request** | **No.** Intake for "I need a thing" is scoped, not built |
+
+**D259 — Matic is a service desk, not a technical service desk.** *Decided.* Founder. Load-bearing
+for copy, classifier and catalog at once, which is why it is an ID rather than a note.
+
+**D260 — the persona names no knowledge domain.** *Decided.* Scope is stated as **verbs**, never as
+a domain list. An extension of D165's reasoning from capabilities to KB content: whether a given
+tenant's KB holds HR content is a **deployment** fact, not a product fact, so a line naming domains
+is wrong for every customer who did not load them. It also survives every KB expansion with no
+re-record, which matters because the greeting audio is pre-recorded and cannot be templated.
+
+**D261 — the persona's boundary is what the company has given it, not this machine.** *Done.*
+Forcing reason: `social.offtopic` was the **one moment in the whole product where the user is
+explicitly told what the scope is**, and after D259 it taught a scope narrower than the truth —
+*"I only look after this machine"*, *"I'm strictly an IT sort"*. A user told that will not come back
+to ask about leave, and nothing later corrects the impression.
+
+**5.44a — the decline was right; only the reason given was wrong.** Checked at source before
+anything was edited. `classify.js:172` shows `offtopic` is **not** a catch-all: it is an allowlist
+of **13 complete phrases** (the weather, a joke, the score, the time, a favourite, the president, a
+poem, "what do you think of"), deliberately complete phrases rather than topic nouns so that *"the
+weather app won't open"* and *"this printer is a joke"* still reach the problem path. "What's the
+cafeteria menu", "how do I book leave" and "I need a new monitor" match **none** of them and fall
+through to the KB as they should. **The handover's original warning that the classifier would refuse
+the widened scope is withdrawn, and `classify.js` was not changed.**
+
+**5.44b — what changed in `persona.json`, and nothing else changed.**
+
+| Key | Was | Is |
+|---|---|---|
+| `social.offtopic[0]` | "…I **only look after this machine**. But if anything on it is misbehaving…" | "…I'm here for **work**, not the wider world. But anything you need from **the company or from this machine**…" |
+| `social.offtopic[1]` | "…I'm **strictly an IT sort**. Anything wrong with this computer…" | "…I stick to **what your company's given me to work with**. Anything you need **at work**…" |
+| `role` | "the **IT** support assistant on this machine" | "the support assistant on this machine" |
+| `social.howareyou[0]` | "Anything **on this machine** I can help with?" | "Anything I can help with?" |
+| `social.howareyou[1]` | "What's going on **with your computer**?" | "What's going on?" |
+
+`capability.boundary` was deliberately **not** touched — *"Anything beyond that list I can't do
+myself, but I can look for your company's guidance on it, or hand it to IT with everything I've
+already checked"* was already written to the wider shape and is the model the rest moved toward.
+`howareyou[2]` claims no scope and needed nothing.
+
+**5.44c — two things found while doing it that the handover did not know.**
+
+1. **`persona.role` is dead data.** Nothing in `client/src` or `client/test` reads it — the string
+   was changed because §15.4 asked for it and because a stale scope statement sitting in a data file
+   is a trap for the next person, **but changing it altered no behaviour.** The persona file's own
+   `$comment` implies it is read; it is not.
+2. **`prompt.js:22` still says "an IT support assistant" and was deliberately LEFT ALONE.** That is
+   the system prompt, and it is the model's scope statement — so under D259 it is stale in exactly
+   the way `social.offtopic` was. It was not changed because `prompt.js`'s own header states the
+   reason not to: *"If the cloud provider and a local one word the system prompt differently, the
+   bake-off measures the wording and reports it as a property of the model."* Editing it moves the
+   §4 bake-off baseline, which is a cost the scope change should pay knowingly rather than acquire
+   as a side effect of a copy fix. **Recorded as `[VERIFY]`/open, see §10.2.**
+
+**Verification.** `node test/persona.test.mjs` — **121 assertions, 0 failed.** Rule 1 was
+**re-derived rather than assumed**: `capWords` from the live `catalog.json` is exactly
+`dns, dhcp, spooler`, and none of the five new strings contains any of them. Rule 2's `CLAIMS`
+regexes match none of them.
+
+---
+
 ## 6. Conflicts
 
 ### 6.1 Conflicts C1–C8 (consolidated register, IDs +7)
@@ -2901,6 +2975,7 @@ Found from the source documents before either register was read; numbered R- so 
 | **OPEN-7** | **macOS mapping.** D65 maps device identity to Secure Enclave. Nothing maps MSI, the named pipe, SCM primitives or Win32 FFI (R-14). | New. Write the one-page mapping (pkg/MDM, XPC, launchd) before locking identity. |
 | **OPEN-8** | **Build-pipeline integrity — blocks shipping standalone.** With standalone confirmed as a real configuration (D151), a vendor-signed installer has automatic reach to every standalone endpoint: the self-updater fetches and runs whatever carries our publisher signature from the pinned URL. A compromised build pipeline or signing key is therefore a fleet-wide code-execution path with no customer change process between it and the machine. **Promoted from "blocks a pilot" to "blocks shipping standalone."** D147 carries the EDR-derived signing requirements (RSA certificate, publisher rules, `%ProgramFiles%`); this is the adversary case those requirements exist for. | New 2026-09-03 (founder handover §1b). Belongs in the threat model (OPEN-5) as the compromised-vendor adversary; the handover cites it as the threat model's "G3" — **which now resolves: `../2026-09-03-threat-model-v1.md` §3 G3 is A10 versus the entire trust root.** Before D151 ships: signing-key custody (HSM or equivalent), attested or reproducible builds, two-person release, and a pinned-URL story a customer-hosted hub can mirror (D133). |
 | **OPEN-9** | **Code-signing certificate purchase — in progress with Daniel Chow.** Blocks A6 (signed MSI), D151 (standalone self-updater) and OPEN-8 (build-pipeline integrity): nothing standalone can ship, and no publisher rule can be written for a customer's EDR, until the certificate exists. Requirements: **RSA** per D147 (App Control signer rules do not support ECDSA), and **cloud-HSM-backed rather than a USB token**, because two-party approval and an audit trail over signing operations are only possible at all when the key sits behind a service with its own access control and log. | New 2026-09-03 (first-build-steps handover, Task 4). Owner: founder, with Daniel Chow. The HSM requirement is what makes OPEN-8's "signing-key custody, two-person release" implementable rather than aspirational. **ESTIMATE 2026-09-04, from the founder: roughly ONE MONTH, and it may come sooner — so approximately 2026-10-04.** It is an estimate and not a commitment, and the analysis of 2026-09-04 §1 said that if the certificate is more than two weeks out then that number is what the Phase 1 schedule should be built around. **It is.** Three consequences worth stating rather than deriving: (1) **the pilot date is set by this row, not by any engineering decision** — EDR allowlisting cannot begin without a signed binary, and if that review takes weeks after one exists, the sequence is longer than B2 plus B3 combined; (2) **there is about a month of engineering runway that is NOT gated on it**, which is where B2, the pipe (D200–D201) and the endpoint `ask()` path fit, while B3's enrollment work (6–8 engineer-weeks per §9) does not; (3) **Q9 is now the thing on the critical path, not the certificate** — it is a prerequisite for identifying the EDR vendor at all, it can be answered in parallel during that month, and the EDR submission can be *prepared* while the certificate is outstanding even though it cannot be *submitted*. |
+| **OPEN-10** | **"Not in the KB" and "not my remit" have stopped being the same thing** (D259/D261). With a KB that may hold anything, a cafeteria question on a tenant with no facilities content is **not** off-topic — it is a question the KB should have answered and did not, and that is a **gap record (D223)**, which is how the KB learns what it is missing. A decline and a gap are different outcomes and must not collapse into one reply. | New 2026-09-11. **Today they are kept apart by accident, not by design:** `offtopic` declines only 13 complete phrases (§5.44a) and everything else reaches the KB. That is a happy property of a narrow allowlist. **Settle this before anyone widens the allowlist**, or real work questions start being swallowed as off-topic and the KB stops learning what it lacks. |
 
 ---
 
@@ -2988,6 +3063,7 @@ none of the three has an owner with a date.**
 - **NEW 2026-09-11 (D256, §5.39i): Event 27's boot types `0x1` and `0x2` are unverified, and the question behind them is the reason the restart signal exists.** **NARROWED the same day by `npm.cmd run verify:boot-type`, which reads the WHOLE retained history rather than the newest event: `0x0` = full boot is now corroborated by 81 observations on this machine** (2026-07-16 → 2026-09-09) instead of one. **And the log carries the control the test needs:** three of the last twelve Event 1074s are a genuine *shutdown* or *power off* rather than a restart — the only actions that could produce a hybrid boot, since a restart is a full boot whatever the setting — and every boot after them is still `0x0`, which is exactly what `HiberbootEnabled = 0` should mean. **`0x1` and `0x2` remain unobserved, and the gap is now precisely stated: the same action, on a machine with Fast Startup ON.** Until then nothing may assert a cold-boot distinction anywhere a user reads it; the collector returns the raw value with `interpreted: false`, it carries no weight in the score, and no surface renders it. Also still unverified, and it is the half that decides the design: **whether `LastBootUpTime` resets across a Fast Startup shutdown** — if it does not, uptime survives the cycle and Event 27 is a REPLACEMENT for the uptime reading rather than a supplement to it. **A SESSION CANNOT FINISH THIS AND THAT IS STRUCTURAL, NOT A LIMIT OF EFFORT:** a hybrid boot needs a power-off followed by a power-on, and nothing runs between the shutdown and the hand that presses the button. `client/scripts/verify-boot-type.mjs` does both halves a machine can do — it reads the state before and the verdict after — and prints the four-step procedure, so settling this is a two-minute job for anyone with such a machine rather than a note nobody acts on.
 - **NEW 2026-09-11 (D256, §5.39b): that `SystemTimeOfDayInformation.BootTime − BootTimeBias` equals `Win32_OperatingSystem.LastBootUpTime` is measured on ONE machine on one day.** It matched to the millisecond (1788996024500 both ways) and was cross-checked against `GetTickCount64()`, which resolved the raw value as the tick origin — but it is an identity in an undocumented structure and it is a hypothesis on any other machine. **Nothing depends on it being exact:** the difference was 7.6 seconds, against thresholds of 14 and 30 days and a row reading "2 days ago", so the failure mode is a row seconds out rather than a wrong recommendation. The raw kernel figure is kept alongside as `kernelBootTimeMs` so a future reader can re-derive it.
 - **NEW 2026-09-11 (D256, §5.39j): every threshold in the restart score is an unsourced policy proposal, and the spec says so of itself.** There is no verified source establishing 30 days — or any figure — as an evidence-based restart interval. What would settle them is named and not done: **scoring recommendations against whether the restart actually resolved the ticket.** They are configurable defaults (`client/config.json`'s `restartPolicy`) rather than constants for exactly this reason, and `_restartPolicyNote` carries the caveat where the numbers are.
+- **NEW 2026-09-11 (D259/D261, §5.44c): `prompt.js:22` still tells the model it is "an IT support assistant", and that is now a narrower scope than D259.** It was left alone deliberately, not missed: `prompt.js`'s own header says one definition shared by every provider is what makes the §4 bake-off measure the model rather than the wording, so editing the first line of the system prompt moves the baseline. **The question for whoever runs the bake-off: change it now and re-baseline, or change it when the bake-off next runs.** The second-order risk if it is left indefinitely is that the model is biased to treat a non-machine question as out of scope rather than to call `escalate`, which is the route to the KB. Not observed; reasoning.
 - Every `[VERIFY]` inside the five Part A research reports' own "Unverified / could not find" lists (`sources/2026-09-02-fable-design-review.md`).
 
 ### 10.3 Measured — the only four measurements in the project
@@ -3140,7 +3216,7 @@ and the script now says so, because a reader would otherwise take it for a permi
 
 ## 11. How to add to this register
 
-1. Take the next free ID (**D259 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
+1. Take the next free ID (**D262 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
 2. One row: decision, status (*done* / *decided* / *proposed* / *rejected*), source and forcing reason. A decision without a forcing reason is an opinion.
 3. If it amends an earlier decision, say so in both rows.
 4. If it depends on an unverified claim, tag `[VERIFY]` inline and add it to §10.2.

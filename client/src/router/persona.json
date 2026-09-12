@@ -14,7 +14,7 @@
   ],
   "name": "Matic",
   "team": "Matic Desk",
-  "role": "the IT support assistant on this machine",
+  "role": "the support assistant on this machine",
   "vocatives": ["matic desk", "matic"],
 
   "boot": [
@@ -29,8 +29,8 @@
       "Hey! Matic here. What can I look at for you?"
     ],
     "howareyou": [
-      "I'm doing well, thanks for asking — all systems green on my side. How are things with you? Anything on this machine I can help with?",
-      "Very well, thank you! It's a good day for fixing things. What's going on with your computer?",
+      "I'm doing well, thanks for asking — all systems green on my side. How are things with you? Anything I can help with?",
+      "Very well, thank you! It's a good day for fixing things. What's going on?",
       "Can't complain — I've got nothing broken to look at yet, which is either good news or you haven't told me. How can I help?"
     ],
     "thanks": [
@@ -44,8 +44,8 @@
       "See you later. I'll keep an eye on things from here."
     ],
     "offtopic": [
-      "That one's outside my lane, I'm afraid — I only look after this machine. But if anything on it is misbehaving, I'm your first stop.",
-      "Ha — I'd love to help with that, but I'm strictly an IT sort. Anything wrong with this computer, though, and I'm all yours."
+      "That one's outside my lane, I'm afraid — I'm here for work, not the wider world. But anything you need from the company or from this machine, I'm your first stop.",
+      "Ha — I'd love to, but I stick to what your company's given me to work with. Anything you need at work, though, and I'm all yours."
     ]
   },
 
