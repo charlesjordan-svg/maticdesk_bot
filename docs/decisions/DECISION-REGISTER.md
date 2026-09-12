@@ -3224,6 +3224,47 @@ positives here, because the failure mode of a fix like this is swallowing real w
 
 ---
 
+### 5.49 D263/D264 — the seam was listened to, and the founder's answer is YES (2026-09-11)
+
+Charles, having run the build: *"The seam sounds good… I like the audio… will get the team to
+review on sunday."*
+
+**No new ID.** This is the experiment D263 was wired to run, reporting its result. §5.46f said the
+question could not be settled by argument and that the toggle *was* the experiment; it has now been
+run by the one person whose ear the product is currently tuned to.
+
+| What was open | Now |
+|---|---|
+| Does the Hazel → tuned-Amy handover sound wrong? (§5.46f) | **No.** Founder, after listening in the real app. |
+| Do the D264 tuning settings survive listening? (§5.47) | **Yes** — the same session's audio. |
+| Which of the greeting brief's §5 options is the build on? | **C**, and it is no longer "the default by inaction" — it is a choice that has been heard. |
+
+**5.49a — what is still genuinely open, and it is a confirmation rather than a question.** The team
+review is **Sunday 2026-09-13**. Charles's own expectation is recorded and has not changed: *"I
+think the Fall back will be TTS everywhere"* — so the outcome to plan for is still **option B**, and
+both off switches stay (§5.47f). **Nothing is blocked on that review**; the build is shippable in
+its current configuration either way, and reverting is two values and a file deletion.
+
+**5.49b — one way that review could reach a WRONG verdict, and the guard added for it.** The three
+greeting MP3s are **committed**; the 63 MB Piper voice model is **gitignored and fetched**. A
+reviewer who clones and runs without `npm.cmd run fetch-voice` therefore hears **Hazel say hello
+and then nothing at all**, because `say()` degrades to text with the mouth still moving. That is not
+the seam — it is one voice followed by silence — and a verdict formed from it would be a verdict on
+something nobody is proposing.
+
+`scripts/preflight.ps1` already FAILED on the missing model. It now also reports **which voice
+configuration is live** (both switches, with their values) and, for that one combination
+specifically, says what it means:
+
+> `FAIL  the seam is reviewable   the recorded greeting will play and EVERY OTHER LINE WILL BE
+> SILENT - fetch the voice model before judging the voices`
+
+and on a healthy machine prints what the listener is about to hear, so nobody has to infer the
+configuration from three PASS lines. **Both branches were exercised** — with the model present, and
+with `MATIC_VOICE_MODEL` pointed at a path that does not exist.
+
+---
+
 ## 6. Conflicts
 
 ### 6.1 Conflicts C1–C8 (consolidated register, IDs +7)

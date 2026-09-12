@@ -93,6 +93,57 @@ if (-not $config) {
   } else {
     Report 'voice model present' 'FAIL' "$model not found - run: npm.cmd run fetch-voice   (before the demo, not during it)"
   }
+
+  # -------------------------------------------------------------------------------------------
+  # WHAT THE LISTENER WILL ACTUALLY HEAR. Added 2026-09-11 for the team review of the D263/D264
+  # seam, and it exists because of one specific way that review can reach a WRONG VERDICT.
+  #
+  # The recorded greeting is three MP3s that ARE committed. The Piper voice model is 63 MB and is
+  # NOT - it is gitignored and fetched. So a teammate who clones and runs without fetching hears
+  # Hazel say hello and then NOTHING for every reply, because say() degrades to text with the mouth
+  # still moving. That is not the seam; it is one voice followed by silence, and a verdict formed
+  # from it would be a verdict on something nobody is proposing.
+  #
+  # The model check above already FAILs in that case. This block says what it MEANS for the review.
+  $tuning = $config.voiceTuning
+  if ($env:MATIC_VOICE_TUNING -eq 'off') {
+    Report 'voice tuning (D264)' 'PASS' 'OFF for this run - plain Amy (MATIC_VOICE_TUNING=off)'
+  } elseif ($tuning -and $tuning.enabled) {
+    Report 'voice tuning (D264)' 'PASS' "ON - length_scale $($tuning.lengthScale), shelf $($tuning.shelfDb) dB at $($tuning.shelfHz) Hz Q $($tuning.shelfQ)"
+  } else {
+    Report 'voice tuning (D264)' 'PASS' 'OFF in config.json - plain Amy'
+  }
+
+  $greetDir = Join-Path $root 'assets/greetings'
+  $manifestPath = Join-Path $greetDir 'greetings.manifest.json'
+  $recordedOn = $false
+  if (Test-Path $manifestPath) {
+    $manifest = $null
+    try { $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json } catch { }
+    if (-not $manifest) {
+      Report 'recorded greetings (D263)' 'FAIL' 'greetings.manifest.json could not be parsed'
+    } elseif (-not $manifest.enabled) {
+      Report 'recorded greetings (D263)' 'PASS' 'OFF in the manifest - the boot line is Piper like everything else'
+    } else {
+      $missing = @($manifest.lines | Where-Object { -not (Test-Path (Join-Path $greetDir $_.file)) })
+      if ($missing.Count -gt 0) {
+        Report 'recorded greetings (D263)' 'FAIL' "$($missing.Count) file(s) named by the manifest are missing: $($missing.file -join ', ')"
+      } else {
+        $recordedOn = $true
+        Report 'recorded greetings (D263)' 'PASS' "ON - $($manifest.lines.Count) lines in $($manifest.voice)"
+      }
+    }
+  } else {
+    Report 'recorded greetings (D263)' 'PASS' 'no manifest - the boot line is Piper like everything else'
+  }
+
+  # THE ONE COMBINATION THAT MISLEADS A REVIEWER, called out rather than left to be inferred from
+  # two PASS lines and a FAIL several rows apart.
+  if ($recordedOn -and -not (Test-Path $model)) {
+    Report 'the seam is reviewable' 'FAIL' 'the recorded greeting will play and EVERY OTHER LINE WILL BE SILENT - fetch the voice model before judging the voices'
+  } elseif ($recordedOn) {
+    Write-Host '       you will hear: the boot line in ElevenLabs Hazel, then tuned Amy for everything else. That handover IS what is being judged.' -ForegroundColor Gray
+  }
 }
 
 # ---------------------------------------------------------------------------------------------
