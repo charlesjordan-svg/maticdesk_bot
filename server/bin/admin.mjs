@@ -6,7 +6,7 @@
  *   node bin/admin.mjs create-user <tenant-slug> <email> --role <role> [--password <p>]
  *   node bin/admin.mjs users [<tenant-slug>]
  *   node bin/admin.mjs roles
- *   node bin/admin.mjs reset   <tenant-slug> <email> [--password <p>]
+ *   node bin/admin.mjs reset   <tenant-slug> <email> [--password <p>] [--keep-totp | --keep-password]
  *   node bin/admin.mjs disable <tenant-slug> <email>
  *   node bin/admin.mjs enable  <tenant-slug> <email>
  *   node bin/admin.mjs audit [<tenant-slug>] [--limit N]
@@ -17,10 +17,18 @@
  * all, so somebody with access to the machine has to make one. Access to the machine is the
  * credential this step rests on, which is the same thing `bin/db.mjs create-tenant` rests on.
  *
- * WHAT `create-user` PRINTS, ONCE. The initial password (generated unless --password) and the
- * authenticator secret as base32 plus an otpauth:// URI. Neither is stored in the clear and
- * neither can be shown again — a lost secret means a new user. Paste the URI into an
- * authenticator app, or type the base32 secret into one by hand. This build ships no QR encoder.
+ * WHAT `create-user` PRINTS. The initial password (generated unless --password) and the
+ * authenticator secret as base32 plus an otpauth:// URI. Paste the URI into an authenticator app,
+ * or type the base32 secret into one by hand. This build ships no QR encoder.
+ *
+ * THE TWO ARE NOT STORED THE SAME WAY, AND THIS FILE USED TO SAY THEY WERE. The password is
+ * scrypt-hashed and a lost one is gone. The authenticator secret is `control.admin_users
+ * .totp_secret bytea`, held AS-IS, because TOTP is a shared secret and a server that could not
+ * read it could not verify a code. So it is recoverable, and `totp --user <email>` recovers it:
+ * on 2026-09-12 thirty minutes were spent locked out of this console on the belief — stated here
+ * and in 84b8f3f's commit message — that the only copy was one already scrolled off the screen.
+ * That belief was the lockout. A CLI that prints the code grants nobody anything, because the
+ * same CLI two lines up can already reset the credential outright.
  *
  * TOTP IS NOT OPTIONAL. There is no flag to create a user without one, because D156 says TOTP from
  * day one and a flag to skip it would be used on the day it mattered.
@@ -36,7 +44,7 @@
  * same as bin/db.mjs.
  */
 import { closePool } from "../src/db/pool.js";
-import { base32Decode, base32Encode, otpauthUri, totpCode } from "../src/admin/auth.js";
+import { TOTP_STEP_SECONDS, base32Decode, base32Encode, otpauthUri, totpCode } from "../src/admin/auth.js";
 import { createAdminUser, findAdminByEmail, listAdminUsers, listRoles, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { revokeUserSessions } from "../src/admin/session.js";
 import { audit, recentAudit } from "../src/admin/audit.js";
@@ -53,6 +61,8 @@ function flag(name, fallback = null) {
 const positional = argv.filter((a, i) => i > 0 && !a.startsWith("--") && !argv[i - 1]?.startsWith("--"));
 
 const out = (s = "") => process.stdout.write(s + "\n");
+/** How long the code just printed stays valid. Printing a code with 2 seconds left wastes an attempt. */
+const secondsLeftInStep = () => TOTP_STEP_SECONDS - Math.floor((Date.now() / 1000) % TOTP_STEP_SECONDS);
 function die(message) {
   process.stderr.write(message + "\n");
   process.exitCode = 1;
@@ -77,11 +87,12 @@ const USAGE = [
   "  node bin/admin.mjs create-user <tenant-slug> <email> --role <role> [--password <p>]",
   "  node bin/admin.mjs users [<tenant-slug>]",
   "  node bin/admin.mjs roles",
-  "  node bin/admin.mjs reset   <tenant-slug> <email> [--password <p>]",
+  "  node bin/admin.mjs reset   <tenant-slug> <email> [--password <p>] [--keep-totp | --keep-password]",
   "  node bin/admin.mjs disable <tenant-slug> <email>",
   "  node bin/admin.mjs enable  <tenant-slug> <email>",
   "  node bin/admin.mjs audit [<tenant-slug>] [--limit N]",
   "  node bin/admin.mjs totp <base32-secret>",
+  "  node bin/admin.mjs totp --user <email> [<tenant-slug>] [--secret]   the live code for an account",
 ].join("\n");
 
 async function main() {
@@ -128,26 +139,44 @@ async function main() {
 
     case "reset": {
       const [slug, email] = positional;
-      if (!slug || !email) throw new Error("usage: reset <tenant-slug> <email> [--password <p>]");
+      if (!slug || !email) throw new Error("usage: reset <tenant-slug> <email> [--password <p>] [--keep-totp | --keep-password]");
+      const keepTotp = argv.includes("--keep-totp"), keepPassword = argv.includes("--keep-password");
+      if (keepTotp && keepPassword) throw new Error("--keep-totp and --keep-password cannot both be given: that resets nothing");
       const tenant = await resolveTenant(slug);
       const u = await findAdminByEmail(tenant.id, email);
       if (!u) throw new Error(`no admin ${email} in ${tenant.slug}`);
-      const fresh = await resetAdminCredentials({ adminUserId: u.id, password: flag("password") ?? undefined });
+      const fresh = await resetAdminCredentials({ adminUserId: u.id, password: flag("password") ?? undefined, keepTotp, keepPassword });
       // Revoked AFTER the credentials change, so there is no window in which the old browser is
       // still signed in with the new secret already live.
       const revoked = await revokeUserSessions(u.id);
-      await audit({ tenantId: tenant.id, action: "admin.reset", subject: u.email, detail: { by: "bin/admin.mjs", sessionsRevoked: revoked, totpReplayStateCleared: true } });
+      await audit({ tenantId: tenant.id, action: "admin.reset", subject: u.email, detail: { by: "bin/admin.mjs", sessionsRevoked: revoked, passwordReplaced: fresh.password !== null, totpReplaced: fresh.totpSecret !== null, totpReplayStateCleared: fresh.totpSecret !== null } });
       out("");
       out(`  reset ${u.email} in ${tenant.slug}${revoked ? ` (${revoked} live session(s) revoked)` : ""}`);
       out("");
-      out("  HAND THESE TO THE PERSON ONCE. They are not stored in the clear and cannot be shown again.");
+      if (fresh.password !== null) {
+        out("  The password is scrypt-hashed and cannot be shown again. Hand it over once.");
+        out("");
+        out(`  new password         ${fresh.password}`);
+      }
+      if (fresh.totpSecret !== null) {
+        out(`  authenticator secret ${base32Encode(fresh.totpSecret)}`);
+        out(`  otpauth URI          ${otpauthUri({ secret: fresh.totpSecret, email: u.email })}`);
+      }
       out("");
-      out(`  new password         ${fresh.password}`);
-      out(`  authenticator secret ${base32Encode(fresh.totpSecret)}`);
-      out(`  otpauth URI          ${otpauthUri({ secret: fresh.totpSecret, email: u.email })}`);
-      out("");
-      out("  The OLD password and the OLD authenticator entry no longer work — delete the old entry");
-      out("  from the authenticator app, or it will keep offering codes that are refused.");
+      // Say what did NOT change as plainly as what did. Replacing the authenticator silently, while
+      // the person watched a launcher keep producing confident six-digit codes for the old secret,
+      // is the whole of 2026-09-12's thirty minutes.
+      if (fresh.totpSecret !== null) {
+        out("  THE PREVIOUS AUTHENTICATOR SECRET NO LONGER WORKS — enrol the one above.");
+        out("  Delete the old entry from the authenticator app and from any code launcher, or both");
+        out("  will keep offering codes that look right and are refused.");
+        out("  To reset the password and leave the authenticator alone: --keep-totp");
+      } else {
+        out("  The authenticator is UNCHANGED and still works. Keep using the existing entry.");
+      }
+      if (fresh.password !== null) out("  The OLD password no longer works.");
+      else out("  The password is UNCHANGED and still works.");
+      out(`  The live code at any time: node bin/admin.mjs totp --user ${u.email} ${tenant.slug}`);
       if (u.status !== "active") out(`  NOTE: this account is ${u.status}. A reset changes credentials, not status: node bin/admin.mjs enable ${tenant.slug} ${u.email}`);
       out("");
       break;
@@ -180,9 +209,28 @@ async function main() {
     }
 
     case "totp": {
-      const secret = positional[0];
-      if (!secret) throw new Error("usage: totp <base32-secret>");
-      out(`  ${totpCode(base32Decode(secret))}   (valid for the current 30-second step)`);
+      const email = flag("user");
+      if (!email) {
+        const secret = positional[0];
+        if (!secret) throw new Error("usage: totp <base32-secret>   |   totp --user <email> [<tenant-slug>] [--secret]");
+        out(`  ${totpCode(base32Decode(secret))}   (valid for ${secondsLeftInStep()}s)`);
+        break;
+      }
+      const tenant = await resolveTenant(positional[0]);
+      const u = await findAdminByEmail(tenant.id, email);
+      if (!u) throw new Error(`no admin ${email} in ${tenant.slug}`);
+      if (!u.totpSecret) throw new Error(`${u.email} has no authenticator secret, so it cannot sign in (D156). Use: node bin/admin.mjs reset ${tenant.slug} ${u.email}`);
+      const showSecret = argv.includes("--secret");
+      await audit({ tenantId: tenant.id, action: "admin.totp_read", subject: u.email, detail: { by: "bin/admin.mjs", secretShown: showSecret } });
+      out("");
+      out(`  ${totpCode(u.totpSecret)}   ${u.email} — valid for ${secondsLeftInStep()}s`);
+      if (showSecret) {
+        out("");
+        out(`  authenticator secret ${base32Encode(u.totpSecret)}`);
+        out(`  otpauth URI          ${otpauthUri({ secret: u.totpSecret, email: u.email })}`);
+      }
+      if (u.status !== "active") out(`\n  NOTE: this account is ${u.status} and cannot sign in whatever code it presents.`);
+      out("");
       break;
     }
 

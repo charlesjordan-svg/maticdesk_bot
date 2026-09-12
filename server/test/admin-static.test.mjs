@@ -75,7 +75,16 @@ check("auditor cannot read the review queue or the knowledge base, and cannot wr
 check("003 carries decision provenance with status-when-written (register §5.7b)", /DECISION PROVENANCE/.test(c003.sql) && /D152/.test(c003.sql) && /D177/.test(c003.sql) && /2026-09-09/.test(c003.sql));
 
 console.log("\n=== 3. TOTP is mandatory and audit is from the first request (D156) ===");
-check("createAdminUser always mints a TOTP secret — there is no flag to skip it", /const totpSecret = newTotpSecret\(\);/.test(usersJs) && !/skipTotp|noTotp|totp\s*=\s*false/i.test(usersJs));
+// Scoped to createAdminUser's own body since 2026-09-12. It used to scan the whole file for
+// /totp\s*=\s*false/i, which `resetAdminCredentials({ keepTotp = false })` trips — and keepTotp is
+// the opposite of a skip flag: it declines to REPLACE a secret that already exists. The rule being
+// defended is D156's, that no account can come into existence without one, so it is asserted where
+// accounts come into existence.
+const createAdminUserBody = usersJs.slice(usersJs.indexOf("export async function createAdminUser")).split("\nexport ")[0];
+check("createAdminUser always mints a TOTP secret — there is no flag to skip it",
+  /const totpSecret = newTotpSecret\(\);/.test(createAdminUserBody) && !/skipTotp|noTotp|totp\s*=\s*false/i.test(createAdminUserBody));
+check("…and no caller can create an account without one: createAdminUser takes no totp parameter",
+  !/function createAdminUser\([^)]*totp/i.test(usersJs));
 const routerJs = jsCode(read("src/admin/router.js"));
 check("login refuses an account with no TOTP secret", /!user\.totpSecret/.test(routerJs));
 check("login refuses a vendor (tenant_id NULL) account by name, citing D153", /user\.tenantId === null/.test(routerJs) && /D153/.test(read("src/admin/router.js")));

@@ -182,18 +182,36 @@ export async function createAdminUser({ tenantId, email, roleName, password }) {
  * It does NOT re-enable a disabled account. A reset is about credentials; `enable` is about
  * status, and quietly doing both would make one command two decisions.
  *
- * @param {{ adminUserId: string, password?: string }} p
- * @returns {Promise<{ password: string, totpSecret: Buffer }>}
+ * EITHER HALF CAN BE KEPT (2026-09-12). Resetting both is right when the account is being handed
+ * over or is believed compromised, and wrong in the common case, which is that ONE of the two is
+ * lost. Replacing the half that still worked is what turned a forgotten password into thirty
+ * minutes locked out: the authenticator kept offering codes for a secret the server had just
+ * replaced, and every one of them was correct-looking and refused. `keepTotp` and `keepPassword`
+ * are mutually exclusive — a reset that changes neither is not a reset, and the caller asking for
+ * it has made a mistake worth surfacing rather than silently doing nothing.
+ *
+ * `totp_last_step` is cleared ONLY when the secret is replaced. Under `keepTotp` the step number
+ * still refers to the live secret, and clearing it would re-open the replay window this field
+ * exists to close.
+ *
+ * @param {{ adminUserId: string, password?: string, keepTotp?: boolean, keepPassword?: boolean }} p
+ * @returns {Promise<{ password: string|null, totpSecret: Buffer|null }>}
  */
-export async function resetAdminCredentials({ adminUserId, password }) {
-  const initial = password ?? randomToken(18);
-  const passwordHash = hashPassword(initial);
-  const totpSecret = newTotpSecret();
+export async function resetAdminCredentials({ adminUserId, password, keepTotp = false, keepPassword = false }) {
+  if (keepTotp && keepPassword) throw new Error("keepTotp and keepPassword cannot both be set: that resets nothing");
+  if (keepPassword && password) throw new Error("keepPassword and an explicit password cannot both be set");
+
+  const initial = keepPassword ? null : (password ?? randomToken(18));
+  const totpSecret = keepTotp ? null : newTotpSecret();
+
+  const sets = ["password_hash = password_hash", "totp_secret = totp_secret", "totp_last_step = totp_last_step"];
+  const params = [adminUserId];
+  if (initial !== null) { params.push(hashPassword(initial)); sets[0] = `password_hash = $${params.length}`; }
+  if (totpSecret !== null) { params.push(totpSecret); sets[1] = `totp_secret = $${params.length}`; sets[2] = "totp_last_step = NULL"; }
+
   await withControl((c) => c.query(
-    `UPDATE control.admin_users
-        SET password_hash = $2, totp_secret = $3, totp_last_step = NULL
-      WHERE id = $1`,
-    [adminUserId, passwordHash, totpSecret],
+    `UPDATE control.admin_users SET ${sets.join(", ")} WHERE id = $1`,
+    params,
   ));
   return { password: initial, totpSecret };
 }

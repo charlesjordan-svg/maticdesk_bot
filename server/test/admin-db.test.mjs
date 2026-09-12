@@ -287,6 +287,12 @@ try {
     const login = await c.go("/admin/login");
     check("the login page is 200 HTML", login.status === 200 && /text\/html/.test(login.headers.get("content-type")));
     check("it says loopback only and that auth is unreviewed", /Loopback only/.test(login.text) && /security review/.test(login.text));
+    // The page explained how to CREATE an account and not how to get back into one. The generic
+    // error is correct and stays; what was missing is where to go once you have read it.
+    check("it points a locked-out reader at the three CLI commands that answer this screen",
+      /totp --user/.test(login.text) && /--keep-totp/.test(login.text) && /admin\.mjs audit/.test(login.text));
+    check("…and states the lockout duration, which is the one number the error cannot give",
+      /one minute/.test(login.text));
     check("it carries x-matic-hub-auth: none (nobody is authenticated yet)", login.headers.get("x-matic-hub-auth") === "none");
     check("it sets no cookie", !login.headers.get("set-cookie"));
     check("a CSP is present", /default-src 'none'/.test(login.headers.get("content-security-policy") ?? ""));
@@ -658,6 +664,69 @@ try {
     check("the row kept its id, so the audit trail is still that person's", post.status === "active");
     const cliUsage = spawnSync(process.execPath, [join(SERVER, "bin/admin.mjs")], { encoding: "utf8" });
     check("bin/admin.mjs lists reset in its usage", /admin\.mjs reset/.test(cliUsage.stdout));
+  }
+
+  console.log("\n=== KB-7b. reset can keep either half, and the live code is readable (2026-09-12 lockout) ===");
+  {
+    // WHY THIS EXISTS. Thirty minutes were lost on 2026-09-12 because `reset` replaced the
+    // authenticator secret as a side effect of fixing a password, and because the CLI's own header
+    // said the secret could never be shown again. Both halves are pinned here.
+    const subject = await createAdminUser({ tenantId, email: `keep@${slug}.test`, roleName: "it_agent", password: "keep-password-12" });
+    const read = async () => (await getPool().query(
+      "SELECT password_hash, totp_secret, totp_last_step FROM control.admin_users WHERE id = $1", [subject.id])).rows[0];
+
+    // --keep-totp: the password moves, the authenticator does not.
+    const before = await read();
+    const kt = await resetAdminCredentials({ adminUserId: subject.id, keepTotp: true });
+    const afterKt = await read();
+    check("--keep-totp returns no secret, because it minted none", kt.totpSecret === null);
+    check("--keep-totp changed the password", afterKt.password_hash !== before.password_hash && verifyPassword(kt.password, afterKt.password_hash));
+    check("--keep-totp left the authenticator secret BYTE-IDENTICAL",
+      Buffer.from(afterKt.totp_secret).equals(Buffer.from(before.totp_secret)));
+    check("…so the code from the ORIGINAL enrolment still signs in",
+      (await client().go("/admin/login", { method: "POST", form: { email: subject.email, password: kt.password, code: totpCode(subject.totpSecret) } })).status === 303);
+
+    // --keep-password: the mirror case.
+    const kp = await resetAdminCredentials({ adminUserId: subject.id, keepPassword: true });
+    const afterKp = await read();
+    check("--keep-password returns no password, because it minted none", kp.password === null);
+    check("--keep-password left the password hash untouched", afterKp.password_hash === afterKt.password_hash);
+    check("--keep-password minted a NEW authenticator secret",
+      !Buffer.from(afterKp.totp_secret).equals(Buffer.from(afterKt.totp_secret)));
+    check("…and cleared totp_last_step, because the step referred to the old secret", afterKp.totp_last_step === null);
+
+    // The combination that resets nothing is refused rather than silently doing nothing.
+    let refused = false;
+    try { await resetAdminCredentials({ adminUserId: subject.id, keepTotp: true, keepPassword: true }); } catch { refused = true; }
+    check("keeping BOTH halves is refused: it is not a reset", refused);
+
+    // The secret is recoverable, which is the fact the CLI header used to deny.
+    const live = await read();
+    const cli = spawnSync(process.execPath, [join(SERVER, "bin/admin.mjs"), "totp", "--user", subject.email, slug], { encoding: "utf8" });
+    check("totp --user prints the code the live secret is currently producing",
+      cli.stdout.includes(totpCode(Buffer.from(live.totp_secret))), cli.stdout + cli.stderr);
+    check("…and it does NOT print the secret unless --secret is given", !/authenticator secret/.test(cli.stdout));
+    const cliSecret = spawnSync(process.execPath, [join(SERVER, "bin/admin.mjs"), "totp", "--user", subject.email, slug, "--secret"], { encoding: "utf8" });
+    check("--secret prints the base32 and the otpauth URI, for re-enrolling a launcher",
+      /authenticator secret/.test(cliSecret.stdout) && /otpauth:\/\//.test(cliSecret.stdout));
+    // The print block itself, through the CLI: under --keep-totp there is no secret to encode, and
+    // a crash there would land only on the person already locked out.
+    const adminMjs = join(SERVER, "bin/admin.mjs");
+    const rKeep = spawnSync(process.execPath, [adminMjs, "reset", slug, subject.email, "--keep-totp"], { encoding: "utf8" });
+    check("CLI reset --keep-totp exits clean and prints a new password", rKeep.status === 0 && /new password/.test(rKeep.stdout), rKeep.stderr);
+    check("…and says the authenticator is UNCHANGED, printing no secret",
+      /authenticator is UNCHANGED/.test(rKeep.stdout) && !/authenticator secret/.test(rKeep.stdout));
+    const rBoth = spawnSync(process.execPath, [adminMjs, "reset", slug, subject.email], { encoding: "utf8" });
+    check("CLI reset with no flag prints the NO LONGER WORKS line — the sentence this pass exists for",
+      /PREVIOUS AUTHENTICATOR SECRET NO LONGER WORKS/.test(rBoth.stdout), rBoth.stdout);
+    check("…and offers --keep-totp as the way to avoid it next time", /--keep-totp/.test(rBoth.stdout));
+    const rBad = spawnSync(process.execPath, [adminMjs, "reset", slug, subject.email, "--keep-totp", "--keep-password"], { encoding: "utf8" });
+    check("CLI refuses both --keep flags together rather than resetting nothing", rBad.status === 1);
+
+    const reads = await withControl((c) => c.query(
+      "SELECT detail FROM control.admin_audit WHERE tenant_id = $1 AND action = 'admin.totp_read' ORDER BY id", [tenantId]));
+    check("every code read wrote an audit row saying whether the secret was shown",
+      reads.rows.length === 2 && reads.rows[0].detail.secretShown === false && reads.rows[1].detail.secretShown === true);
   }
 
   console.log("\n=== KB-8. the article editor (D230): create, edit, and what it refuses ===");

@@ -23,6 +23,12 @@ export function loginPage({ error = null, email = "" }) {
       <hr>
       <p>Accounts are local (email, password, authenticator). There is no single sign-on yet (D159).</p>
       <p>An account is created with <span class="mono">node bin/admin.mjs create-user</span>, not here.</p>
+      <hr>
+      <p><strong>Locked out?</strong> The error above is deliberately the same for every cause. The CLI is the way back in.</p>
+      <p><span class="mono">admin.mjs totp --user &lt;email&gt;</span> prints the current code — the secret is on the server, so a lost authenticator is not a lost account.</p>
+      <p><span class="mono">admin.mjs reset &lt;tenant&gt; &lt;email&gt; --keep-totp</span> sets a new password and leaves the authenticator working. Without that flag it replaces both.</p>
+      <p><span class="mono">admin.mjs audit</span> says which factor actually failed.</p>
+      <p>Five failures lock an email for one minute. Nothing longer, and nothing to clear.</p>
     </div>
   </div>
   <div class="signin-form">
