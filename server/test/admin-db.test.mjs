@@ -345,6 +345,12 @@ try {
     // Real since B3 (2026-09-10) — B3-1..B3-N below exercise the mechanism against a live database;
     // this is just "the page renders for the tenant owner role" as part of the six-destination pass.
     check("Agents: 200, real stat tiles (no devices enrolled here yet)", agents.status === 200 && /waiting for approval/.test(agents.text));
+    // D272, on the REAL page over HTTP: the never-enrolls caveat sits between the counters and the
+    // first panel. The static half (rendered with fake rows, and pinned to client/src's behaviour)
+    // is admin-static.test.mjs §6a; this is the same sentence reaching a browser.
+    check("Agents (D272): the page says no Matic Desk endpoint enrolls itself, above the first panel",
+      /No Matic Desk endpoint enrolls itself/.test(agents.text) && agents.text.indexOf("enrolls itself") < agents.text.indexOf('<div class="panel">'));
+    check("Agents (D272): …and that a running endpoint does not appear here and the counts are not a fleet", /these counts are not a fleet/.test(agents.text));
     const metrics = await owner.go("/admin/metrics");
     check("Metrics: 200, real question counts, deflection explained as not computable", metrics.status === 200 && /asked, all time/.test(metrics.text) && /cannot be computed/.test(metrics.text));
     check("Metrics: the tenant's tickets by category are real (hardware: 1)", /<td>hardware<\/td><td>1<\/td>/.test(metrics.text));
@@ -1126,6 +1132,11 @@ try {
       [slug],
     );
     check("none of them are active any more", stillActive[0].n === 0);
+    // D273, on the real page with real rows: the column heading and the two caveats.
+    const pageD273 = await owner.go("/admin/agents");
+    check("Agents (D273): the device table is headed 'Last enrollment activity', never 'Last seen'", /<th>Last enrollment activity<\/th>/.test(pageD273.text) && !/Last seen/.test(pageD273.text));
+    check("Agents (D273): the not-a-heartbeat note is under the table", /Not a heartbeat\. Nothing updates this when a device talks to the hub/.test(pageD273.text));
+    check("Agents (D273): the revoke caveat says revoking blocks nothing (D61)", /Revoking removes the row&#39;s standing\. It does not block anything/.test(pageD273.text));
 
     const secretsPage = await owner.go("/admin/agents");
     const { rows: liveSecrets } = await getPool().query(

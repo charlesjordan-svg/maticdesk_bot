@@ -282,6 +282,57 @@ for (const p of ["review", "knowledge", "agents", "metrics", "settings", "ticket
 check("the Metrics page says deflection cannot be computed and why (D89/D90)", /cannot be computed/.test(read("src/admin/pages/metrics.js")) && /D90/.test(read("src/admin/pages/metrics.js")));
 check("the Review page is home and names D177 and D223", /D177/.test(read("src/admin/pages/review.js")) && /D223/.test(read("src/admin/pages/review.js")));
 
+console.log("\n=== 6a. the never-enrolls caveat is pinned to the CLIENT's behaviour (D272–D274) ===");
+{
+  // THE INVERSION IS THE WHOLE VALUE. While no file under client/src calls the enrollment route,
+  // the Agents page must say, above the fold, that no endpoint enrolls itself, that its list is
+  // hand-enrolled devices only, and that its counts are not a fleet (D272) — and "Last seen" must
+  // read as enrollment activity and Revoke must say it blocks nothing (D273). The day a client
+  // file DOES call POST /v1/enroll, every one of those sentences becomes false, and this block
+  // fails with a message saying so rather than going on guarding stale copy. Same shape as §5c's
+  // reserved list: the claim is enforced, and it can only change by being edited deliberately.
+  //
+  // The page is RENDERED, not read: agentsBody() is pure (no database), so it is called here with
+  // fake rows and the assertions run against the HTML an operator would receive. Checking the
+  // source for the string would pass with the caveat inside a comment.
+  //
+  // The client tree is reached the way turn.test.mjs reaches it (../../client/src). Comments are
+  // stripped before the search, so hub-link.js explaining that it does NOT enroll cannot count as
+  // enrolling; a string literal or a template containing the route does count.
+  const CLIENT_SRC = join(SERVER, "..", "client", "src");
+  const callsEnroll = (dir) => walk(dir).filter((f) => /\.(m?js)$/.test(f) && /\/v1\/enroll\b/.test(jsCode(readFileSync(f, "utf8"))));
+  // The detector must be able to find the route where it IS named in code, or a pass below is
+  // vacuous. src/index.js dispatches on the literal. A string literal naming the route counts,
+  // deliberately: a false positive here is loud and read by a person; a false negative is silent.
+  const onServer = callsEnroll(join(SERVER, "src"));
+  check("the detector is not vacuous: pointed at server/src it finds the route (index.js dispatches on the literal)", onServer.some((f) => /index\.js$/.test(f)), onServer.map(rel).join(","));
+  const inClient = callsEnroll(CLIENT_SRC);
+  const { agentsBody } = await import("../src/admin/pages/agents.js");
+  const fakeCtx = { permissions: new Set(["agents.read", "agents.manage"]), csrf: "test-csrf", tenant: { id: "t" } };
+  const fakeDevice = { id: "d1", deviceKeyId: "demo-laptop-01", mode: "auto", status: "revoked", enrolledAt: new Date("2026-09-10T06:53:00Z"), lastSeenAt: new Date("2026-09-10T06:53:00Z") };
+  const rendered = String(agentsBody(fakeCtx, { pending: [], devices: [fakeDevice, { ...fakeDevice, id: "d2", deviceKeyId: "b3-active", status: "active" }], autoApprove: false, secrets: [] }));
+  check("agentsBody() renders without a database (the fake rows reached the HTML)", /demo-laptop-01/.test(rendered) && /b3-active/.test(rendered));
+  if (inClient.length === 0) {
+    check("client/src has NO call to POST /v1/enroll today (the premise of D272/D273)", true);
+    check("D272: the rendered page says no Matic Desk endpoint enrolls itself", /No Matic Desk endpoint enrolls itself/.test(rendered));
+    check("D272: …that the list is devices enrolled by hand (bin/devices.mjs enroll, curl, the test suite)", /devices enrolled by hand/.test(rendered) && /bin\/devices\.mjs enroll/.test(rendered) && /test suite/.test(rendered));
+    check("D272: …and that a running endpoint does not appear here and the counts are not a fleet", /A running endpoint does not appear here, and these counts are not a fleet/.test(rendered));
+    check("D272: the caveat is ABOVE THE FOLD — after the stat grid and before the first panel", rendered.indexOf("enrolls itself") > rendered.indexOf('class="grid"') && rendered.indexOf("enrolls itself") < rendered.indexOf('<div class="panel">'));
+    check("D272: it is drawn as a limit() note, the position the Tickets page uses for NOBODY HAS BEEN EMAILED", /<p class="limit">[^]*?enrolls itself/.test(rendered));
+    check("D272: the notYet() block is still there, below, answering the OTHER question (authenticated, not enrolled)", /Nothing here is authenticated yet/.test(rendered) && rendered.indexOf("Nothing here is authenticated yet") > rendered.indexOf("enrolls itself"));
+    check("D273: the device table's column is headed Last enrollment activity, and Last seen is gone", /<th>Last enrollment activity<\/th>/.test(rendered) && !/Last seen/.test(rendered));
+    check("D273: the muted line says it is not a heartbeat and why (D61)", /Not a heartbeat\. Nothing updates this when a device talks to the hub, because nothing identifies a device on a call \(D61\)/.test(rendered));
+    check("D273: the revoke caveat sits beside the Revoke control and says it blocks nothing", /Revoke selected<\/button>\s*<span[^>]*>Revoking removes the row&#39;s standing\. It does not block anything/.test(rendered));
+    // The two D273 sentences are conditions on the build, and the source says so where the next writer edits it.
+    check("D273: the source marks both sentences TEMPORARY BY DESIGN and names the phase that reverts them", /TEMPORARY BY DESIGN/.test(agents) && /REVERT WHEN P3 LANDS/.test(agents));
+    // Without agents.manage there is no Revoke button; the caveat must still be on the page, because the REVOKED pill is.
+    const readOnly = String(agentsBody({ ...fakeCtx, permissions: new Set(["agents.read"]) }, { pending: [], devices: [fakeDevice], autoApprove: false, secrets: [] }));
+    check("D273: a read-only role sees the revoke caveat too (the REVOKED pill is on its screen)", /Revoking removes the row&#39;s standing/.test(readOnly) && !/Revoke selected/.test(readOnly));
+  } else {
+    check(`THE CLIENT NOW ENROLLS (${inClient.map((f) => f.slice(CLIENT_SRC.length + 1).replace(/\\/g, "/")).join(", ")}) — D272/D273's copy is FALSE and must be revisited: the never-enrolls caveat, the 'Last enrollment activity' heading and its not-a-heartbeat note, and the revoke-blocks-nothing sentence in src/admin/pages/agents.js. Give last_seen_at its real writer (addendum G2), let revocation mean revocation, then rewrite this block for the new premise.`, false);
+  }
+}
+
 console.log("\n=== 7. transcripts: no console route reads session content (exit criterion 4, D154) ===");
 const sessionReaders = adminFiles.filter((f) => /FROM sessions/.test(jsCode(readFileSync(f, "utf8"))));
 check("the only admin file that reads `sessions` is metrics.js, and it selects counts only",
