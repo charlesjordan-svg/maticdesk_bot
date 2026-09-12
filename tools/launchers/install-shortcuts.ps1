@@ -25,7 +25,8 @@ $icon    = Join-Path $here 'matic-desk.ico'
 
 $shortcuts = @(
   @{ Name = 'Matic Desk Hub';   Target = (Join-Path $here 'start-hub.cmd');   Description = 'Preflight, start and warm the Matic Desk hub. Wait for READY.' },
-  @{ Name = 'Matic Desk Agent'; Target = (Join-Path $here 'start-agent.cmd'); Description = 'Check the hub, then launch the Matic Desk agent elevated (UAC prompt).' }
+  @{ Name = 'Matic Desk Agent'; Target = (Join-Path $here 'start-agent.cmd'); Description = 'Check the hub, then launch the Matic Desk agent elevated (UAC prompt).' },
+  @{ Name = 'Matic Desk Admin Code'; Target = (Join-Path $here 'admin-totp.cmd'); Description = 'Rolling six-digit code for the admin console at /admin. Asks for the authenticator secret; stores nothing.' }
 )
 
 if ($Remove) {
