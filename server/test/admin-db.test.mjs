@@ -400,6 +400,31 @@ try {
     check("audited as ticket.state with actor, subject and {from, to} — and no ticket text", Boolean(row) && row.email === made.owner.email && row.subject === ref && row.detail.from === "new" && row.detail.to === "open" && !/cracked/.test(JSON.stringify(row)));
     const cliShow = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: { ...process.env, MATIC_TICKET_TENANT: schema } });
     check("the CLI sees the change through the same query layer", cliShow.status === 0 && new RegExp(`${ref}\\s+open`).test(cliShow.stdout));
+
+    // D269: the internal resolution note, written from the console's state form, read back on the
+    // detail page and by the CLI — the round trip tenant/004's comment claimed and nothing did.
+    const NOTE = "swapped the <dock> & re-seated the cable";
+    const cliEnv = { ...process.env, MATIC_TICKET_TENANT: schema };
+    const resolved = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "resolved", note: `  ${NOTE}\r\n`, _csrf: csrf } });
+    check("POST resolved with a note -> 303, and the redirect says a note was recorded", resolved.status === 303 && /noted=1/.test(resolved.location ?? ""), `${resolved.status} ${resolved.location}`);
+    const afterNote = await getTicket(schema, ref);
+    check("the query layer returns the note, trimmed", afterNote.state === "resolved" && afterNote.closeNote === NOTE, JSON.stringify(afterNote.closeNote));
+    const page2 = await owner.go(`/admin/tickets/${ref}`);
+    check("the detail page renders it, ESCAPED, under a heading that says it is internal and that the requester never sees it",
+      page2.text.includes(escapeHtml(NOTE)) && !page2.text.includes("<dock>") && /Internal resolution note/.test(page2.text) && /requester never sees it/.test(page2.text));
+    const cliNote = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: cliEnv });
+    check("bin/tickets.mjs show prints the same note and says it is internal", cliNote.status === 0 && cliNote.stdout.includes(NOTE) && /internal resolution note/.test(cliNote.stdout), cliNote.stderr.slice(0, 200));
+    const noteRow = (await auditRows()).find((r) => r.action === "ticket.state" && r.detail.to === "resolved");
+    check("audited with noted: true and NOT the note's text", Boolean(noteRow) && noteRow.detail.noted === true && !JSON.stringify(noteRow).includes("dock"), JSON.stringify(noteRow?.detail));
+    const closed = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "closed", note: "   ", _csrf: csrf } });
+    check("a later move with a blank note -> 303 without noted=1, and the earlier note is KEPT (COALESCE)",
+      closed.status === 303 && !/noted=1/.test(closed.location ?? "") && (await getTicket(schema, ref)).closeNote === NOTE, `${closed.status} ${closed.location}`);
+    const blankRow = (await auditRows()).find((r) => r.action === "ticket.state" && r.detail.to === "closed");
+    check("…and that move is audited with noted: false", Boolean(blankRow) && blankRow.detail.noted === false);
+    const cliState = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "state", ref, "open", "--note", "reopened: the dock failed again"], { encoding: "utf8", env: cliEnv });
+    check("bin/tickets.mjs state --note writes through the same function and says so", cliState.status === 0 && /internal note recorded/.test(cliState.stdout) && (await getTicket(schema, ref)).closeNote === "reopened: the dock failed again", cliState.stderr.slice(0, 200));
+    const page3 = await owner.go(`/admin/tickets/${ref}`);
+    check("…and the console shows what the CLI wrote", page3.text.includes("reopened: the dock failed again"));
   }
 
   console.log("\n=== 5c. no orphan columns: every column of the ticket store has code that names it, or a reserved-list entry (D269) ===");

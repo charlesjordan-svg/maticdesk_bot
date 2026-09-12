@@ -62,17 +62,28 @@ ${pages > 1 ? html`<p class="filters pager"><strong>Page</strong>${page > 1 ? ht
   await ctx.render(200, body, { title: "Tickets", current: "/admin/tickets" });
 }
 
-/** The one action on the detail page: select and button on one row (handback §3). */
+/**
+ * The one action on the detail page: the state, an optional internal note, one button (handback §3).
+ *
+ * The note is the INTERNAL resolution note (tenant/004, D239; wired 2026-09-12, D269): the human's
+ * own account of what fixed it, kept for the desk. It is one field, always shown, never required —
+ * the requester-facing note that P2 will require on `resolved` is a different field with a
+ * different visibility, and it is not here yet. Two conditionals landing in two phases is how one
+ * of them ends up wrong, so this one has none.
+ */
 function stateBlock(ctx, t, next) {
   if (!ctx.permissions.has("tickets.write")) return html`<p class="muted">Your roles (${ctx.roles.join(", ")}) can read tickets but not change them.</p>`;
   if (!next.length) return html`<p class="muted">No further transitions from ${t.state}.</p>`;
   return html`<form method="post" action="/admin/tickets/${t.reference}/state">
     ${csrfField(ctx.csrf)}
     <label for="next">Move ${t.reference} from <strong>${t.state}</strong> to</label>
+    <select id="next" name="next">${next.map((s) => html`<option value="${s}">${s}</option>`)}</select>
+    <label for="note">Internal resolution note (optional)</label>
+    <textarea id="note" name="note" rows="3" maxlength="4000" placeholder="What actually fixed it, in your own words." style="max-width:100%"></textarea>
+    <p class="muted" style="font-size:13px;margin:4px 0 0">Internal: kept on the ticket for the desk, shown on this page and by the CLI. The requester never sees it. Leaving it blank keeps whatever was written before.</p>
     <div class="row">
-      <select id="next" name="next">${next.map((s) => html`<option value="${s}">${s}</option>`)}</select>
       <button class="primary" type="submit">Change state</button>
-      <span class="muted" style="font-size:13px">Recorded in the audit log with who did it.</span>
+      <span class="muted" style="font-size:13px">Recorded in the audit log with who did it, and whether a note was written — never the note itself.</span>
     </div>
   </form>`;
 }
@@ -86,13 +97,14 @@ async function detailPage(ctx) {
   await ctx.audit("ticket.view", { subject: t.reference });
   const next = NEXT_STATES[t.state] ?? [];
   const flash = ctx.url.searchParams.get("changed");
+  const noted = ctx.url.searchParams.get("noted");
 
   const body = html`
 <p><a href="/admin/tickets">← Tickets</a></p>
 <h1><span class="mono">${t.reference}</span> ${pill(t.state)}</h1>
 <p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
 ${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
-${flash ? html`<div class="flash">State changed to ${t.state}.</div>` : ""}
+${flash ? html`<div class="flash">State changed to ${t.state}.${noted ? " Internal note recorded." : ""}</div>` : ""}
 
 <div class="detail">
 <div>
@@ -104,6 +116,9 @@ ${flash ? html`<div class="flash">State changed to ${t.state}.</div>` : ""}
   <blockquote>${t.summary}</blockquote>
   <h2>Already checked</h2>
   <blockquote>${t.whatWasChecked ?? "-"}</blockquote>
+  <h2>Internal resolution note</h2>
+  <p class="muted" style="font-size:13px;margin:0 0 4px">Written by whoever moved the ticket, for the desk's own record (D239). Internal: the requester never sees it, and this build has no requester-facing note.</p>
+  <blockquote>${t.closeNote ?? html`<span class="muted">none yet</span>`}</blockquote>
 </div>
 
 <div class="panel">
@@ -154,11 +169,15 @@ async function statePost(ctx) {
     await ctx.audit("ticket.state.refused", { subject: ref, detail: { from: current.state, to: next } });
     return ctx.render(400, html`<h1>Not a move this console offers</h1><p class="lede">${ref} is <strong>${current.state}</strong>; it can go to ${(NEXT_STATES[current.state] ?? []).join(", ") || "nowhere"}. The CLI (<span class="mono">npm.cmd run tickets -- state</span>) allows any state, for corrections.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
   }
-  const moved = await setTicketState(ctx.tenant.schemaName, ref, next);
+  // The note travels as-is; setTicketState() trims, caps at 4000 and keeps the previous note when
+  // this one is blank. The audit records THAT a note was written, never what it said (D156's audit
+  // is about who touched which record; the note is the record).
+  const note = typeof ctx.form.note === "string" ? ctx.form.note : null;
+  const moved = await setTicketState(ctx.tenant.schemaName, ref, next, { note });
   if (!moved) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
-  await ctx.audit("ticket.state", { subject: ref, detail: { from: moved.from, to: moved.to } });
-  ctx.log(`[admin] ${ctx.user.email} moved ${ref} ${moved.from} -> ${moved.to}`);
-  ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?changed=1`);
+  await ctx.audit("ticket.state", { subject: ref, detail: { from: moved.from, to: moved.to, noted: moved.noted } });
+  ctx.log(`[admin] ${ctx.user.email} moved ${ref} ${moved.from} -> ${moved.to}${moved.noted ? " with an internal note" : ""}`);
+  ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?changed=1${moved.noted ? "&noted=1" : ""}`);
 }
 
 const REF = "(?<ref>MD-\\d{1,12})";

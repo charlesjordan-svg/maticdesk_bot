@@ -103,7 +103,7 @@ for (const f of pageFiles) {
   if (forms && !/login\.js$/.test(f)) check(`${rel(f)}: every POST form carries _csrf (${forms} form(s))`, (src.match(/csrfField\(ctx\.csrf\)|name="_csrf"/g) ?? []).length >= forms);
 }
 check("viewing a ticket's detail is audited (ticket.view) — a record naming a person", /ctx\.audit\("ticket\.view"/.test(read("src/admin/pages/tickets.js")));
-check("a state change is audited with from/to and never the ticket's text", /ctx\.audit\("ticket\.state", \{ subject: ref, detail: \{ from: moved\.from, to: moved\.to \} \}\)/.test(read("src/admin/pages/tickets.js")));
+check("a state change is audited with from/to and WHETHER a note was written — never the ticket's text or the note's", /ctx\.audit\("ticket\.state", \{ subject: ref, detail: \{ from: moved\.from, to: moved\.to, noted: moved\.noted \} \}\)/.test(read("src/admin/pages/tickets.js")) && !/ctx\.audit\([^)]*(ctx\.form\.note|\bnote\b)/.test(jsCode(read("src/admin/pages/tickets.js"))));
 
 console.log("\n=== 4. sessions: the cookie and the store ===");
 const sessionJs = jsCode(read("src/admin/session.js"));
@@ -156,6 +156,18 @@ console.log("\n=== 5c. every field the ticket query layer returns has a reader (
     unread.length === 0, `no reader: ${unread.join(", ")}`);
   const stale = Object.keys(RESERVED_FIELDS).filter((f) => !fields.has(f) || readBy(f) > 0);
   check("the reserved list names only fields that exist and that nothing reads (an entry that gained a reader comes off the list)", stale.length === 0, stale.join(","));
+
+  // The note specifically: the handover asks for BOTH readers, and for the word "internal" in words
+  // on each, not only by colour — plan §7.4's rule, applying already because this is the first
+  // internal-only field either reader shows.
+  const noteField = [...fields].find((f) => /Note$/.test(f));
+  check("the query layer returns a resolution-note field", Boolean(noteField), [...fields].join(","));
+  check("the note is rendered by the detail page AND printed by the CLI", noteField && readBy(noteField) === 2);
+  check("the detail page labels it internal, in words, and says the requester never sees it", /Internal resolution note/.test(pageJs) && /requester never sees it/.test(pageJs));
+  check("the CLI labels it the same way", /internal resolution note/.test(cliJs) && /requester never sees it/.test(cliJs));
+  check("the state form carries a <textarea name=\"note\"> and statePost passes it to setTicketState()", /<textarea id="note" name="note"/.test(pageJs) && /setTicketState\(ctx\.tenant\.schemaName, ref, next, \{ note \}\)/.test(pageJs));
+  check("the CLI's state command takes --note and passes it the same way", /setTicketState\(tenant, ref, next, \{ note: flag\("note"\) \}\)/.test(cliJs));
+  check("neither reader makes the note mandatory (the mandatory field is the requester-visible one, P2)", !/name="note"[^>]*required/.test(pageJs) && !/note.*required/i.test(cliJs));
 }
 
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");

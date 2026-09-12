@@ -5,8 +5,12 @@
  *
  *   node bin/tickets.mjs list [--state new|open|resolved|closed] [--limit N]
  *   node bin/tickets.mjs show <reference>          e.g. MD-1000
- *   node bin/tickets.mjs state <reference> <state>
+ *   node bin/tickets.mjs state <reference> <state> [--note "what fixed it"]
  *   node bin/tickets.mjs users
+ *
+ * `--note` is the INTERNAL resolution note (tenant/004, D239): the human's account of what fixed
+ * it, kept for the desk and never shown to the requester. `show` prints it. Blank keeps the
+ * previous one.
  *
  * ===============================================================================================
  * THIS COMMAND IS THE QUEUE, AND THAT IS THE POINT OF IT EXISTING
@@ -99,17 +103,20 @@ if (!tenant) {
           console.log(`    ${t.summary}`);
           console.log("  already checked:");
           console.log(`    ${t.whatWasChecked ?? "-"}`);
+          console.log("  internal resolution note (the desk's own record; the requester never sees it):");
+          console.log(`    ${t.closeNote ?? "-"}`);
         }
       }
     } else if (cmd === "state") {
       const [ref, next] = positional;
-      if (!ref || !TICKET_STATES.includes(next)) die(`usage: node bin/tickets.mjs state <reference> <${TICKET_STATES.join("|")}>`);
+      if (!ref || !TICKET_STATES.includes(next)) die(`usage: node bin/tickets.mjs state <reference> <${TICKET_STATES.join("|")}> [--note "what fixed it"]`);
       else {
         // Any state to any state: this is the operator's correction tool. The console offers only
-        // NEXT_STATES; the CLI does not, on purpose.
-        const moved = await setTicketState(tenant, ref, next);
+        // NEXT_STATES; the CLI does not, on purpose. The note goes through the same function the
+        // console's form calls, so `show` and the detail page cannot disagree about it (D224).
+        const moved = await setTicketState(tenant, ref, next, { note: flag("note") });
         if (!moved) die(`no ticket ${ref} in ${tenant}`);
-        else console.log(`  ${ref}: ${moved.from} -> ${moved.to}`);
+        else console.log(`  ${ref}: ${moved.from} -> ${moved.to}${moved.noted ? " (internal note recorded)" : ""}`);
       }
     } else if (cmd === "users") {
       const rows = await listReporters(tenant);
