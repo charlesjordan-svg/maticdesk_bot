@@ -16,6 +16,18 @@
  * and `server/docs/B3-DEVICE-ENROLLMENT.md` say this at more length; the `notYet()` block below says
  * it here, where an operator reading this screen will actually look.
  *
+ * AND IT IS NOT A FLEET VIEW (D272, 2026-09-12). A device is on this page because someone enrolled it
+ * BY HAND: `bin/devices.mjs enroll`, curl, or the test suite. No file under `client/src` calls
+ * `POST /v1/enroll`, so the running endpoint on the machine next to the console is not here and
+ * cannot be, and "0 active devices" is the correct reading on every install until the client
+ * enrolls (P3 of the ticket-lifecycle plan, gated on D271). Charles read that 0 beside a panel
+ * saying "Everything I need is available" and concluded the product was broken; nothing was, and
+ * the page had not said the one sentence that would have prevented the double-take. `NEVER_ENROLLS`
+ * below is that sentence, drawn ABOVE the fold beside the counters; the `notYet()` block stays
+ * because it answers a different question ("is a listed device authenticated") further down.
+ * test/admin-static.test.mjs §6a pins the sentence to the client's behaviour (D274): the day a
+ * client file calls the enrollment route, that test fails and this copy has to be revisited.
+ *
  * NO BULK-REVOKE JAVASCRIPT. Each device row is a checkbox with its OWN NAME (`device_<id>`), not a
  * shared `name="deviceIds"` — `src/admin/router.js`'s form parser keeps only the LAST value for a
  * repeated key (`Object.fromEntries` over `URLSearchParams`), so a shared name would silently
@@ -31,6 +43,18 @@ import {
 } from "../../devices/enrollment.js";
 
 const canManage = (ctx) => ctx.permissions.has("agents.manage");
+
+/**
+ * D272 — the caveat above the fold. All three facts, in this order: no endpoint enrolls itself;
+ * therefore the list is hand-enrolled devices only; therefore a running endpoint is absent and the
+ * counters are not a fleet. Every one of them stops being true when P3 gives the client enrollment,
+ * and test/admin-static.test.mjs §6a fails on that day so the copy is revisited rather than left.
+ */
+const NEVER_ENROLLS = html`<strong>No Matic Desk endpoint enrolls itself.</strong> Nothing in
+  <span class="mono">client/</span> calls <span class="mono">POST /v1/enroll</span>, so this page lists only
+  devices enrolled by hand — <span class="mono">bin/devices.mjs enroll</span>, curl, or the test suite.
+  <strong>A running endpoint does not appear here, and these counts are not a fleet.</strong> Client
+  enrollment is P3 of the ticket-lifecycle plan and waits on D271.`;
 
 // ---- rendering ------------------------------------------------------------------------------------
 
@@ -113,20 +137,21 @@ function secretsPanel(ctx, secrets, freshSecret) {
 </div>`;
 }
 
-async function renderAgents(ctx, { freshSecret = null, notice = null } = {}) {
-  const tenantId = ctx.tenant.id;
-  const [pending, devices, autoApprove, secrets] = await Promise.all([
-    listPendingRequests({ tenantId }),
-    listDevices({ tenantId }),
-    autoApproveSetting({ tenantId }),
-    listEnrollmentSecrets({ tenantId }),
-  ]);
+/**
+ * The page body from already-loaded data. Exported and pure — no database, no ctx.render — so
+ * test/admin-static.test.mjs §6a can RENDER it with fake rows and assert on the HTML rather than on
+ * this source file (D274: "check it by rendering, not by reading the source").
+ *
+ * @param {any} ctx  needs `permissions` and `csrf`
+ * @param {{ pending: any[], devices: any[], autoApprove: boolean, secrets: any[], freshSecret?: any, notice?: string|null }} data
+ */
+export function agentsBody(ctx, { pending, devices, autoApprove, secrets, freshSecret = null, notice = null }) {
   const active = devices.filter((d) => d.status === "active").length;
   const revoked = devices.filter((d) => d.status === "revoked").length;
 
-  const body = html`
+  return html`
 <h1>Agents</h1>
-<p class="lede">The endpoints enrolled with this tenant, the ones waiting for approval, and the secret that lets a new one ask (B3).</p>
+<p class="lede">The devices enrolled with this tenant by hand, the ones waiting for approval, and the secret that lets a new one ask (B3).</p>
 ${notice ? html`<div class="flash">${notice}</div>` : ""}
 
 <div class="grid">
@@ -134,6 +159,7 @@ ${notice ? html`<div class="flash">${notice}</div>` : ""}
   ${stat(active, "active devices", null)}
   ${stat(revoked, "revoked", null)}
 </div>
+${limit(NEVER_ENROLLS)}
 
 <div class="panel">
   <h2>Pending requests<span class="count">${pending.length}</span></h2>
@@ -154,6 +180,17 @@ ${notYet({
   why: "That check is D61's job: a signed assertion exchanged for a short-lived access token, from a TPM-backed key in broker custody (D60/D64/D146). The custody chain needs the named-pipe transport between the agent and a LocalSystem broker, which is designed and not built (D200/D201) — building real device authentication here would mean building that transport first. This pass built the enrollment mechanism the phase-1 plan's B3 row actually names: the pending queue, auto-approve with this toggle, the rotatable secret above, rate limiting with a fallback to the queue on a burst (D83), and bulk revocation.",
   arrives: "the token exchange, after the pipe transport (D200/D201) is built",
 })}`;
+}
+
+async function renderAgents(ctx, { freshSecret = null, notice = null } = {}) {
+  const tenantId = ctx.tenant.id;
+  const [pending, devices, autoApprove, secrets] = await Promise.all([
+    listPendingRequests({ tenantId }),
+    listDevices({ tenantId }),
+    autoApproveSetting({ tenantId }),
+    listEnrollmentSecrets({ tenantId }),
+  ]);
+  const body = agentsBody(ctx, { pending, devices, autoApprove, secrets, freshSecret, notice });
   await ctx.render(200, body, { title: "Agents", current: "/admin/agents" });
 }
 
