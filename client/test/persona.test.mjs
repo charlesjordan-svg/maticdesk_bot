@@ -143,6 +143,13 @@ const SOCIAL_CASES = [
   ["good morning matic desk", "greeting"],
   ["hey there", "greeting"],
   ["thanks matic", "thanks"],
+  // D265, FROM THE RUNNING APP: Charles typed this and was offered a ticket.
+  ["Its all good thanks", "nothingneeded"],
+  ["all good thanks", "nothingneeded"],
+  ["im good thanks", "nothingneeded"],
+  ["no issues", "nothingneeded"],
+  ["nope all good", "nothingneeded"],
+  ["not right now", "nothingneeded"],
   ["nice one", "thanks"],
   ["bye for now", "farewell"],
   ["good night", "farewell"],
@@ -160,6 +167,15 @@ for (const t of [
   "hello printer",
   "my desk phone is dead",
   "later today the vpn drops",
+  // D265 FROM THE OTHER SIDE. The reassurance markers must never swallow a real complaint that
+  // happens to contain one of them - the residue rule is the guard, and these are what it guards.
+  "it was all good until this morning",
+  "no issues with the printer but the scanner is dead",
+  "all good yesterday now it wont print",
+  "im fine but my laptop is not",
+  "nope the printer is still broken",
+  "no internet",
+  "no sound",
 ]) {
   const r = classify(t);
   check(`"${t}" is NOT social (${r.kind})`, r.kind !== "social", r.why);

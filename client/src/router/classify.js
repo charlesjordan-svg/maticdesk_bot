@@ -152,6 +152,39 @@ const SOCIAL = [
     "how can you help", "what do you know how", "what should i ask", "what can you actually do",
     "introduce yourself", "tell me about yourself",
   ] },
+  // NOTHING IS WRONG. D265, and it is a defect Charles found by using the app: he typed
+  // "Its all good thanks" and got an OFFER TO OPEN A TICKET.
+  //
+  // The subkind is the fix, and the residue rule is NOT the bug. "thanks" matched perfectly well;
+  // what sank it was `residue()` returning "its good", because a non-empty residue vetoes the
+  // social path — correctly, since that is what keeps "thanks but the printer still won't print" on
+  // the problem path. The real gap is that **"nothing is wrong" is a speech act the classifier had
+  // no vocabulary for**, so it reached the model, which had a problem-shaped slot to fill and
+  // filled it. D198's defect arriving through a third route: not the ordering, not the residue
+  // test, but a missing intent.
+  //
+  // IT SITS ABOVE `thanks` ON PURPOSE. "Its all good thanks" is a user telling us nothing is wrong
+  // and being polite about it; the substance is the reassurance and the thanks is the wrapper.
+  // "You're very welcome" is a worse answer than "glad to hear it" — and both are enormously better
+  // than a consent-shaped card.
+  //
+  // COMPLETE PHRASES, for the reason the off-topic list gives: a bare "good" or "fine" is a word
+  // that appears inside real complaints. And the residue rule still applies AFTER these are
+  // stripped, which is the second guard — "it was all good until this morning" leaves "it was
+  // until", "no issues with the printer but the scanner is dead" leaves most of itself, and both
+  // go to the problem path exactly as they should.
+  { subkind: "nothingneeded", markers: [
+    "all good", "its all good", "were all good", "we are all good", "all sorted", "its sorted",
+    "all fine", "its fine", "im fine", "i am fine", "im good", "i am good", "im ok", "im okay",
+    "i am ok", "i am okay", "nothing wrong", "nothing is wrong", "no issues", "no issue",
+    "no problems", "nothing to report", "nothing at the moment", "nothing right now",
+    "nothing for now", "nothing thanks", "no thanks", "not right now", "not at the moment",
+    "nothing broken", "nothing needed", "dont need anything", "do not need anything",
+    // A bare "nope" or "nah" is a whole message, and one that reached the model would come back
+    // with the same problem-shaped answer this subkind exists to prevent. Safe as a marker for the
+    // same reason as the rest: "nope, the printer is still broken" leaves its residue behind.
+    "nope", "nah",
+  ] },
   { subkind: "thanks", markers: ["thanks", "thank you", "thank u", "thx", "ta", "cheers", "much appreciated", "appreciate it", "nice one", "well done", "good job", "great job", "brilliant", "perfect", "legend"] },
   { subkind: "farewell", markers: ["goodbye", "good bye", "bye for now", "bye", "see you", "see ya", "see you soon", "later", "thats all", "nothing else", "were done", "im done", "good night", "night", "have a good one", "ttyl", "catch you later"] },
   { subkind: "greeting", markers: [
@@ -226,6 +259,10 @@ const FILLER = [
   // MORNING". Time-of-day and pleasantry padding, none of which is ever the subject of a complaint.
   "today", "tonight", "doing", "this", "morning", "afternoon", "evening", "everyone", "all", "going",
   "now", "then", "yeah", "yes", "friend", "pal", "dear", "sir", "maam",
+  // D265: "nope all good" left "nope" behind and went to the model. These are answers, never the
+  // subject of a complaint - nobody reports that their nope is broken. NOT "no": "no internet" and
+  // "no sound" are complaints, and "no" is doing real work in them.
+  "nope", "nah", "nup",
   // NOT "my": "hi my printer is broken" must keep "my printer is broken" whole.
 ];
 

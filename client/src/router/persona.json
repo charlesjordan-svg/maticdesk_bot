@@ -74,6 +74,7 @@
     ]
   },
 
+  "$nothingneededComment": "D265. WHAT NOTHING IS WRONG GETS. Charles typed Its all good thanks and was offered a ticket. These must NOT ask a follow-up question that reopens the conversation, and must NOT thank him for nothing - he told us the machine is fine, so the only correct move is to agree warmly and get out of the way.",
   "social": {
     "greeting": [
       "Hello! Good to see you. What's going on today?",
@@ -84,6 +85,11 @@
       "I'm doing well, thanks for asking — all systems green on my side. How are things with you? Anything I can help with?",
       "Very well, thank you! It's a good day for fixing things. What's going on?",
       "Can't complain — I've got nothing broken to look at yet, which is either good news or you haven't told me. How can I help?"
+    ],
+    "nothingneeded": [
+      "Good to hear. I’ll be here if anything does come up.",
+      "Glad it’s all behaving. Give me a shout if that changes.",
+      "Nothing broken is the best kind of update. I’m right here when you need me."
     ],
     "thanks": [
       "You're very welcome — that's what I'm here for. Anything else, just shout.",

@@ -3169,6 +3169,61 @@ PID-scoped now.
 
 ---
 
+### 5.48 D265 — "nothing is wrong" is a speech act, and the classifier had no word for it (2026-09-11)
+
+Charles, from the running app: *"I say everything was all good and Matic tried to open a ticket.
+Not the proper response."* He typed **"Its all good thanks"** and got an escalation sentence and a
+**Yes, open a ticket** card.
+
+| ID | Decision | Status | Links |
+|---|---|---|---|
+| **D265** | **A user saying nothing is wrong is answered by the social layer, from persona data, with no provider call and no proposal.** New subkind `nothingneeded`, sitting ABOVE `thanks` in the marker order. | **DONE 2026-09-11.** **1909 client assertions across 24 files**, up from 1890/24. Confirmed in the real Electron window on the exact sentence. | **D198** (the defect family), D165/D212 (the social layer runs ahead of every provider call), D234, D216. |
+
+**5.48a — the residue rule was NOT the bug, and that matters for whoever touches this next.**
+`classify("Its all good thanks")` matched the `thanks` marker perfectly well. What vetoed it was
+`residue()` returning **"its good"** — a non-empty residue means the pleasantry was a doormat in
+front of a real message, which is exactly what keeps *"thanks but the printer still won't print"* on
+the problem path. **The rule is right and was left alone.**
+
+The actual gap: **"nothing is wrong" is a speech act the classifier had no vocabulary for.** So the
+sentence fell through to the model, which had a problem-shaped slot to fill and filled it.
+**D198's defect arriving by a third route** — not the ordering (D212 fixed that), not the residue
+test (D234 fixed that), but a missing intent.
+
+**5.48b — why it sits above `thanks`.** "Its all good thanks" is a user telling us nothing is wrong
+and being polite about it: the substance is the reassurance, the thanks is the wrapper.
+*"You're very welcome"* is a worse answer than *"Good to hear"* — and both are enormously better
+than a consent-shaped card the user did not ask for.
+
+**5.48c — complete phrases, and the residue rule is the second guard.** Same discipline as the
+off-topic allowlist (§5.44a): a bare "good" or "fine" is a word that lives inside real complaints.
+Every marker is a complete phrase, **and the residue test still runs after they are stripped**, so
+the sentences that must survive do:
+
+| Typed | Goes to |
+|---|---|
+| "Its all good thanks" | `social/nothingneeded` |
+| "no issues" · "all sorted" · "im good thanks" · "not right now" | `social/nothingneeded` |
+| "it was all good until this morning" | the problem path (residue "it was until") |
+| "no issues with the printer but the scanner is dead" | the problem path |
+| "im fine but my laptop is not" | the problem path (residue "but my laptop is not") |
+| "no internet" · "no sound" | the problem path — **"no" is NOT filler** |
+
+**5.48d — one adjacent find, and the line not crossed.** "nope all good" still failed, because
+`residue()` left **"nope"**. `nope`, `nah` and `nup` are filler now — nobody reports that their nope
+is broken — **and `no` deliberately is not**, because "no internet" and "no sound" are complaints
+in which "no" is doing the work.
+
+**5.48e — verified where it was found.** The exact sentence, typed into the real Electron window:
+the app answered *"Good to hear. I'll be here if anything does come up."*, no card, and the
+developer log read
+`[router] social marker "all good" with no residue (D165) - answering from a template, no provider
+call, NO PROPOSAL`. **A test now pins the reported sentence by name**, along with six more of its
+family and seven that must still reach the problem path — the negatives matter more than the
+positives here, because the failure mode of a fix like this is swallowing real work.
+
+---
+
 ## 6. Conflicts
 
 ### 6.1 Conflicts C1–C8 (consolidated register, IDs +7)
@@ -3498,7 +3553,7 @@ and the script now says so, because a reader would otherwise take it for a permi
 
 ## 11. How to add to this register
 
-1. Take the next free ID (**D265 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45; D263 is taken, §5.46; D264 is taken, §5.47). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
+1. Take the next free ID (**D266 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45; D263 is taken, §5.46; D264 is taken, §5.47; D265 is taken, §5.48). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
 2. One row: decision, status (*done* / *decided* / *proposed* / *rejected*), source and forcing reason. A decision without a forcing reason is an opinion.
 3. If it amends an earlier decision, say so in both rows.
 4. If it depends on an unverified claim, tag `[VERIFY]` inline and add it to §10.2.

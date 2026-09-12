@@ -196,6 +196,10 @@ const TEMPLATES = {
   // will not answer a pleasantry reads as broken rather than as focused.
   howareyou: () => pickVariant("howareyou", persona.social.howareyou),
 
+  // D265. "Its all good thanks" - the user saying nothing is wrong. Answered rather than routed,
+  // because the alternative observed in the real app was an offer to open a ticket.
+  nothingneeded: () => pickVariant("nothingneeded", persona.social.nothingneeded),
+
   thanks: () => pickVariant("thanks", persona.social.thanks),
 
   farewell: () => pickVariant("farewell", persona.social.farewell),
