@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "start:dev": "node bin/dev.mjs",
     "test": "node test/run-all.mjs",
     "test:db": "node test/run-all.mjs --excluded",
     "db:up": "docker compose up -d",
