@@ -129,7 +129,7 @@ export async function countTicketsByCategory(schema) {
  *
  * @param {string} schema
  * @param {string} reference  e.g. MD-1000
- * @returns {Promise<(TicketRow & { id: string, description: string, summary: string, whatWasChecked: string|null, profileSource: string|null, sessionId: string|null })|null>}
+ * @returns {Promise<(TicketRow & { id: string, description: string, summary: string, whatWasChecked: string|null, profileSource: string|null, sessionId: string|null, internalResolutionNote: string|null })|null>}
  */
 export async function getTicket(schema, reference) {
   return withTenant(schema, async (c) => {
@@ -148,7 +148,9 @@ export async function getTicket(schema, reference) {
       whatWasChecked: t.what_was_checked ?? null,
       profileSource: t.profile_source ?? null,
       sessionId: t.session_id ?? null,
-      closeNote: t.close_note ?? null,
+      // INTERNAL. Both readers label it so; a requester-facing route must never SELECT t.* —
+      // it would ship this, `summary` (D214) and `what_was_checked` to the requester.
+      internalResolutionNote: t.internal_resolution_note ?? null,
     };
   });
 }
@@ -184,23 +186,28 @@ export async function ticketCountsBySession(client, sessionIds) {
  * allows anything). This function only refuses a state that the database would refuse anyway,
  * so the error is a sentence rather than a constraint violation.
  *
- * `note` (tenant/004, D239's "somewhere for the second-phase result to land"): the human's own
- * account of what fixed it, written when they move the ticket to resolved or closed. Optional;
- * kept when the next move carries none; not read by anything yet except the detail page and the
- * CLI. The ticket-close-to-draft loop is the thing this column exists for and is NOT built.
+ * `note` is the INTERNAL resolution note — `internal_resolution_note`, added by tenant/004 as
+ * `close_note` and renamed by tenant/005 (D269), D239's "somewhere for the second-phase result to
+ * land": the human's own account of what fixed it, written when they move the ticket. Optional;
+ * trimmed; capped at 4000; kept when the next move carries none (the COALESCE). WRITTEN by the
+ * console's state form (src/admin/pages/tickets.js, statePost) and by `bin/tickets.mjs state
+ * --note`; READ by the detail page and by `bin/tickets.mjs show`, both of which label it internal —
+ * the requester never sees it. Until 2026-09-12 this paragraph claimed the two readers and no
+ * writer existed; none of them did (tenant/005's header has the record). The ticket-close-to-draft
+ * loop is the thing this column exists for and is NOT built.
  *
  * @param {string} schema
  * @param {string} reference
  * @param {string} next
  * @param {{ note?: string|null }} [opts]
- * @returns {Promise<{ from: string, to: string }|null>}
+ * @returns {Promise<{ from: string, to: string, noted: boolean }|null>}  `noted` — a note was written by THIS call
  */
 export async function setTicketState(schema, reference, next, { note = null } = {}) {
   if (!TICKET_STATES.includes(next)) throw new Error(`state must be one of: ${TICKET_STATES.join(", ")}`);
   const trimmed = typeof note === "string" && note.trim() ? note.trim().slice(0, 4000) : null;
   return withTenant(schema, async (c) => {
     const { rows } = await c.query(
-      `UPDATE tickets t SET state = $2, updated_at = now(), close_note = COALESCE($3, t.close_note)
+      `UPDATE tickets t SET state = $2, updated_at = now(), internal_resolution_note = COALESCE($3, t.internal_resolution_note)
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
         WHERE t.id = prev.id
         RETURNING prev.was`,

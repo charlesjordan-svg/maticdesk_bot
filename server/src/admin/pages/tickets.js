@@ -118,7 +118,7 @@ ${flash ? html`<div class="flash">State changed to ${t.state}.${noted ? " Intern
   <blockquote>${t.whatWasChecked ?? "-"}</blockquote>
   <h2>Internal resolution note</h2>
   <p class="muted" style="font-size:13px;margin:0 0 4px">Written by whoever moved the ticket, for the desk's own record (D239). Internal: the requester never sees it, and this build has no requester-facing note.</p>
-  <blockquote>${t.closeNote ?? html`<span class="muted">none yet</span>`}</blockquote>
+  <blockquote>${t.internalResolutionNote ?? html`<span class="muted">none yet</span>`}</blockquote>
 </div>
 
 <div class="panel">

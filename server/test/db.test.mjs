@@ -177,6 +177,25 @@ async function main() {
   }));
   check("three tenants are listed", (await listTenants()).filter((t) => t.slug.startsWith("b1-test-")).length === 3);
 
+  // D269: tenant/005 renames close_note -> internal_resolution_note behind a pg_attribute guard,
+  // because RENAME COLUMN has no IF EXISTS and the runner may meet a tenant mid-flight. A fresh
+  // tenant runs 004 (adds close_note) and 005 (renames it) in one run and lands renamed.
+  const ticketCols = () => withTenant(SC, async (c) => (await c.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'tickets' ORDER BY column_name",
+  )).rows.map((r) => r.column_name));
+  const before = await ticketCols();
+  check("tickets carries internal_resolution_note and no close_note on a schema created after tenant/005",
+    before.includes("internal_resolution_note") && !before.includes("close_note"), before.join(","));
+  const m005 = readMigrations("tenant").find((m) => /internal-resolution-note/.test(m.version));
+  await withTenant(SC, (c) => c.query(m005.sql));
+  check("running tenant/005's SQL a SECOND time changes nothing (the guard's no-op branch - the already-migrated tenant)",
+    (await ticketCols()).join(",") === before.join(","));
+  await withTenant(SC, (c) => c.query("ALTER TABLE tickets RENAME COLUMN internal_resolution_note TO close_note"));
+  await withTenant(SC, (c) => c.query(m005.sql));
+  const after = await ticketCols();
+  check("and against a tenant still carrying close_note it renames forward (the guard's rename branch - the not-yet-migrated tenant)",
+    after.includes("internal_resolution_note") && !after.includes("close_note"), after.join(","));
+
   // =============================================================================================
   console.log("\n=== 5. a job for tenant B is picked up by a worker that sees only B's data ===");
   const bSessionId = await withTenant(SB, async (c) =>

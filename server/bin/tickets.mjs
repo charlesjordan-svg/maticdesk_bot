@@ -104,7 +104,7 @@ if (!tenant) {
           console.log("  already checked:");
           console.log(`    ${t.whatWasChecked ?? "-"}`);
           console.log("  internal resolution note (the desk's own record; the requester never sees it):");
-          console.log(`    ${t.closeNote ?? "-"}`);
+          console.log(`    ${t.internalResolutionNote ?? "-"}`);
         }
       }
     } else if (cmd === "state") {

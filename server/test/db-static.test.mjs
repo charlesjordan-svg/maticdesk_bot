@@ -78,8 +78,34 @@ for (const m of tenant) {
   check(`${m.version} names no schema at all - it must run unchanged against every one`,
     !/\b(control|public|extensions|t_[a-z0-9_]{3,})\./i.test(code),
     code.match(/\b(control|public|extensions|t_[a-z0-9_]{3,})\.\w+/i)?.[0] ?? "");
+  // A DO block against pg_constraint guards an ADD CONSTRAINT (002, 003); one against pg_attribute
+  // guards a RENAME COLUMN (005). Neither statement has IF [NOT] EXISTS in PostgreSQL 17.
   check(`${m.version} is re-runnable in itself (IF NOT EXISTS or a guarded DO block)`,
-    /IF NOT EXISTS/i.test(code) || /pg_constraint/i.test(code));
+    /IF NOT EXISTS/i.test(code) || /pg_constraint|pg_attribute/i.test(code));
+}
+
+console.log("\n=== 2a. tenant/005 renames close_note guarded, and retracts 004 rather than editing it (D269) ===");
+{
+  const m005 = tenant.find((m) => /internal-resolution-note/.test(m.version));
+  check("tenant/005-internal-resolution-note.sql exists", Boolean(m005));
+  const sql = m005?.sql ?? "", code = sqlCode(sql);
+  check("the rename is guarded by BOTH pg_attribute questions - old name present AND new name absent",
+    /EXISTS \(SELECT 1 FROM pg_attribute[\s\S]*?attname = 'close_note'/.test(code) && /NOT EXISTS \(SELECT 1 FROM pg_attribute[\s\S]*?attname = 'internal_resolution_note'/.test(code)
+    && /ALTER TABLE tickets RENAME COLUMN close_note TO internal_resolution_note/.test(code));
+  check("it resolves the table through current_schema(), so the same text runs against every tenant", /current_schema\(\) \|\| '\.tickets'/.test(code));
+  check("it carries decision provenance with the status held when written (register §5.7b)",
+    /DECISION PROVENANCE/.test(sql) && /D269 \(PROPOSED 2026-09-12\)/.test(sql) && /D239 \(DECIDED 2026-09-10\)/.test(sql));
+  check("it QUOTES the sentence 004 got wrong, and says why 004 is not edited (the ledger checksums comments too)",
+    /nothing reads it yet except the ticket's own detail page and the\s+-- CLI/.test(sql) && /checksum/.test(sql));
+  // 004 is applied on every existing tenant with this checksum in its ledger. Editing it - even a
+  // comment - makes migrate() refuse on all of them, so the retraction lives in 005 and this pin
+  // is what turns "do not edit 004" from advice into a failing test.
+  const m004 = tenant.find((m) => /session-outcomes/.test(m.version));
+  check("tenant/004 is byte-for-byte what the tenant ledgers hold (checksum 6c888d52395e288a)", m004?.checksum === "6c888d52395e288a", m004?.checksum);
+  check("...and still adds close_note, which a fresh tenant needs 004 to do before 005 renames it", /ADD COLUMN IF NOT EXISTS close_note text/.test(sqlCode(m004?.sql ?? "")));
+  const namesOld = [...walk(join(SERVER, "src")), ...walk(join(SERVER, "bin"))]
+    .filter((f) => /\.(m?js)$/.test(f) && /close_note|closeNote/.test(jsCode(readFileSync(f, "utf8"))));
+  check("no JavaScript under src/ or bin/ names close_note or closeNote any more", namesOld.length === 0, namesOld.join(", "));
 }
 
 console.log("\n=== 3. the extension is installed once, database-wide ===");
