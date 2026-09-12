@@ -27,17 +27,18 @@
  * the LABEL under it that printed the state's name.
  */
 import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
-// The boot line comes from the same persona file as every other social line (D234), so the name
-// and the tone are decided in one place. A JSON module, like the avatar manifest.
-import persona from "../router/persona.json" with { type: "json" };
 // D249: what the VOICE gets when that differs from what the screen gets. Pure and separate so a
 // headless test can reach it - renderer.js touches `document` at module scope and no test can.
 import { spokenForm } from "./spoken-form.js";
 import { proseSegments, plainProse } from "./model-prose.js";
 // `serviceWords` lives agent-side with the band that also says it (D258): two copies of how a
 // service state is said would drift, and the drift is two surfaces describing one service
-// differently. `persona.json` above already crosses this boundary for the same reason.
+// differently. `greeting.js` below crosses the same boundary for the same reason.
 import { serviceWords } from "../agent/machine-band.js";
+// D262. WHICH boot line, out of which set. Pure and separate for the reason spoken-form.js is:
+// renderer.js touches `document` at module scope, so nothing in it can be reached by a headless
+// test, and the state-precedence rule is exactly the part that needs one.
+import { pickBootGreeting } from "../router/greeting.js";
 
 const root = document.documentElement;
 const avatar = document.getElementById("avatar");
@@ -1562,6 +1563,44 @@ const ttsSettled = new Promise((resolve) => {
   }, 40000);
 });
 
+/**
+ * THE BOOT GREETING, AND THE CURSOR THAT SURVIVES THE PROCESS. D262.
+ *
+ * This line used to be `persona.boot[0]` — a hardcoded index, so `persona.boot[1]` had never once
+ * been spoken. Swapping in the rotation helper from `social.js` would NOT have fixed it and would
+ * have passed its test: that cursor is a module-level Map, the boot line fires once per process, so
+ * it is 0 on every launch. **Six greetings behind a per-process cursor is still one greeting.**
+ *
+ * So the cursor is persisted here, beside the theme, in the one place in the renderer that already
+ * outlives a launch. Everything else — which set the machine's state calls for, the precedence
+ * between them, and advancing the cursor — is `greeting.js`, which is pure and tested.
+ *
+ * `online` is passed as a real boolean and only when the panel actually said so: `facts.online` is
+ * the string "yes" or "no", and an absent panel must read as UNKNOWN rather than as offline. Telling
+ * someone their network is down when we could not read it is the worst of the four mistakes.
+ */
+const BOOT_CURSOR_KEY = "matic.greeting.cursor";
+function bootGreeting(facts, hub) {
+  let cursors = {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOOT_CURSOR_KEY) ?? "{}");
+    if (raw && typeof raw === "object") cursors = raw;
+  } catch { /* storage disabled or the value is not ours; start from the first line */ }
+
+  const picked = pickBootGreeting({
+    online: facts?.online === "no" ? false : facts?.online === "yes" ? true : undefined,
+    hubState: hub?.state,
+    cursors,
+  });
+  // A persona with no boot lines at all is a broken build, not a state to speak into. Say nothing
+  // rather than an empty bubble, and put the reason where a developer will find it.
+  if (!picked) { devlog("[greeting] the persona has no boot lines - saying nothing"); return ""; }
+
+  try { localStorage.setItem(BOOT_CURSOR_KEY, JSON.stringify(picked.cursors)); } catch { /* the line is still spoken; only the rotation is lost */ }
+  devlog(`[greeting] ${picked.key}[${picked.index}] · online=${facts?.online ?? "?"} · hub=${hub?.state ?? "?"}`);
+  return picked.line;
+}
+
 (async () => {
   applyTheme(root.dataset.theme === "dark" ? "dark" : "light");
 
@@ -1576,7 +1615,8 @@ const ttsSettled = new Promise((resolve) => {
   renderMachine(facts);
   devlog(`[panel] ${facts?.computer ?? "this machine"} · ${facts?.user ?? "unknown user"} · adapter ${facts?.adapter ?? "-"} · ip ${facts?.ip ?? "-"} · gateway ${facts?.gateway ?? "-"}`);
   renderTickets(await window.matic.ticketsFiled());
-  applyHubStatus(await window.matic.hubStatus());
+  const hub = await window.matic.hubStatus();
+  applyHubStatus(hub);
 
   // The boot line opens the conversation, so it opens a turn - but the first-run panel stays until
   // the USER says something, which is what `openTurn` would retire. So it is spoken into its own
@@ -1584,6 +1624,8 @@ const ttsSettled = new Promise((resolve) => {
   currentTurn = el("div", "transcript-turn");
   transcriptEl.append(currentTurn);
   setState("greeting");
-  await say(persona.boot[0], "idle");
+  const opener = bootGreeting(facts, hub);
+  if (opener) await say(opener, "idle");
+  else setState("idle");
   inputEl.focus();
 })();

@@ -35,6 +35,16 @@ console.log("=== 1. shape: a name, vocatives, a boot line, and lines for every s
 check("has a name and a team", typeof persona.name === "string" && persona.name.length > 0 && typeof persona.team === "string");
 check("vocatives include the bare name, lowercase", persona.vocatives.includes(persona.name.toLowerCase()));
 check("at least one boot line", Array.isArray(persona.boot) && persona.boot.length >= 1);
+// D262. The boot line rotates ACROSS LAUNCHES now, so one line is a rotation that never rotates.
+check("at least two boot lines, or the rotation is decoration", persona.boot.length >= 2, `got ${persona.boot.length}`);
+check("bootState.offline has at least two lines (D262)", Array.isArray(persona.bootState?.offline) && persona.bootState.offline.length >= 2, `got ${persona.bootState?.offline?.length}`);
+// THERE IS EXACTLY ONE DEGRADED SET, and the absence of the others is a decision rather than an
+// omission. `standalone` and `hubUnreachable` sets were written, built and deleted after the
+// Electron run put the rail, the standing band and the avatar on one screen all saying one fact
+// (D245). Anyone re-adding one should read greeting.js's header first, so this fails if they do.
+check("bootState has no hub-state sets: the band and the rail already say it (D245)",
+  Object.keys(persona.bootState).filter((k) => k !== "$comment").join(",") === "offline",
+  Object.keys(persona.bootState).join(","));
 for (const k of SOCIAL_SUBKINDS) {
   if (k === "capability") continue;
   check(`social.${k} has at least two lines (so rotation means something)`, Array.isArray(persona.social[k]) && persona.social[k].length >= 2, `got ${persona.social[k]?.length}`);
@@ -74,6 +84,9 @@ for (const w of ["dns", "dhcp", "spooler"]) capWords.add(w);
 check(`catalog yields distinctive words to check (${[...capWords].join(", ")})`, capWords.size >= 3);
 const socialLines = [
   ...persona.boot,
+  // D262: the degraded-state boot lines are spoken by the avatar like every other line here, so
+  // they are subject to both rules. `$comment` is documentation and is not one of them.
+  ...Object.entries(persona.bootState).filter(([k]) => k !== "$comment").flatMap(([, v]) => v),
   ...Object.values(persona.social).flat(),
   persona.capability.consent, persona.capability.boundary, persona.capability.noCatalog,
   ...Object.values(persona.fallback),

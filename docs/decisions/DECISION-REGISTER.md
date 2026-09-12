@@ -2888,6 +2888,104 @@ regexes match none of them.
 
 ---
 
+### 5.45 D262 — the boot greeting rotates across LAUNCHES, and the only degraded set that survived is the one the band cannot say (2026-09-11)
+
+Charles: *"Let's remove the old system and replace with new one. The old system wasn't working
+anyway, only one greeting ever played. What we do need is a greeting for special cases like if the
+user is not connected to internet or if hub is not connected — so we can either kick off
+troubleshooting to get connected, or report limited functionality."*
+
+| ID | Decision | Status | Links |
+|---|---|---|---|
+| **D262** | **The boot line is chosen by `src/router/greeting.js` from a set the machine's state selects, and its cursor is PERSISTED ACROSS LAUNCHES.** A per-process cursor is not a rotation for a line that fires once per process. **There are exactly two sets — `offline` and neutral — and the hub state chooses neither**, because the rail and the standing band already state the hub's availability permanently and D245 gives that fact one wording on one surface. | **DONE 2026-09-11.** **1808 client assertions across 22 files**, up from 1739/21. Verified in the real Electron window over the DevTools Protocol, not only headlessly. | D234 (persona lines are data), D245 (said once), D198 (offer, never propose), D49/D51 (the hub states), D259–D261 (§5.44). |
+
+**5.45a — "only one greeting ever played" was TWO bugs, and the second is why the obvious fix would
+have been a lie.** `renderer.js:1587` spoke `persona.boot[0]` — a hardcoded index, so `persona.boot[1]` had
+never once been spoken in the life of the product. **And the rotation helper next door would not
+have fixed it:** `social.js`'s cursor is a module-level `Map`, described in its own comment as
+*"per-process, so the rotation survives across turns"* — correct for the mid-session hello it was
+written for, and exactly wrong for a line that fires **once** per process. Swapping in
+`pickVariant("boot", …)` returns `boot[0]` on every launch forever **and passes its test.** So the
+cursor is persisted (localStorage, beside the theme) and the test does not check that the picker
+rotates — it checks that **three successive launches, each starting from what the last one
+persisted, say three different things.** That is the shape of the bug. `social.js` is untouched: its
+in-process cursor is right for the path that actually uses it.
+
+**5.45b — THE CLICK-THROUGH DELETED TWO THIRDS OF THIS FEATURE, AND THE SCREENSHOT IS THE WHOLE
+ARGUMENT.** Four sets were written from the handover's copy — `offline`, `standalone`,
+`hubUnreachable`, neutral — built, and green on 63 headless assertions. Then it was run in Electron
+with no hub configured, and one screen carried the fact **three times**:
+
+| Surface | Words |
+|---|---|
+| the rail | "Working on this machine only — No company guidance or service desk is set up here. That's normal for this machine." |
+| the standing band | "ON THIS MACHINE — There's no company guidance or service desk connected here, so I'll stick to what I can check and fix on this machine itself." |
+| **the avatar** | **"Hi, I'm Matic. There's no service desk connected to this machine, so it's just me and what I can see here…"** |
+
+`index.html`'s own comment over that band says the rule before D245 is even cited: *"what the
+assistant cannot do right now, **said once**, without apology"*, and *"two surfaces describing one
+state differently is a shipped defect."* The `hubUnreachable` copy was worse — a near-verbatim
+rewording of the band's own sentence, down to "I'll keep trying" against the band's "I'll tell you
+as soon as that changes."
+
+**The resolution is D245's own division of labour: the band says what is AVAILABLE; the greeting
+says what to DO NEXT.** Take the availability half out of a `standalone` greeting and what is left
+*is* the neutral boot set — so those states use it. `bootSetFor` returns `neutral` for every hub
+state **deliberately rather than by omission**, `hubState` stays in the signature with the reason
+written at it, and a test asserts `bootState` has no key but `offline` so that re-adding one fails
+loudly rather than quietly re-creating this.
+
+**5.45c — why `offline` survives, and what it had to give up.** It does the one thing no band does:
+**it OFFERS to act.** Three of the four capabilities are network faults, so this is the product's
+best moment. Two changes fell out of 5.45b: the lines no longer name the company's guidance or the
+service desk (the band's words), and name **the network route** instead, which no other surface
+states in a sentence. **It offers, it never proposes** — an unprompted consent card at boot is the
+D198 defect verbatim. The user's answer goes down the ordinary turn path, which reaches
+`diagnoseOffline()` when no capability applies and the normal proposal flow when one does; no new
+troubleshooting text was written, because `offline-guide.js` already learned those lessons.
+
+**5.45d — the copy that shipped, and the three lines deliberately held back.** `boot` carries the
+escalation line first (*"What I can handle, I'll handle. What I can't, I'll get to someone who
+can."*) — worth 4.4 seconds at first contact and noise on the fifth hello of the day. **Three of the
+six written greetings are NOT shipped**, and they are recorded in the persona file's
+`$bootComment` so they are one edit away: they offer to take a **request**, and request intake is
+not built. Never advertise a capability that does not exist — the rule the ad work established. A
+test fails on the word "request" in any shipped greeting, so they cannot arrive by accident.
+`social.greeting` (the MID-SESSION hello) lost its machine-narrow scope under D261 and lost its
+self-introduction: the user is already in a conversation, and introducing itself is the boot line's
+job. A test pins both halves.
+
+**5.45e — measured, and it caught a harness bug wearing the product bug's exact shape (§10.5's
+class, again).** Driven the D254 way: `electron . --remote-debugging-port=9223`, `Runtime.evaluate`
+for the transcript and the app's own `[greeting]` log line, `Page.captureScreenshot` for the
+screen. **The second launch spoke the same line as the first** — which is precisely the bug being
+fixed, and it was not the bug. **A hard kill loses the localStorage write**, because Chromium
+flushes it asynchronously; proved by a separate four-run probe that wrote a marker and read it back
+across graceful closes and kills. With the harness closing the window properly:
+
+| Launch | State read | Spoken | Cursor persisted |
+|---|---|---|---|
+| 1 | `online=yes hub=standalone` | neutral[0] | `{neutral:1}` |
+| 2 | same | neutral[1] | `{neutral:2}` |
+| 3 | same | neutral[2] | `{neutral:0}` |
+| 4 | same | neutral[0] — wrapped | `{neutral:1}` |
+
+**Trap 1 was observed rather than reasoned about.** Against a hub URL with nothing behind it, the
+greeting went out with `hub=checking` and its probe already failed once — D51's hysteresis needs
+three — so a state-aware greeting read that early would have announced an outage the app had not
+established. It claimed nothing, which is the whole of the rule. **And each set's cursor was shown
+to advance independently:** two standalone-state launches left `{standalone:0, neutral:…}` with the
+neutral cursor untouched.
+
+**5.45f — the limitation, stated rather than discovered later.** The cursor lives in localStorage,
+so **an unclean exit loses that launch's advance** and the next launch repeats a greeting. Measured,
+not assumed. It is kept there anyway: the theme already lives there, the failure mode is hearing one
+sentence twice, and moving it to disk would mean a main-process store and an IPC channel for a
+rotation cursor. If the greeting audio ever ships, revisit — an audible repeat is more noticeable
+than a read one.
+
+---
+
 ## 6. Conflicts
 
 ### 6.1 Conflicts C1–C8 (consolidated register, IDs +7)
@@ -3216,7 +3314,7 @@ and the script now says so, because a reader would otherwise take it for a permi
 
 ## 11. How to add to this register
 
-1. Take the next free ID (**D262 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
+1. Take the next free ID (**D263 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
 2. One row: decision, status (*done* / *decided* / *proposed* / *rejected*), source and forcing reason. A decision without a forcing reason is an opinion.
 3. If it amends an earlier decision, say so in both rows.
 4. If it depends on an unverified claim, tag `[VERIFY]` inline and add it to §10.2.
