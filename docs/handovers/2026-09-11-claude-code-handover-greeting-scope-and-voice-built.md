@@ -4,9 +4,10 @@
 session's brief, its addendum, and its §15 task).
 **Repo:** `C:\Users\Charles\Downloads\maticdesk_bot`, branch `main`, commits `a2ee9b1`, `962300f`,
 `1173ddd`, and the audio commit the addendum describes.
-**Register:** §5.44 (D259–D261), §5.45 (D262), §5.46 (D263 — the addendum), OPEN-10, one new
-`[VERIFY]` in §10.2.
-**Tests:** 1855 client assertions across 23 files, up from 1739/21. Green.
+**Register:** §5.44 (D259–D261), §5.45 (D262), §5.46 (D263 — addendum 1), §5.47 (D264 — addendum 2),
+OPEN-10, one new `[VERIFY]` in §10.2 and **one resolved**.
+**Tests:** 1890 client assertions across 24 files, up from 1739/21. Green, plus
+`npm.cmd run verify:voice`.
 
 ---
 
@@ -309,3 +310,84 @@ nothing else changes. That toggle is the experiment.
 - **Either way the `offline` greeting has no recording**, and under any cloud-TTS answer it would
   need one pre-rendered locally — the machine that most needs greeting is the one a
   network-dependent voice can never reach.
+
+---
+
+# ADDENDUM 2 — the runtime voice: Amy, tuned (D264)
+
+Charles: *"What can we do to match the TTS voice to Hazel? [close as possible]"* — then, having
+listened, *"the accent is pretty strong… I like 07 Amy the best"* — then *"Use the new Amy version
+for TTS everywhere else. I want the team to hear and make a decision… keep the toggle variable so
+it will be easy to turn off."*
+
+## 10. The answer, in one table
+
+Hazel measured to four numbers so "closest" could be a measurement: **f0 206 Hz, span 136 Hz, rate
+4.59 w/s, centroid 1224 Hz.**
+
+| Property | Lever | Result |
+|---|---|---|
+| Pitch | none needed | Amy is already 208 |
+| Pace | `length_scale` | 0.65 → 3.03 to 4.16 w/s |
+| Brightness | high-shelf | −2.3 dB @ 2.5 kHz → 1377 to 1273 |
+| **Expressiveness** | **none exists** | **span 52 vs 136** |
+
+The span is what "robotic" means, and no Piper knob touches it — a 6-point grid over
+`noise_scale` × `noise_w_scale` moved it 52 → 57. **The brief's `[VERIFY]` on this is now resolved
+against current docs** (§10.2): `SynthesisConfig` is `volume`, `length_scale`, `noise_scale`,
+`noise_w_scale`, `normalize_audio`, `speaker_id`. No pitch, no cloning, no reference audio.
+
+## 11. The search lost to the ear, and that is the finding
+
+All 1,014 speakers in `en_US-libritts-high` (904) and `en_GB-vctk-medium` (109) were synthesised and
+ranked. Winner `libritts#532` scored **0.035**; amy-medium scored **0.306** and ranked **445th**.
+
+**Charles listened and chose Amy**, because *"the accent is pretty strong."* **The metric had no
+accent dimension, and accent decided it.** The search still earned its place — it establishes that
+no available Piper voice is both accent-neutral and expressive — but a 1,014-way ranking was beaten
+by one person and eight files.
+
+It also avoided two measured costs: LibriTTS is **136 MB vs 63 MB** and **515 ms vs 218 ms** median
+synthesis.
+
+## 12. What shipped
+
+`length_scale` at synthesis; the shelf as one biquad over the frames in `piper_worker.py`.
+**Not ffmpeg** — spawning a process per utterance to move a centroid by 100 Hz puts a process in the
+speech path. `scipy.signal.lfilter` when present, an 88 ms pure-Python loop when not; a missing
+optional dependency must not silence the voice.
+
+**Q is 0.7 and that is calibrated, not defaulted:** the cookbook Q of 0.5 gives centroid 1281 where
+ffmpeg's own `treble` gives 1273; 0.7 gives 1273. The samples Charles approved were ffmpeg-rendered,
+so ffmpeg is the target.
+
+**The risk that could have shipped silently:** `length_scale` compresses the waveform, and a viseme
+timeline that did not compress with it would run the mouth ahead of the voice by a third of a second
+by the end of a sentence, with nothing looking broken. Measured before the code was written —
+**0.00% drift at both 1.0 and 0.65** — and `npm.cmd run verify:voice` re-checks it every run.
+
+## 13. Two off switches, and they are different things
+
+| Switch | Turns off | Where |
+|---|---|---|
+| `voiceTuning.enabled` / `MATIC_VOICE_TUNING=off` | **HOW** Piper speaks → plain Amy | `client/config.json` |
+| `enabled` | **WHETHER** the boot line is Piper at all → the Hazel recording | `client/assets/greetings/greetings.manifest.json` |
+
+A test pins that they stay independent. Both driven in the real window. In one session the boot line
+played Hazel and the typed turn was answered by tuned Amy — **that is the seam, now deliberate and
+audible, and it is what the team is being asked to judge.**
+
+## 14. Honesty ledger for this addendum
+
+- **Nobody in this session has heard any of it.** Every judgement above is a measurement or
+  Charles's own listening.
+- **Two defects were found in the verification tooling and none in the product**, and one of them
+  reported working code as broken: a JS centroid measurement that decimated its sample loop read
+  5,544 Hz where the truth is ~1,370, and said the shelf was dead when independent measurement
+  showed 1,364 → 1,250 → 1,060. Earlier, two concurrent searches shared a temp WAV and the
+  contaminated ranking was discarded unread (49 speakers measured where the clean run got 110).
+- **The expressiveness gap is not closed and cannot be with Piper.** If flatness is what the team
+  reacts to, the honest options are the recorded path (D263) or a different engine — not another
+  setting.
+- ElevenLabs' terms for shipped product audio, and for training on its output, remain open and are
+  Charles's to answer.

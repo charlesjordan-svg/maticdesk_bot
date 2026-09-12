@@ -42,7 +42,14 @@ export class TtsService {
     // provider - so a machine with the model somewhere else does not edit a committed file.
     const modelPath = resolveVoiceModelPath(this.config, this.rootDir);
     this.onLog(`[piper] voice model: ${modelPath}${process.env.MATIC_VOICE_MODEL ? " (from MATIC_VOICE_MODEL)" : ""}`);
-    const args = [...(this.config.pythonArgs ?? []), workerScript, modelPath];
+    // D264. The tuning goes to the worker as one JSON argument rather than five flags: it is one
+    // decision, it is logged as one line, and adding a knob later does not change the arg list.
+    const tuning = resolveVoiceTuning(this.config);
+    this.tuning = tuning;
+    this.onLog(tuning.enabled
+      ? `[piper] voice tuning: length_scale ${tuning.lengthScale}, shelf ${tuning.shelfDb} dB at ${tuning.shelfHz} Hz Q ${tuning.shelfQ} (D264)`
+      : `[piper] voice tuning: OFF - plain Amy${process.env.MATIC_VOICE_TUNING ? " (MATIC_VOICE_TUNING=off)" : ""}`);
+    const args = [...(this.config.pythonArgs ?? []), workerScript, modelPath, "--tuning", JSON.stringify(tuning)];
     this.proc = spawn(this.config.pythonCommand ?? "py", args, { stdio: ["pipe", "pipe", "pipe"] });
 
     createInterface({ input: this.proc.stderr }).on("line", (l) => this.onLog(`[piper] ${l}`));
@@ -137,4 +144,44 @@ export class TtsService {
 export function resolveVoiceModelPath(config, rootDir) {
   const p = process.env.MATIC_VOICE_MODEL || config.voiceModelPath || "voices/en_US-amy-medium.onnx";
   return isAbsolute(p) ? p : resolve(rootDir, p);
+}
+
+/** Plain Amy: the voice exactly as the model was trained, with nothing done to it. */
+export const NO_TUNING = { enabled: false, lengthScale: 1.0, shelfDb: 0, shelfHz: 2500, shelfQ: 0.7 };
+
+/**
+ * HOW the voice is delivered - not WHICH voice, which is `resolveVoiceModelPath` above. D264.
+ *
+ * Pure, and exported, for the same reason `resolveVoiceModelPath` is: this decides what the worker
+ * is told, and a headless test can check the decision without a 63 MB model or a Python process.
+ *
+ * EVERY VALUE IS CLAMPED, because these reach a DSP filter and a synthesis engine. A `lengthScale`
+ * of 0 divides by nothing and a shelf of +40 dB is not a voice, and config.json is a file a person
+ * edits. Out of range is pulled to the edge rather than refused - a mistyped number should make the
+ * voice slightly wrong, not silent.
+ *
+ * `MATIC_VOICE_TUNING=off` turns it off for one run without editing a committed file, the same
+ * shape as `MATIC_VOICE_MODEL`. It exists so the A/B that chose these numbers can be repeated.
+ *
+ * @param {{voiceTuning?: {enabled?: boolean, lengthScale?: number, shelfDb?: number, shelfHz?: number, shelfQ?: number}}} config
+ */
+export function resolveVoiceTuning(config) {
+  if (String(process.env.MATIC_VOICE_TUNING ?? "").toLowerCase() === "off") return { ...NO_TUNING };
+  const t = config?.voiceTuning;
+  if (!t || t.enabled !== true) return { ...NO_TUNING };
+  const num = (v, fallback, lo, hi) => {
+    // `null` is what JSON gives for a value someone blanked out, and `Number(null)` is 0 - which
+    // would clamp `lengthScale: null` to 0.3 and make the voice gabble, instead of falling back to
+    // 1.0 like the absent key it actually means. Absent and blank are the same intent here.
+    if (v === null || v === undefined || v === "") return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
+  };
+  return {
+    enabled: true,
+    lengthScale: num(t.lengthScale, 1.0, 0.3, 2.5),
+    shelfDb: num(t.shelfDb, 0, -18, 18),
+    shelfHz: num(t.shelfHz, 2500, 200, 10000),
+    shelfQ: num(t.shelfQ, 0.7, 0.1, 4.0),
+  };
 }

@@ -28,7 +28,8 @@
     "avatar:compare": "node scripts/compare-phoneme-maps.mjs",
     "panel:build": "node scripts/build-panel-assets.mjs",
     "panel:check": "node scripts/build-panel-assets.mjs --check",
-    "verify:boot-type": "node scripts/verify-boot-type.mjs"
+    "verify:boot-type": "node scripts/verify-boot-type.mjs",
+    "verify:voice": "node scripts/verify-voice.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

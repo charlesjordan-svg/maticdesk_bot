@@ -17,6 +17,14 @@
   },
   "_localModelNote": "Any OpenAI-compatible endpoint - Ollama, LM Studio, vLLM, or the customer’s own. Setting enabled:true SWAPS the cloud provider for this one; it does not add a routing tier. MATIC_LOCAL_MODEL / MATIC_LOCAL_BASE_URL override, and setting MATIC_LOCAL_MODEL alone is enough to turn it on for one run.",
   "voiceEnabled": true,
+  "voiceTuning": {
+    "enabled": true,
+    "lengthScale": 0.65,
+    "shelfDb": -2.3,
+    "shelfHz": 2500,
+    "shelfQ": 0.7
+  },
+  "_voiceTuningNote": "D264. HOW en_US-amy-medium IS DELIVERED - not WHICH voice, which is voiceModelPath above. Chosen by Charles on 2026-09-11 from a blind-ish listen to eight candidates, and the settings are the ones he picked. lengthScale is Piper own knob (below 1 is faster; 0.65 takes Amy from 3.03 to 4.16 words per second of speech, against the ElevenLabs Hazel reference at 4.59). shelfDb/Hz/Q are a high-shelf biquad applied AFTER synthesis in scripts/piper_worker.py: -2.3 dB at 2500 Hz, Q 0.7, which lowers the measured spectral centroid from 1377 to 1273 Hz - Q 0.7 because that is what reproduces ffmpeg treble=g=-2.3:f=2500, the filter used to render the samples he actually listened to. SET enabled:false FOR PLAIN AMY (lengthScale 1.0, no filter); MATIC_VOICE_TUNING=off does the same for one run without editing this file. THE FILTER CANNOT DESYNC THE MOUTH: a biquad is sample-aligned, and length_scale was measured to scale Piper own alignments exactly (timeline sum equals audio duration at both 1.0 and 0.65), so the viseme timeline stays true. THIS IS NOT THE RECORDED-GREETING TOGGLE - that is enabled in client/assets/greetings/greetings.manifest.json and turns off the ElevenLabs boot line. Two different switches: this one changes how Piper speaks, that one changes whether Piper speaks the boot line at all.",
   "restartPolicy": {
     "recommendAtScore": 3,
     "uptimeLongDays": 30,

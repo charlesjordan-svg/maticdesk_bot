@@ -3066,6 +3066,109 @@ the one a network-dependent voice can never reach.
 
 ---
 
+### 5.47 D264 — the runtime voice stays Amy, tuned; and the metric that searched 1,014 voices lost to the ear (2026-09-11)
+
+Charles: *"What can we do to match the TTS voice to Hazel? [close as possible]"* Then, having
+listened: *"the accent is pretty strong. I listened to the mp3s. I like 07 Amy the best."* Then:
+*"Let's leave the Eleven Labs recorded greetings for now. Use the new Amy version for TTS
+everywhere else. I want the team to hear and make a decision. I think the Fall back will be TTS
+everywhere. So keep the toggle variable so it will be easy to turn off."*
+
+| ID | Decision | Status | Links |
+|---|---|---|---|
+| **D264** | **The runtime voice remains `en_US-amy-medium`, delivered with a tuning: `length_scale` 0.65 and a high-shelf of −2.3 dB at 2,500 Hz, Q 0.7.** Chosen by the founder from a listen, over 1,013 alternatives a measurement ranked above it. The tuning is config, with two independent off switches, because **the decision is the team's to confirm and the expected fallback is Piper everywhere.** | **DONE 2026-09-11.** **1890 client assertions across 24 files**, up from 1855/23, plus `npm.cmd run verify:voice`. Both switches driven in the real Electron window. | D263 (§5.46, the recorded greeting), D234, the greeting brief's §5. |
+
+**5.47a — Hazel reduced to four numbers, so "closest" could be measured instead of argued.** A
+voiceprint over the three recordings: **median F0 206 Hz**, **F0 span (p10–p90) 136 Hz**,
+**articulation rate 4.59 words per second of speech**, **spectral centroid 1,224 Hz**. Rate is
+articulation rather than words-per-second-of-file, because the latter rewards a voice for pausing
+less, which is a different property.
+
+Against that, the shipped voice: **f0 208 (already a match), span 52, rate 3.36, centroid 1,534.**
+So two of the four gaps were closable and one was not:
+
+| Property | Lever | Result |
+|---|---|---|
+| Pitch | none needed | already 208 vs 206 |
+| Pace | `length_scale` | 0.65 takes 3.03 → 4.16 w/s |
+| Brightness | high-shelf | −2.3 dB at 2.5 kHz takes 1,377 → 1,273 |
+| **Expressiveness** | **none** | **span 52 against Hazel's 136** |
+
+**The span is the one that cannot be tuned, and it is what "robotic" actually means.** A 6-point
+grid over `noise_scale` × `noise_w_scale` moved it from 52 to 57. Those knobs change texture, not
+intonation.
+
+**5.47b — the `[VERIFY]` on Piper's capabilities is RESOLVED, against current documentation.**
+§10.2 carried the brief's claim as unverified pre-May-2026 knowledge. Checked: `SynthesisConfig`
+exposes `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `normalize_audio` and `speaker_id`.
+**There is no pitch control, no voice cloning and no reference-audio conditioning.** The claim
+stands and is now sourced rather than remembered.
+
+**5.47c — 1,014 voices were searched, and the search lost.** Every speaker in
+`en_US-libritts-high` (904) and `en_GB-vctk-medium` (109) plus the single-speaker candidates was
+synthesised on the same line and ranked by distance to Hazel over the three properties Piper cannot
+change — **rate deliberately excluded from the distance, because ranking on the one flaw that is a
+one-line fix would be ranking on noise.** The winner, `libritts#532` (f0 212, span 139, centroid
+1,280), scored **0.035 against amy-medium's 0.306**. Amy ranked **445th of 1,014**.
+
+**Charles listened and picked Amy.** The reason is in his own words — *"the accent is pretty
+strong"* — and it is the finding: **the metric had no accent dimension at all, and accent dominated
+the judgement.** LibriTTS is American, VCTK is British, and a voiceprint of pitch, span and
+brightness cannot see either. The search was not wasted — it is what establishes that no available
+Piper voice is both neutral and expressive — but **a 1,014-way ranking was beaten by one person
+listening to eight files, and the register should say so plainly rather than keep the leaderboard.**
+
+Two costs the choice also avoids, worth recording since they were measured: `libritts-high` is
+**136 MB against Amy's 63 MB**, and **515 ms median synthesis against 218 ms** — 2.4× slower on
+every spoken line.
+
+**5.47d — what shipped, and why the filter is in the worker rather than in ffmpeg.** `length_scale`
+goes in at synthesis via `SynthesisConfig`; the shelf is a single biquad over the frames in
+`scripts/piper_worker.py`. **Spawning ffmpeg per utterance to move a centroid by 100 Hz would put a
+process in the speech path**, which is the one path in this app that must not acquire latency.
+`scipy.signal.lfilter` runs it in C when present and a pure-Python loop (88 ms on 4 s of audio) is
+the fallback — **a missing optional dependency must not silence the voice.**
+
+**Q IS 0.7 AND THAT IS A MEASUREMENT.** The Audio EQ Cookbook shelf at the obvious Q of 0.5 yields a
+centroid of 1,281 Hz where ffmpeg's own `treble=g=-2.3:f=2500` yields 1,273; Q 0.7 yields 1,273
+exactly. **The samples Charles approved were rendered with ffmpeg**, so the calibration target is
+what he heard, not what a formula defaults to.
+
+**5.47e — the risk this could have shipped with, measured rather than reasoned about.**
+`length_scale` compresses the waveform. **A viseme timeline that did not compress with it would
+leave the mouth running ahead of the voice by a third of a second by the end of every sentence** —
+nothing on screen would look broken, it would simply be wrong. Measured before the code was
+written: the alignment sum equals the audio duration to **0.00% drift at both 1.0 and 0.65**, and
+`verify:voice` re-checks it on every run. A biquad is sample-aligned, so the shelf cannot move it
+either.
+
+**5.47f — TWO OFF SWITCHES, AND THEY ARE DIFFERENT THINGS.** Charles asked for the toggle to be
+kept because he expects the fallback to be Piper everywhere.
+
+| Switch | Turns off | Where |
+|---|---|---|
+| `voiceTuning.enabled` (or `MATIC_VOICE_TUNING=off`) | **HOW** Piper speaks — back to plain Amy | `client/config.json` |
+| `enabled` | **WHETHER** the boot line is Piper at all — the ElevenLabs recording | `client/assets/greetings/greetings.manifest.json` |
+
+A test asserts they stay independent, because they will be confused. Both were driven in the real
+window: with tuning on, `[piper] voice tuning: length_scale 0.65, shelf -2.3 dB at 2500 Hz Q 0.7`
+and the worker echoing the same object; with `MATIC_VOICE_TUNING=off`, `OFF - plain Amy`. The boot
+line played Hazel and the typed turn was answered by tuned Amy in the same session — **which is the
+seam, now deliberate and audible, and the thing the team is being asked to judge.**
+
+**5.47g — two defects found in the verification tooling, neither in the product, and one of them
+failed working code.** §10.5's class twice more. **A JavaScript centroid measurement decimated the
+sample loop while computing phase at the full rate** — decimation without a low-pass — and reported
+a speech centroid of **5,544 Hz** where the true figure is about 1,370. It then **reported the shelf
+as broken when the shelf was working**, which independent measurement showed immediately
+(1,364 → 1,250 → 1,060 as the gain increased). **A verification tool that fails passing code is
+worse than no tool.** And earlier in the same session, **two searches ran concurrently and wrote the
+same temp WAV**, so frames could be measured from the wrong voice: the contaminated run measured 49
+speakers where the clean one measured 110, and its ranking was discarded unread. Temp files are
+PID-scoped now.
+
+---
+
 ## 6. Conflicts
 
 ### 6.1 Conflicts C1–C8 (consolidated register, IDs +7)
@@ -3241,6 +3344,7 @@ none of the three has an owner with a date.**
 - **NEW 2026-09-11 (D256, §5.39i): Event 27's boot types `0x1` and `0x2` are unverified, and the question behind them is the reason the restart signal exists.** **NARROWED the same day by `npm.cmd run verify:boot-type`, which reads the WHOLE retained history rather than the newest event: `0x0` = full boot is now corroborated by 81 observations on this machine** (2026-07-16 → 2026-09-09) instead of one. **And the log carries the control the test needs:** three of the last twelve Event 1074s are a genuine *shutdown* or *power off* rather than a restart — the only actions that could produce a hybrid boot, since a restart is a full boot whatever the setting — and every boot after them is still `0x0`, which is exactly what `HiberbootEnabled = 0` should mean. **`0x1` and `0x2` remain unobserved, and the gap is now precisely stated: the same action, on a machine with Fast Startup ON.** Until then nothing may assert a cold-boot distinction anywhere a user reads it; the collector returns the raw value with `interpreted: false`, it carries no weight in the score, and no surface renders it. Also still unverified, and it is the half that decides the design: **whether `LastBootUpTime` resets across a Fast Startup shutdown** — if it does not, uptime survives the cycle and Event 27 is a REPLACEMENT for the uptime reading rather than a supplement to it. **A SESSION CANNOT FINISH THIS AND THAT IS STRUCTURAL, NOT A LIMIT OF EFFORT:** a hybrid boot needs a power-off followed by a power-on, and nothing runs between the shutdown and the hand that presses the button. `client/scripts/verify-boot-type.mjs` does both halves a machine can do — it reads the state before and the verdict after — and prints the four-step procedure, so settling this is a two-minute job for anyone with such a machine rather than a note nobody acts on.
 - **NEW 2026-09-11 (D256, §5.39b): that `SystemTimeOfDayInformation.BootTime − BootTimeBias` equals `Win32_OperatingSystem.LastBootUpTime` is measured on ONE machine on one day.** It matched to the millisecond (1788996024500 both ways) and was cross-checked against `GetTickCount64()`, which resolved the raw value as the tick origin — but it is an identity in an undocumented structure and it is a hypothesis on any other machine. **Nothing depends on it being exact:** the difference was 7.6 seconds, against thresholds of 14 and 30 days and a row reading "2 days ago", so the failure mode is a row seconds out rather than a wrong recommendation. The raw kernel figure is kept alongside as `kernelBootTimeMs` so a future reader can re-derive it.
 - **NEW 2026-09-11 (D256, §5.39j): every threshold in the restart score is an unsourced policy proposal, and the spec says so of itself.** There is no verified source establishing 30 days — or any figure — as an evidence-based restart interval. What would settle them is named and not done: **scoring recommendations against whether the restart actually resolved the ticket.** They are configurable defaults (`client/config.json`'s `restartPolicy`) rather than constants for exactly this reason, and `_restartPolicyNote` carries the caveat where the numbers are.
+- ~~`[VERIFY]` Piper cannot adopt another engine's voice; its settings control delivery, not identity~~ — **RESOLVED 2026-09-11 (D264, §5.47b) against current documentation.** `SynthesisConfig` exposes `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `normalize_audio` and `speaker_id`: no pitch control, no cloning, no reference-audio conditioning. Corroborated by measurement — a 6-point grid over the two noise knobs moved the F0 span from 52 Hz to 57 Hz against a 136 Hz target. **Still open and still a question for Charles, not a session:** ElevenLabs' terms on using its output to train another TTS model, and its commercial terms for shipped product audio.
 - **NEW 2026-09-11 (D259/D261, §5.44c): `prompt.js:22` still tells the model it is "an IT support assistant", and that is now a narrower scope than D259.** It was left alone deliberately, not missed: `prompt.js`'s own header says one definition shared by every provider is what makes the §4 bake-off measure the model rather than the wording, so editing the first line of the system prompt moves the baseline. **The question for whoever runs the bake-off: change it now and re-baseline, or change it when the bake-off next runs.** The second-order risk if it is left indefinitely is that the model is biased to treat a non-machine question as out of scope rather than to call `escalate`, which is the route to the KB. Not observed; reasoning.
 - Every `[VERIFY]` inside the five Part A research reports' own "Unverified / could not find" lists (`sources/2026-09-02-fable-design-review.md`).
 
@@ -3394,7 +3498,7 @@ and the script now says so, because a reader would otherwise take it for a permi
 
 ## 11. How to add to this register
 
-1. Take the next free ID (**D264 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45; D263 is taken, §5.46). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
+1. Take the next free ID (**D265 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45; D263 is taken, §5.46; D264 is taken, §5.47). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
 2. One row: decision, status (*done* / *decided* / *proposed* / *rejected*), source and forcing reason. A decision without a forcing reason is an opinion.
 3. If it amends an earlier decision, say so in both rows.
 4. If it depends on an unverified claim, tag `[VERIFY]` inline and add it to §10.2.
