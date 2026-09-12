@@ -124,6 +124,40 @@ check("bin/tickets.mjs imports from src/tickets/query.js and holds no SQL", /fro
 check("the console's ticket page imports the same module", /from "\.\.\/\.\.\/tickets\/query\.js"/.test(read("src/admin/pages/tickets.js")));
 check("the console's ticket page says nobody has been emailed (D213's sixth surface)", /[Nn]obody has been emailed/.test(read("src/admin/pages/tickets.js")));
 
+console.log("\n=== 5c. every field the ticket query layer returns has a reader (D269) ===");
+{
+  // THE DEFECT THIS EXISTS TO CATCH, found 2026-09-12: tenant/004 added a close-note column,
+  // query.js SELECTed it and returned it, and two comments said the detail page and the CLI read
+  // it. Neither did — and neither did anything write it. A column can sit behind a working SELECT
+  // for a week with nothing rendering it, and §5's "one query layer" rule cannot notice, because
+  // the query layer was doing its half. The test that notices walks the SHAPE the query layer
+  // returns and asks, field by field, who reads it.
+  //
+  // THE RESERVED LIST IS THE FEATURE. A field with no reader is either a defect or a decision, and
+  // the difference is an entry here carrying a reason and a decision number — the same move D224
+  // made for SQL. "Deliberately unused" stops being a claim in a comment and becomes a line the
+  // suite reads. The live half (every COLUMN of the table has a writer or a reader, from
+  // information_schema) is admin-db.test.mjs §5.
+  const q = read("src/tickets/query.js");
+  const keysIn = (from, to) => {
+    const s = q.indexOf(from); const e = q.indexOf(to, s);
+    return s < 0 || e < 0 ? [] : [...q.slice(s, e).matchAll(/^\s+([a-zA-Z]+):/gm)].map((m) => m[1]);
+  };
+  const fields = new Set([...keysIn("const shapeRow = (r) => ({", "});"), ...keysIn("export async function getTicket", "\n}\n")]);
+  check("the field extraction found the shape (a broken extraction must fail, not pass vacuously)", fields.size >= 14, [...fields].join(","));
+  const pageJs = jsCode(read("src/admin/pages/tickets.js")), cliJs = jsCode(read("bin/tickets.mjs"));
+  /** Fields getTicket() returns that deliberately reach no screen. One line, one reason, one decision. */
+  const RESERVED_FIELDS = {
+    id: "the uuid is the join key; both readers show `reference`, the human-facing key (003-tickets.sql, D213)",
+  };
+  const readBy = (f) => [pageJs, cliJs].filter((src) => new RegExp(`\\bt\\.${f}\\b`).test(src)).length;
+  const unread = [...fields].filter((f) => !(f in RESERVED_FIELDS) && readBy(f) === 0);
+  check("every field getTicket() returns is rendered by the console's detail page or printed by the CLI's show, or is declared reserved here with a reason",
+    unread.length === 0, `no reader: ${unread.join(", ")}`);
+  const stale = Object.keys(RESERVED_FIELDS).filter((f) => !fields.has(f) || readBy(f) > 0);
+  check("the reserved list names only fields that exist and that nothing reads (an entry that gained a reader comes off the list)", stale.length === 0, stale.join(","));
+}
+
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");
 {
   const deviceWriters = ["src/devices/enrollment.js"];

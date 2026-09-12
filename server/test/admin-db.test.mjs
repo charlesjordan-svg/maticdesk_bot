@@ -47,6 +47,7 @@
  * so it can never introduce the second model whose absence it is also asserting.
  */
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHubServer } from "../src/index.js";
@@ -399,6 +400,49 @@ try {
     check("audited as ticket.state with actor, subject and {from, to} — and no ticket text", Boolean(row) && row.email === made.owner.email && row.subject === ref && row.detail.from === "new" && row.detail.to === "open" && !/cracked/.test(JSON.stringify(row)));
     const cliShow = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: { ...process.env, MATIC_TICKET_TENANT: schema } });
     check("the CLI sees the change through the same query layer", cliShow.status === 0 && new RegExp(`${ref}\\s+open`).test(cliShow.stdout));
+  }
+
+  console.log("\n=== 5c. no orphan columns: every column of the ticket store has code that names it, or a reserved-list entry (D269) ===");
+  {
+    // The columns come from information_schema on THIS tenant's schema — what the migrations
+    // actually produced, not what a file says they produce. The code is the two files D224 lets
+    // touch the store, with comments stripped, so a paragraph explaining why a column is unused
+    // cannot count as using it. The static half — every FIELD the query layer returns has a
+    // reader — is admin-static.test.mjs §5c; it is the one that fails on 2026-09-12's defect.
+    const stripJs = (js) => js.replace(/\/\*[\s\S]*?\*\//g, " ").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+    const storeCode = ["src/tickets/query.js", "src/tickets/file.js"].map((p) => stripJs(readFileSync(join(SERVER, p), "utf8"))).join("\n");
+    /**
+     * Columns that deliberately have no writer and no reader yet. One line, one reason, one decision.
+     * An entry that gains code naming it FAILS below, so the list can only shrink by being edited —
+     * "keep only if genuinely unread" is enforced, not hoped for.
+     *
+     * KNOWN LIMIT: the check is textual and per file, not per table. A column whose name is also a
+     * field of something else in those two files counts as named — `users.status` is one (file.js
+     * filters TENANTS by `status`), `users.created_at` another (the ticket INSERT returns its own).
+     * Neither is on this list for that reason, and this comment is where that is admitted rather
+     * than a list entry pretending the check saw them.
+     */
+    const RESERVED_COLUMNS = {
+      tickets: {},
+      users: {
+        logon_sid: "D148 — the broker-attested identity; the pipe that would carry it is designed and not built (D200/D201)",
+        external_id: "D55/D145 — written by a directory sync (SCIM) that does not exist",
+        upn: "D55/D145 — the same directory sync",
+      },
+    };
+    for (const table of Object.keys(RESERVED_COLUMNS)) {
+      const cols = (await getPool().query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+        [schema, table],
+      )).rows.map((r) => r.column_name);
+      check(`${table}: information_schema lists its columns (${cols.length})`, cols.length >= 6, cols.join(","));
+      const named = (c) => new RegExp(`\\b${c}\\b`).test(storeCode);
+      const orphans = cols.filter((c) => !(c in RESERVED_COLUMNS[table]) && !named(c));
+      check(`${table}: every column is named by src/tickets/query.js or src/tickets/file.js, or is on the reserved list with a reason`,
+        orphans.length === 0, `orphans: ${orphans.join(", ")}`);
+      const stale = Object.keys(RESERVED_COLUMNS[table]).filter((c) => !cols.includes(c) || named(c));
+      check(`${table}: the reserved list names only columns that exist and that no store code names`, stale.length === 0, `stale: ${stale.join(", ")}`);
+    }
   }
 
   console.log("\n=== KB-1. a pasted bundle lands, and the page's counts equal bin/kb.mjs status ===");
