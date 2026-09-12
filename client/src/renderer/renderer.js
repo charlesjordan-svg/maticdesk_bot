@@ -39,6 +39,9 @@ import { serviceWords } from "../agent/machine-band.js";
 // renderer.js touches `document` at module scope, so nothing in it can be reached by a headless
 // test, and the state-precedence rule is exactly the part that needs one.
 import { pickBootGreeting } from "../router/greeting.js";
+// D263. Which sentences have a pre-recorded line, matched on the EXACT display text so the voice
+// and the transcript can never disagree. Pure, for the same reason `spoken-form.js` is.
+import { recordedFor, greetingsManifest } from "./recorded-speech.js";
 
 const root = document.documentElement;
 const avatar = document.getElementById("avatar");
@@ -449,6 +452,52 @@ function learnAddressesFrom(detail) {
  * silence-with-no-signal. Returns the element it wrote, so a caller can hang an offer off the
  * message that made it.
  */
+/**
+ * Play a pre-recorded line. D263.
+ *
+ * Returns false if anything at all goes wrong, and the caller then falls through to Piper — a
+ * missing or unplayable file must cost the user a different voice, never a silent avatar.
+ *
+ * NO VISEME TIMELINE, AND THAT IS NOT A DEGRADED PATH. An MP3 carries no phoneme alignment, so
+ * `driver.speak()` is not called — which leaves `data-visemes` unset, and the avatar's own manifest
+ * says of the `talk` mouth: *"'talk' is the fallback when no viseme stream is bound."*
+ * `matic-avatar.css` animates it (`matic-talk 0.42s infinite`) and switches that animation off only
+ * under `.mav[data-visemes]`, so what plays here is Claude Design's designed fallback rather than a
+ * still mouth. `say()` already takes this exact path whenever Piper fails to load. Real lip-sync
+ * would be better and needs forced alignment offline; it is not a prerequisite for shipping this.
+ *
+ * @param {{file:string, src:string, seconds:number|null}} rec
+ * @param {string} endState
+ * @returns {Promise<boolean>} whether the recording actually played
+ */
+async function playRecorded(rec, endState) {
+  setState("speaking");
+  audioEl.src = rec.src;
+  try {
+    await audioEl.play();
+  } catch (err) {
+    // The usual cause is a missing or unreadable file: `play()` rejects rather than throwing on
+    // load. Say so once, and let the caller use the voice that is definitely there.
+    devlog(`[tts] recorded line did not play (${rec.file}): ${err.message} - falling back to Piper`);
+    return false;
+  }
+  const startedAt = performance.now();
+  // An error DURING playback is not a reason to say the sentence twice — the audio started, the
+  // user heard some of it, and repeating it in a different voice is worse than stopping. But the
+  // two outcomes are NOT the same fact and the log must not merge them: a line that says "played"
+  // over a stream that died is the D253 defect one layer down, in the one place a developer would
+  // go to find out why a greeting sounded wrong.
+  const outcome = await new Promise((res) => {
+    audioEl.onended = () => res("played");
+    audioEl.onerror = () => res("STOPPED EARLY");
+  });
+  const ms = Math.round(performance.now() - startedAt);
+  const expected = rec.seconds ? ` of ${Math.round(rec.seconds * 1000)} ms` : "";
+  devlog(`[tts] recorded ${outcome}: ${rec.file} - ${ms} ms${expected}, ${greetingsManifest.voice}, no viseme timeline`);
+  setState(endState);
+  return true;
+}
+
 async function say(text, endState = "idle") {
   const box = reply(text);
   // Shown above, said below. The mouth is driven by the timeline the SPOKEN text produced, so the
@@ -460,6 +509,19 @@ async function say(text, endState = "idle") {
   const said = plainProse(text);
   const heard = spokenForm(said, spokenEnv);
   if (heard !== said) devlog(`[tts] this machine's name, account or address is shown, not spoken (D249)`);
+
+  // D263. A PRE-RECORDED LINE, IF THERE IS ONE FOR THIS EXACT SENTENCE.
+  //
+  // `heard === said` is a GATE, not a formality. D249 rewrites what reaches the voice when the
+  // sentence carries this machine's name, the signed-in account or its own address — and a fixed
+  // audio file cannot be rewritten. If the two differ, this line is not eligible for a recording
+  // however well its text matches, and Piper reads the redacted form instead. No shipped greeting
+  // is affected today; the gate is what keeps that true when someone adds one.
+  if (heard === said) {
+    const rec = recordedFor(said);
+    if (rec && await playRecorded(rec, endState)) return box;
+  }
+
   if (!voiceReady) {
     // Cut-order item 3: text only, keep the mouth moving. The 'speaking' state's own
     // mouth animation runs without a phoneme timeline.

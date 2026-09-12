@@ -2,9 +2,11 @@
 
 **Answers** `docs/handovers/2026-09-11-claude-code-handover-greeting-scope-and-voice.md` (the Cowork
 session's brief, its addendum, and its §15 task).
-**Repo:** `C:\Users\Charles\Downloads\maticdesk_bot`, branch `main`, commits `a2ee9b1` and `962300f`.
-**Register:** §5.44 (D259–D261), §5.45 (D262), OPEN-10, one new `[VERIFY]` in §10.2.
-**Tests:** 1808 client assertions across 22 files, up from 1739/21. Green.
+**Repo:** `C:\Users\Charles\Downloads\maticdesk_bot`, branch `main`, commits `a2ee9b1`, `962300f`,
+`1173ddd`, and the audio commit the addendum describes.
+**Register:** §5.44 (D259–D261), §5.45 (D262), §5.46 (D263 — the addendum), OPEN-10, one new
+`[VERIFY]` in §10.2.
+**Tests:** 1855 client assertions across 23 files, up from 1739/21. Green.
 
 ---
 
@@ -14,14 +16,14 @@ The brief's ordered work list (§14), with what happened to each item.
 
 | # | Item | Outcome |
 |---|---|---|
-| 1 | **§5 — the voice decision** | **NOT DONE. It is Charles's, it is still open, and it blocks nothing else.** §6 below. |
+| 1 | **§5 — the voice decision** | **Settled as an EXPERIMENT rather than an answer (D263).** Charles: wire it and listen. §6–§7. |
 | 2 | Fix bugs 15 + 16 together | **Done.** D262. Both were real; the second is why the first could not be fixed alone. |
 | 3 | ~~`classify()` on a request sentence~~ | Withdrawn by the brief itself. **Re-checked at source anyway; the withdrawal is correct.** |
 | 4 | §11.1 — decide the two traps | **Done. Trap 1 as recommended; trap 2 went further than recommended and deleted two thirds of the feature.** §3. |
 | 5 | Persona edits, §15 first | **Done**, in that order, in two commits. |
 | 6 | Wire A/B/C selection | **Partly, and deliberately.** Only A (offline) ships. §3 is the argument and the evidence. |
 | 7 | `npm.cmd test` | **Done**, and the copy rules were re-derived rather than trusted. |
-| 8 | Audio per §4A | **Not started. Gated on item 1.** |
+| 8 | Audio per §4A | **Done, differently — and §4A's alignment tooling was NOT needed. See §7.** |
 
 ---
 
@@ -242,3 +244,68 @@ product audio (brief §8 item 6), the ad narrator vs the product voice (brief §
 *Produced by a Claude Code session on wakanda, 2026-09-11. Two commits, both pushed. The Electron
 runs are reproducible: the driver is a scratch script, and its method is the one register §5.37a
 records.*
+
+---
+
+# ADDENDUM — later the same day: the audio IS wired (D263)
+
+Charles tested the above and said: *"It has the new prompts (text) but not the new audio."* Correct
+and deliberate — §6 was open. Asked how he wanted §5 settled he chose **wire it and then listen**,
+which is the only option that produces evidence: **nobody had heard the seam.**
+
+## 7. What changed, and the finding that made it cheap
+
+**The brief's §4 blocker is not real for this build**, and that is the most useful thing in this
+addendum. §4 said an MP3 has no phoneme timeline so the avatar would speak with its mouth shut, and
+priced the path at a forced-alignment tool plus six timeline files. Read out of the delivery's own
+files instead of assumed:
+
+- `matic-avatar.manifest.json`, on `speaking`: *"'talk' is the fallback when no viseme stream is
+  bound."*
+- `matic-avatar.css`: `animation: matic-talk 0.42s ease-in-out infinite`, switched off **only**
+  under `.mav[data-visemes]`.
+
+So a recording plays against Claude Design's own designed fallback — the same path `say()` already
+took whenever Piper failed. **No alignment tooling, no timeline files.** Three assertions read those
+two claims out of the delivery's files so the reasoning cannot rot.
+
+**What shipped:** `client/assets/greetings/` (three normalised MP3s and a manifest),
+`client/src/renderer/recorded-speech.js` (pure), and a branch in `say()`.
+
+**Keyed by exact display text, never by index.** `persona.boot` is ordered for rotation and somebody
+will reorder it; an index-keyed manifest would then play one recording while the transcript showed
+another sentence. Exact match or nothing — a near-match is worse than Piper reading the current
+line. Unmatched lines fall through, which is why the offline set needs no entry.
+
+**D249 is a gate here, not a formality.** A fixed file cannot be redacted, so `say()` consults the
+manifest only when `heard === said`.
+
+**One defect of D253's family, found and fixed before shipping:** the first draft resolved `onended`
+and `onerror` to the same value and logged `recorded: <file>` either way, so a stream that died half
+way would have been logged as a clean play. The two are different words now, and the line carries
+elapsed ms against the file's known duration.
+
+## 8. Measured, both branches
+
+| Branch | Evidence |
+|---|---|
+| It plays | `[tts] recorded played: matic_greeting_04_escalation.mp3 - 4449 ms of 4370 ms` — matches ffprobe, so it decoded and ran to the end |
+| The mouth | `idle×15, speaking×22` sampled every 200 ms during playback; talk mouth visible with a live animation; viseme stream never bound |
+| A missing file | One MP3 renamed away: *"recorded line did not play … falling back to Piper"*, turn continued. **The fallback decision and its log line were observed; the Piper audio that follows was not separately watched.** |
+
+## 9. What is still open — and it is the listening, not the code
+
+**The seam is unchanged and nobody in this session has heard it.** Matic introduces itself as Hazel
+and continues as `en_US-amy-medium`. That is the whole of §5 and it cannot be settled by argument.
+
+**To hear the alternative:** set `"enabled": false` in
+`client/assets/greetings/greetings.manifest.json` and relaunch. Every line goes back to Piper and
+nothing else changes. That toggle is the experiment.
+
+- If the seam is fine → this stays, and §4A's alignment work becomes an optional polish item for
+  real lip-sync rather than a prerequisite.
+- If it is not → **option B**: delete the three MP3s, the manifest and `recorded-speech.js`,
+  pre-render the same three lines from Piper at build time, and nothing else in D262 changes.
+- **Either way the `offline` greeting has no recording**, and under any cloud-TTS answer it would
+  need one pre-rendered locally — the machine that most needs greeting is the one a
+  network-dependent voice can never reach.

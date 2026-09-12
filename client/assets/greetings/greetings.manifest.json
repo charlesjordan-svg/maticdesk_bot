@@ -1,0 +1,57 @@
+{
+  "$comment": [
+    "RECORDED GREETINGS (D263). The boot line, pre-recorded, so first contact is not a local TTS voice.",
+    "Rendered in ElevenLabs on the voice named below; normalised to -16 LUFS to match the ad VO master.",
+    "",
+    "KEYED BY THE LINE'S EXACT DISPLAY TEXT, AND NEVER BY INDEX. That is the whole safety property of",
+    "this file: persona.json's boot list is ORDERED for rotation (rule 4) and somebody will reorder it,",
+    "and an index-keyed manifest would then SAY one sentence while the transcript SHOWS another. An",
+    "unmatched line is not an error - it simply falls through to Piper, which is why the offline set",
+    "needs no entry here and why adding a greeting cannot break this file.",
+    "",
+    "`renderText` is what was SENT to ElevenLabs and must never be shown to a user: `Mattick` forces",
+    "MAT-ik (rhymes with attic), because eleven_v3 mispronounced the name inconsistently on short",
+    "lines. persona.json carries the real spelling; `text` below must match it character for character.",
+    "",
+    "NO VISEME TIMELINE IS NEEDED, and the brief that asked for one was wrong about this build. The",
+    "avatar's own manifest says \"'talk' is the fallback when no viseme stream is bound\", and",
+    "matic-avatar.css animates that mouth (`matic-talk 0.42s infinite`), switching it off only under",
+    "`.mav[data-visemes]`. So a recording plays against Claude Design's designed fallback - a generic",
+    "talking mouth, not a shut one - which is the same path `say()` already takes when Piper fails.",
+    "Real lip-sync would still be better, and it needs forced alignment; it is not a prerequisite.",
+    "",
+    "THE SEAM IS THE COST, AND IT IS THE OPEN QUESTION. Matic introduces itself in this voice and",
+    "continues in Piper's `en_US-amy-medium`. Set `enabled` to false to hear the alternative: every",
+    "line goes back to Piper and nothing else changes. That toggle IS the experiment - nobody had",
+    "heard the seam when the four options were written down.",
+    "",
+    "Only lines with no capability word and no outcome claim may be recorded, same as every persona",
+    "line; and a line D249 would redact may never be recorded, because a fixed file cannot be",
+    "rewritten before it is spoken. Both are asserted in test/recorded-speech.test.mjs."
+  ],
+  "enabled": true,
+  "voice": "ElevenLabs Hazel",
+  "voiceId": "YyqkX0AHv8W5D1vxG9lR",
+  "model": "eleven_turbo_v2_5",
+  "loudness": "-16 LUFS, two-pass loudnorm linear=true, TP ceiling -1.5 dBTP",
+  "lines": [
+    {
+      "text": "Hey, I'm Matic. What I can handle, I'll handle. What I can't, I'll get to someone who can.",
+      "renderText": "Hey, I'm Mattick. What I can handle, I'll handle. What I can't, I'll get to someone who can.",
+      "file": "matic_greeting_04_escalation.mp3",
+      "seconds": 4.37
+    },
+    {
+      "text": "Hi, I'm Matic. Tell me what you need in your own words.",
+      "renderText": "Hi, I'm Mattick. Tell me what you need in your own words.",
+      "file": "matic_greeting_03_own_words.mp3",
+      "seconds": 3.02
+    },
+    {
+      "text": "Hi, I'm Matic. Say what's going on, and I'll take it from there.",
+      "renderText": "Hi, I'm Mattick. Say what's going on, and I'll take it from there.",
+      "file": "matic_greeting_06_catch_all.mp3",
+      "seconds": 3.58
+    }
+  ]
+}

@@ -2986,6 +2986,86 @@ than a read one.
 
 ---
 
+### 5.46 D263 — the boot line is pre-recorded, and the brief's blocker for it was not real (2026-09-11)
+
+Charles tested D262 and said: *"It has the new prompts (text) but not the new audio."* Correct, and
+deliberate — the audio path was gated on §5, the voice seam. Asked how he wanted §5 settled, he
+chose **wire it and then listen**, which is the only option that produces evidence: **nobody had
+heard the seam when the four options were written down.**
+
+| ID | Decision | Status | Links |
+|---|---|---|---|
+| **D263** | **A persona line may ship with a PRE-RECORDED audio file, matched on its exact display text, with Piper as the fallback for everything else.** The three neutral boot lines are ElevenLabs Hazel; every other line the app speaks is Piper. **This is option C of the greeting brief's §5, taken REVERSIBLY and as an experiment rather than as an answer** — one value in the manifest turns it off and the app is back to Piper everywhere. | **DONE 2026-09-11.** **1855 client assertions across 23 files**, up from 1808/22. Played and measured in the real Electron window; the fallback branch was exercised by hiding a file. | D234 (persona lines are data), D249 (shown vs said), D253 (a surface may not claim an outcome it was not told), D262 (§5.45). |
+
+**5.46a — THE BRIEF'S BLOCKER IS NOT REAL FOR THIS BUILD, and that is what made the decision
+cheap.** The Cowork brief's §4 said an ElevenLabs MP3 carries no phoneme timeline, so *"played as
+is, the avatar speaks with its mouth shut"*, and priced the path at a forced-alignment tool plus a
+timeline file per greeting. **Read out of the delivery's own files rather than assumed:**
+
+- `matic-avatar.manifest.json`, on the `speaking` state: *"'talk' is the fallback when no viseme stream
+  is bound. With a stream, drive #mouth from phonemeToMouth instead and ignore this state's mouth
+  value."*
+- `matic-avatar.css` animates that mouth — `animation: matic-talk 0.42s ease-in-out infinite` —
+  and switches it off **only** under `.mav[data-visemes]`, the attribute the viseme driver sets.
+
+So a recording plays against **Claude Design's designed no-stream fallback**, which is the same path
+`say()` has always taken when Piper fails to load. **Confirmed on the running window**, not inferred:
+the avatar passed through `speaking` for the length of the file, the talk mouth was visible with a
+live animation name, and no viseme stream was ever bound. Real lip-sync is still better and still
+wants forced alignment; **it is not a prerequisite**, and three assertions read the two claims above
+out of the delivery's files so this reasoning cannot rot silently.
+
+**5.46b — keyed by exact display text, never by index, and that is the whole safety property.**
+`persona.boot` is ORDERED because it is rotated in order (persona rule 4), so somebody will reorder
+it — and an index-keyed manifest would then play one recording while the transcript showed a
+different sentence. **The avatar saying something other than what is on screen** is the one failure
+this design exists to make impossible. The match is exact: no case folding, no punctuation
+normalisation, no fuzzy fallback. **A near-match is not a match** — a recording of an older draft is
+worse than Piper reading the current line, because the two would differ by a few words and nothing
+would report it. An unmatched line simply falls through to Piper, which is why the `offline` set
+needs no entry and why adding a greeting cannot break the file. A test asserts every recorded line
+is a shipped persona line character for character, and that no entry carries an `index`, `position`
+or `id` field at all.
+
+**5.46c — D249 is a GATE on this path, not a formality.** D249 rewrites what reaches the voice when
+a sentence carries this machine's name, the signed-in account or its own address. **A fixed audio
+file cannot be rewritten.** So `say()` only consults the manifest when `heard === said` — if the
+redaction changed anything, the line is ineligible for a recording however well its text matches,
+and Piper reads the redacted form. No shipped greeting is affected today; the gate is what keeps
+that true when someone adds one, and the test runs every recorded line through `spokenForm()` with
+an environment that names all three.
+
+**5.46d — a defect of D253's own family, found in the code written for this and fixed before it
+shipped.** The first draft resolved `onended` and `onerror` to the same value and then logged
+`recorded: <file>` — **so a stream that died half way through would have been logged as a clean
+play**, in the one place a developer looks to find out why a greeting sounded wrong. That is D253
+one layer down: a surface describing an outcome it has not been told. The two are now different
+words (`played` / `STOPPED EARLY`) and the line carries the **elapsed milliseconds against the
+file's known duration**, which is also what made the verification below conclusive. Falling back to
+Piper on a mid-playback error stays wrong and is unchanged — the user heard most of the sentence,
+and repeating it in a second voice is worse than stopping.
+
+**5.46e — measured in the real window, both branches.** Driven the D254 way, with the avatar sampled
+every 200 ms **throughout** rather than after.
+
+| Branch | Evidence |
+|---|---|
+| **It plays** | `[tts] recorded played: matic_greeting_04_escalation.mp3 - 4449 ms of 4370 ms`. Elapsed matches the file's ffprobe duration, so it decoded and ran to the end rather than failing to load. The transcript showed the line that file records. |
+| **The mouth** | `idle×15, speaking×22` over the playback; talk mouth visible with a live `animationName`; viseme stream never bound. |
+| **A missing file** | One MP3 renamed away: `[tts] recorded line did not play (…): Failed to load because no supported source was found. - falling back to Piper`, and the turn continued. **The fallback DECISION and its log line were observed; the Piper audio that follows was not separately watched** — it is the existing, tested path. |
+
+**5.46f — what this does NOT settle, and the experiment it exists to run.** **The seam is unchanged
+and unheard by anyone in this session:** Matic introduces itself as Hazel and continues as
+`en_US-amy-medium`. That is the whole content of §5 and it is a listening decision, not an argument
+— which is why `enabled: false` in the manifest is a complete off switch rather than a code path, so
+the comparison costs one value and a relaunch. **If the answer turns out to be B (Piper
+everywhere), the three MP3s and this manifest are deleted and `recorded-speech.js` goes with them;
+nothing else changes.** Also unchanged: the `offline` greeting has no recording and would need one
+pre-rendered locally under any cloud-TTS answer, because the machine that most needs greeting is
+the one a network-dependent voice can never reach.
+
+---
+
 ## 6. Conflicts
 
 ### 6.1 Conflicts C1–C8 (consolidated register, IDs +7)
@@ -3314,7 +3394,7 @@ and the script now says so, because a reader would otherwise take it for a permi
 
 ## 11. How to add to this register
 
-1. Take the next free ID (**D263 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
+1. Take the next free ID (**D264 onward**, as of 2026-09-11 — D232–D235 are taken, §5.27; **D236–D239 are taken by the hub-side retrieval-mode / live-health / sessions-and-outcomes work of the same day and are NOT YET SECTIONED in this file**, so read commits `b5d9cf7` and `24f8f3e` before assuming they are free; D240–D243 are taken, §5.28 (D242 ratified 2026-09-11, §5.43); D244–D245 are taken, §5.29; D246 is taken, §5.30; D247–D248 are taken, §5.31 (D248 built 2026-09-11, §5.42); D249 is taken, §5.32; D250 is taken, §5.33; D251 is taken, §5.34; D252 is taken, §5.35; D253 is taken, §5.36; D254 is taken, §5.37; D255 is taken, §5.38; D256 is taken, §5.39; D257 is taken, §5.40; D258 is taken, §5.41; D259–D261 are taken, §5.44; D262 is taken, §5.45; D263 is taken, §5.46). Never reuse, never renumber. IDs D130–D168 that appear in the two parallel documents named in §0 are void — §5.6 and §5.11a map them onto this file. **Two IDs are cited in this file but were never defined (`D46b`, `D52a`); §5.11b says what to cite instead. Do not back-fill them.**
 2. One row: decision, status (*done* / *decided* / *proposed* / *rejected*), source and forcing reason. A decision without a forcing reason is an opinion.
 3. If it amends an earlier decision, say so in both rows.
 4. If it depends on an unverified claim, tag `[VERIFY]` inline and add it to §10.2.
