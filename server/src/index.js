@@ -58,6 +58,10 @@
  *   MATIC_KB_QUESTION_RETENTION_DAYS how long a logged question's text is kept before it is cleared
  *                       (D229). Default and MAXIMUM 90; lower is allowed, higher is held at 90;
  *                       0 logs no text at all. The sweep runs inside every log write.
+ *   MATIC_JOBS_POLL_MS  how often this process polls control.job_queue (D270, src/jobs/runner.js).
+ *                       Default 5000; floor 250; 0 runs no jobs at all (they stay queued). The
+ *                       runner starts inside the listen callback and never decides whether the hub
+ *                       starts: with PostgreSQL down it logs once and keeps polling.
  */
 import http from "node:http";
 import { pathToFileURL } from "node:url";
@@ -73,6 +77,8 @@ import { enrollHandler } from "./devices/route.js";
 import { questionLoggingEnabled, questionRetentionDays, QUESTION_RETENTION_MAX_DAYS } from "./kb/retrieve.js";
 import { adminHandler } from "./admin/router.js";
 import { bypassStartupBanner, bypassStatus } from "./admin/dev-bypass.js";
+import { createJobRunner, pollIntervalFromEnv } from "./jobs/runner.js";
+import { JOB_HANDLERS } from "./jobs/handlers.js";
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
@@ -448,5 +454,25 @@ if (isMain) {
       "NO CROSS-ENCODER RERANKER EXISTS (B7a spec §7). Retrieval quality numbers",
       "from this hub are a FLOOR, not a measurement of the design.",
     ])) console.log(l);
+
+    // D270: control.job_queue's runtime. Started HERE, after the socket is listening and the
+    // banners are out, and never awaited: a tick that cannot reach PostgreSQL logs once and keeps
+    // polling (src/jobs/runner.js), so the runner cannot delay "listening" or stop the hub starting
+    // — the same property /v1/health has, reporting corpus errors rather than refusing to boot.
+    // Nothing is registered yet (src/jobs/handlers.js says why). The runner claims only the types
+    // it has handlers for and LOGS how many due jobs of other types are waiting, so an empty
+    // registry is visible in this log, not silent in the table — and it cannot fail work that a
+    // hub with a fuller registry, or a test suite sharing this database, enqueued.
+    {
+      const pollMs = pollIntervalFromEnv();
+      if (pollMs === 0) {
+        console.log("[hub] jobs: NOT polling control.job_queue (MATIC_JOBS_POLL_MS=0); queued jobs stay queued until a hub with the runner on picks them up");
+      } else {
+        const runner = createJobRunner({ handlers: JOB_HANDLERS, pollMs, log: console.log });
+        runner.start();
+        const n = Object.keys(JOB_HANDLERS).length;
+        console.log(`[hub] jobs: polling control.job_queue every ${pollMs} ms as ${runner.workerId}; ${n} handler(s) registered${n === 0 ? " - this process claims NO jobs and only reports what is waiting" : ""}; a job of an unknown type is left queued and reported, not run. At-least-once: every handler must tolerate running twice`);
+      }
+    }
   });
 }

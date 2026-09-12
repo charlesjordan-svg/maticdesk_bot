@@ -27,6 +27,14 @@
  * Two workers polling the same queue must not take the same job. `SKIP LOCKED` makes the second
  * worker step over the row the first has locked instead of blocking on it, so concurrency costs
  * nothing and the same job is handed to exactly one worker. That is exit criterion 6.
+ *
+ * SINCE 2026-09-12 THERE IS A RUNTIME (D270). For eight days these were primitives nobody called:
+ * `runOne()` had one caller and it was a test. src/jobs/runner.js is the loop — an in-process
+ * poller src/index.js starts inside its listen callback — and this file grew the two pieces it
+ * needed: `cancelJobsFor()` (queued rows only; control/007 added the `cancelled` status) and
+ * `reapStuck()` (rows left `running` by a process that died go back to `queued`, or to `failed`
+ * past a retry cap). The runner's contract is AT-LEAST-ONCE and its header says why every handler
+ * must tolerate running twice; read it before writing one.
  */
 import { getPool, withControl } from "./pool.js";
 import { withTenant } from "./tenant.js";
@@ -65,10 +73,16 @@ export async function enqueue({ type, tenantSchema, refId = null, runAfter }) {
  * claiming leaves the row `running` with `locked_at` set, which a reaper can time out. A worker
  * that dies mid-transaction leaves it `queued`, and the next poll takes it.
  *
+ * `types` (D270): the job types this worker can run. Given, the claim takes only those and leaves
+ * every other row queued for a process that knows them — so a hub with no handler for a type
+ * never destroys that type's work by failing it, and a hub with an EMPTY registry claims nothing.
+ * Omitted, any type is claimed (the B1 tests, which supply their own handler).
+ *
  * @param {string} workerId  identifies the claimer in `locked_by`. Diagnostic, not a credential
+ * @param {{ types?: string[] | null }} [opts]
  * @returns {Promise<Job | null>}
  */
-export async function claim(workerId) {
+export async function claim(workerId, { types = null } = {}) {
   return withControl(async (client) => {
     const { rows } = await client.query(
       `UPDATE control.job_queue
@@ -80,12 +94,13 @@ export async function claim(workerId) {
         WHERE id = (
                 SELECT id FROM control.job_queue
                  WHERE status = 'queued' AND run_after <= now()
+                   ${types ? "AND type = ANY($2::text[])" : ""}
                  ORDER BY run_after, id
                  FOR UPDATE SKIP LOCKED
                  LIMIT 1
               )
         RETURNING id, type, tenant_schema, ref_id, attempts`,
-      [workerId],
+      types ? [workerId, types] : [workerId],
     );
     if (rows.length === 0) return null;
     const r = rows[0];
@@ -129,10 +144,11 @@ export async function fail(id, error) {
  *
  * @param {string} workerId
  * @param {(job: Job, client: import("pg").PoolClient) => Promise<void>} handler
- * @returns {Promise<Job | null>} the job that ran, or null if the queue was empty
+ * @param {{ types?: string[] | null }} [opts]  passed to claim(): the types this worker can run
+ * @returns {Promise<Job | null>} the job that ran, or null if nothing claimable was due
  */
-export async function runOne(workerId, handler) {
-  const job = await claim(workerId);
+export async function runOne(workerId, handler, opts = {}) {
+  const job = await claim(workerId, opts);
   if (!job) return null;
   try {
     // The assertion happens here, inside withTenant, on a schema name that came off the job row.
@@ -143,4 +159,81 @@ export async function runOne(workerId, handler) {
     throw err;
   }
   return job;
+}
+
+/**
+ * Withdraw every QUEUED job of `type` about `refId`. Returns the ids it cancelled. D270.
+ *
+ * Queued only, on purpose. A `running` job is inside a handler and cannot be recalled from here;
+ * the handler re-checks its own precondition when it runs, because the runner's contract is
+ * at-least-once and it has to anyway (src/jobs/runner.js). So a cancel that arrives after the
+ * claim does nothing and returns [] — the caller's precondition check is what protects it, and
+ * this function is the fast path, not the guarantee. `done`, `failed` and already-`cancelled`
+ * rows are left as the record they are.
+ *
+ * @param {string} type
+ * @param {string} refId  the uuid the job is about. A job with no reference cannot be cancelled by this
+ * @returns {Promise<string[]>}
+ */
+export async function cancelJobsFor(type, refId) {
+  const { rows } = await getPool().query(
+    `UPDATE control.job_queue
+        SET status = 'cancelled', updated_at = now()
+      WHERE type = $1 AND ref_id = $2 AND status = 'queued'
+      RETURNING id`,
+    [type, refId],
+  );
+  return rows.map((r) => String(r.id));
+}
+
+/**
+ * Due jobs on the queue whose type is NOT in `types` — the work this process cannot run and is
+ * leaving for one that can. The runner reports these so an empty or outdated registry is visible
+ * in the log rather than silent in the table. D270.
+ *
+ * @param {string[]} types
+ * @returns {Promise<Array<{ type: string, n: number }>>}
+ */
+export async function waitingOfOtherTypes(types) {
+  const { rows } = await getPool().query(
+    `SELECT type, count(*)::int AS n
+       FROM control.job_queue
+      WHERE status = 'queued' AND run_after <= now() AND NOT (type = ANY($1::text[]))
+      GROUP BY type ORDER BY type`,
+    [types],
+  );
+  return rows.map((r) => ({ type: r.type, n: r.n }));
+}
+
+/**
+ * The reaper. A row `running` for longer than `olderThanMs` belongs to a worker that died between
+ * claim() and finish(): it goes back to `queued` so the next tick runs it again, or to `failed`
+ * once it has been claimed `maxAttempts` times. `attempts` is NOT touched here — claim() counts
+ * every claim, so the figure is already "how many times this has been handed to a worker".
+ * `last_error` says it was reaped and on which attempt, so a row that keeps being reaped explains
+ * itself. D270.
+ *
+ * THIS IS WHY EVERY HANDLER MUST BE IDEMPOTENT: the process that died may have done the work and
+ * missed only the finish(). The reaper cannot know, so it runs the job again.
+ *
+ * @param {{ olderThanMs: number, maxAttempts: number }} p
+ * @returns {Promise<{ requeued: string[], failed: string[] }>}
+ */
+export async function reapStuck({ olderThanMs, maxAttempts }) {
+  const { rows } = await getPool().query(
+    `UPDATE control.job_queue
+        SET status     = CASE WHEN attempts >= $2 THEN 'failed' ELSE 'queued' END,
+            locked_by  = NULL,
+            locked_at  = NULL,
+            last_error = 'reaped: still running after ' || $1::text || ' ms with no finish (attempt ' || attempts || ' of ' || $2::text || ')',
+            updated_at = now()
+      WHERE status = 'running'
+        AND locked_at < now() - make_interval(secs => $1::numeric / 1000)
+      RETURNING id, status`,
+    [olderThanMs, maxAttempts],
+  );
+  return {
+    requeued: rows.filter((r) => r.status === "queued").map((r) => String(r.id)),
+    failed: rows.filter((r) => r.status === "failed").map((r) => String(r.id)),
+  };
 }

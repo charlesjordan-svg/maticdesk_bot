@@ -17,7 +17,9 @@ import { closePool, getPool, withControl } from "../src/db/pool.js";
 import { migrate, readMigrations } from "../src/db/migrate.js";
 import { createTenant, dropTenantForTests, listTenants, schemaNameFor } from "../src/db/tenants.js";
 import { assertTenantSchema, forgetTenants, withTenant } from "../src/db/tenant.js";
-import { claim, enqueue, finish, runOne } from "../src/db/jobs.js";
+import { cancelJobsFor, claim, enqueue, finish, reapStuck, runOne } from "../src/db/jobs.js";
+import { createJobRunner } from "../src/jobs/runner.js";
+import { randomUUID } from "node:crypto";
 
 let pass = 0, fail = 0;
 function check(label, cond, extra = "") {
@@ -249,6 +251,108 @@ async function main() {
   const later = await enqueue({ type: "b1-later", tenantSchema: SA, runAfter: new Date(Date.now() + 3600_000) });
   check("a job with run_after in the future is not claimed", (await claim("w1")) === null);
   await getPool().query("DELETE FROM control.job_queue WHERE id = $1", [later]);
+
+  // =============================================================================================
+  console.log("\n=== 6b. the runtime (D270): two runners race one due job, a future job waits, an unknown type fails, the reaper unsticks, cancel cancels ===");
+  {
+    const row = async (id) => (await getPool().query("SELECT status, attempts, locked_by, last_error FROM control.job_queue WHERE id = $1", [id])).rows[0];
+    /** @type {string[]} */
+    const seen = [];
+    const handlers = {
+      "b1-runner-probe": async (job, client) => {
+        seen.push(`${job.id}@${(await client.query("SELECT current_schema() AS s")).rows[0].s}`);
+      },
+    };
+    const quiet = () => {};
+    const r1 = createJobRunner({ handlers, workerId: "r1", log: quiet, stuckAfterMs: 60_000 });
+    const r2 = createJobRunner({ handlers, workerId: "r2", log: quiet, stuckAfterMs: 60_000 });
+
+    // Exit criterion 1 and 2: a due job runs exactly once under two racing runners; a future job waits.
+    const due = await enqueue({ type: "b1-runner-probe", tenantSchema: SB, runAfter: new Date(Date.now() - 1000) });
+    const future = await enqueue({ type: "b1-runner-probe", tenantSchema: SB, runAfter: new Date(Date.now() + 3600_000) });
+    await Promise.all([r1.tick(), r2.tick()]);
+    check("a job with run_after in the past ran EXACTLY ONCE with two runners racing", seen.filter((s) => s.startsWith(`${due}@`)).length === 1, seen.join(","));
+    check("…inside its own tenant, on a client the runner got from withTenant", seen.includes(`${due}@${SB}`), seen.join(","));
+    check("…and is done", (await row(due)).status === "done");
+    check("the job with run_after in the future did NOT run early and is still queued", !seen.some((s) => s.startsWith(`${future}@`)) && (await row(future)).status === "queued");
+    check("the two runners' stats add up to one job run", r1.stats.ran + r2.stats.ran === 1, `${r1.stats.ran}+${r2.stats.ran}`);
+
+    // A type this process has no handler for is NOT claimed: it stays queued for a process that
+    // knows it, and the runner reports it. (A running dev hub with an empty registry therefore
+    // cannot touch this suite's jobs - which is also why this suite can run beside one.)
+    const orphan = await enqueue({ type: "b1-no-such-handler", tenantSchema: SA });
+    const r1said = [];
+    const r1v = createJobRunner({ handlers, workerId: "r1v", log: (l) => r1said.push(l), stuckAfterMs: 60_000 });
+    await r1v.tick();
+    const orphanRow = await row(orphan);
+    check("a due job of a type with no registered handler is LEFT QUEUED - not claimed, not failed, attempts still 0",
+      orphanRow.status === "queued" && orphanRow.attempts === 0 && orphanRow.locked_by === null, JSON.stringify(orphanRow));
+    check("…and the runner reported it, by type, as waiting for a hub that knows it", r1v.stats.waiting === 1 && r1said.some((l) => /1 due job\(s\) of 1 type\(s\).*b1-no-such-handler \(1\)/.test(l)), r1said.join(" | "));
+    const empty = createJobRunner({ handlers: {}, workerId: "empty", log: quiet, stuckAfterMs: 60_000 });
+    await empty.tick();
+    check("a runner with an EMPTY registry claims nothing at all (the hub as shipped today)", empty.stats.ran === 0 && (await row(orphan)).status === "queued" && (await row(orphan)).attempts === 0);
+    await getPool().query("DELETE FROM control.job_queue WHERE id = $1", [orphan]);
+
+    // Exit criterion 3: a process that dies mid-job leaves the row running; the reaper returns it.
+    const stuck = await enqueue({ type: "b1-runner-probe", tenantSchema: SA });
+    const claimed = await claim("a-worker-that-then-died");
+    check("claim() leaves the job running with attempts 1", claimed?.id === stuck && (await row(stuck)).status === "running" && (await row(stuck)).attempts === 1);
+    const notYet = await reapStuck({ olderThanMs: 600_000, maxAttempts: 5 });
+    check("a job running for less than the timeout is NOT reaped", !notYet.requeued.includes(stuck) && !notYet.failed.includes(stuck) && (await row(stuck)).status === "running");
+    const reaped = await reapStuck({ olderThanMs: 0, maxAttempts: 5 });
+    const afterReap = await row(stuck);
+    check("past the timeout the reaper returns it to queued, keeps the attempt count, clears the lock and says why",
+      reaped.requeued.includes(stuck) && afterReap.status === "queued" && afterReap.attempts === 1 && afterReap.locked_by === null && /reaped: still running after 0 ms .*attempt 1 of 5/.test(afterReap.last_error), JSON.stringify(afterReap));
+    await r1.tick();
+    const rerun = await row(stuck);
+    check("the next tick runs it (attempt 2) and it is done — at-least-once, which is why handlers must be idempotent",
+      rerun.status === "done" && rerun.attempts === 2 && seen.includes(`${stuck}@${SA}`), JSON.stringify(rerun));
+
+    // The retry cap: reaped on its fifth claim -> failed, not requeued forever.
+    const doomed = await enqueue({ type: "b1-runner-probe", tenantSchema: SA });
+    await getPool().query("UPDATE control.job_queue SET attempts = 4 WHERE id = $1", [doomed]);
+    check("(fixture) the fifth claim takes it", (await claim("dies-again"))?.id === doomed && (await row(doomed)).attempts === 5);
+    const capped = await reapStuck({ olderThanMs: 0, maxAttempts: 5 });
+    const doomedRow = await row(doomed);
+    check("a job reaped on its 5th of 5 attempts is FAILED, and last_error says which attempt",
+      capped.failed.includes(doomed) && doomedRow.status === "failed" && /attempt 5 of 5/.test(doomedRow.last_error), JSON.stringify(doomedRow));
+    check("…and a failed row is not claimable", (await claim("w")) === null);
+
+    // Exit criterion 4: cancel. Queued -> cancelled; done and running are left alone; the CHECK
+    // accepts the new status and still refuses an unknown one.
+    const ref = randomUUID();
+    const pending = await enqueue({ type: "b1-autoclose-probe", tenantSchema: SA, refId: ref });
+    const cancelled = await cancelJobsFor("b1-autoclose-probe", ref);
+    check("cancelJobsFor(type, refId) cancels the queued job and returns its id", cancelled.length === 1 && cancelled[0] === pending && (await row(pending)).status === "cancelled", JSON.stringify(cancelled));
+    check("(that UPDATE succeeding is the proof) the status CHECK accepts 'cancelled' after control/007", (await row(pending)).status === "cancelled");
+    await refuses("and still refuses a status it does not know",
+      () => getPool().query("UPDATE control.job_queue SET status = 'bogus' WHERE id = $1", [pending]), /job_status_known/);
+    check("a cancelled job is not claimed", (await claim("w")) === null);
+    check("cancelling again is a no-op that returns []", (await cancelJobsFor("b1-autoclose-probe", ref)).length === 0);
+    const doneRef = randomUUID();
+    const finished = await enqueue({ type: "b1-runner-probe", tenantSchema: SA, refId: doneRef });
+    await r1.tick();
+    check("(fixture) it ran", (await row(finished)).status === "done");
+    check("cancelJobsFor is a no-op on a DONE job and leaves it done", (await cancelJobsFor("b1-runner-probe", doneRef)).length === 0 && (await row(finished)).status === "done");
+    const runningRef = randomUUID();
+    const inFlight = await enqueue({ type: "b1-runner-probe", tenantSchema: SA, refId: runningRef });
+    check("(fixture) claimed", (await claim("busy"))?.id === inFlight);
+    check("a RUNNING job is not cancelled — cancel wins only before the claim; the handler's own precondition check is the guarantee (at-least-once)",
+      (await cancelJobsFor("b1-runner-probe", runningRef)).length === 0 && (await row(inFlight)).status === "running");
+    await finish(inFlight);
+
+    // A runner whose primitives cannot reach the database does not throw out of tick(); it logs once.
+    const said = [];
+    const down = createJobRunner({ handlers, log: (l) => said.push(l), primitives: {
+      reapStuck: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:5999"); },
+      waitingOfOtherTypes: async () => [],
+      runOne: async () => { throw new Error("should not be reached"); },
+    } });
+    await down.tick(); await down.tick();
+    check("with the database down, tick() resolves, says so ONCE, and keeps counting ticks", said.filter((l) => /unreachable/.test(l)).length === 1 && down.stats.ticks === 2 && down.stats.outages === 1, said.join(" | "));
+
+    await getPool().query("DELETE FROM control.job_queue WHERE id = $1", [future]);
+  }
 
   // =============================================================================================
   console.log("\n=== 7. the extension arrangement actually works from a tenant ===");
