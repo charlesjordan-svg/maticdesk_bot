@@ -9,24 +9,25 @@
  * WHAT THIS PAGE DOES NOT CLAIM
  * ===============================================================================================
  *
- * A device on this page is KNOWN to the tenant — it presented a valid enrollment secret once. It is
- * not AUTHENTICATED on every subsequent call: that is D61's signed-assertion-for-a-token exchange,
- * which needs D60/D64's TPM-backed key in broker custody reached over the named-pipe transport
- * (designed, not built — D200/D201), and is the next slice, not this one. `src/devices/enrollment.js`
- * and `server/docs/B3-DEVICE-ENROLLMENT.md` say this at more length; the `notYet()` block below says
- * it here, where an operator reading this screen will actually look.
+ * A device on this page is an ENROLLMENT: it presented a valid enrollment secret once and, since
+ * 2026-09-12 (D282), holds a credential the hub checks on every request that presents it. That is
+ * authentication of a PER-OS-USER ENROLLMENT OF THE SOFTWARE — the weaker credential on D61's path.
+ * It is NOT D61's signed assertion from D60/D64's TPM-backed key in broker custody (designed, not
+ * built — D200/D201), so nothing here proves a machine or a person; the `notYet()` block below says
+ * exactly that, where an operator reading this screen will actually look.
  *
- * AND IT IS NOT A FLEET VIEW (D272, 2026-09-12). A device is on this page because someone enrolled it
- * BY HAND: `bin/devices.mjs enroll`, curl, or the test suite. No file under `client/src` calls
- * `POST /v1/enroll`, so the running endpoint on the machine next to the console is not here and
- * cannot be, and "0 active devices" is the correct reading on every install until the client
- * enrolls (P3 of the ticket-lifecycle plan, gated on D271). Charles read that 0 beside a panel
- * saying "Everything I need is available" and concluded the product was broken; nothing was, and
- * the page had not said the one sentence that would have prevented the double-take. `NEVER_ENROLLS`
- * below is that sentence, drawn ABOVE the fold beside the counters; the `notYet()` block stays
- * because it answers a different question ("is a listed device authenticated") further down.
- * test/admin-static.test.mjs §6a pins the sentence to the client's behaviour (D274): the day a
- * client file calls the enrollment route, that test fails and this copy has to be revisited.
+ * WHAT THE COUNTS ARE (D272, revisited 2026-09-12). Until P3b no file under `client/src` called
+ * `POST /v1/enroll`, every device here was enrolled by hand, "0 active devices" was the correct
+ * reading on every install, and this page said so above the fold — because Charles had read that 0
+ * beside a panel saying "Everything I need is available" and concluded the product was broken.
+ * Since P3b the endpoint enrolls ITSELF at startup when its config.json carries this tenant's
+ * enrollment secret (client/src/agent/enrollment.js; D285), so a running endpoint with a secret IS
+ * here — one row per OS user who has run it, because the credential lives in per-user userData —
+ * and an endpoint with no secret configured is not, and will not be until someone gives it one.
+ * The counts are enrollments: not machines, not people. `ENROLLS_AT_STARTUP` below is the sentence
+ * that says so, above the fold. test/admin-static.test.mjs §6a pins it to the client's behaviour
+ * (D274), INVERTED: it now fails the day client/src stops calling the route, because then this copy
+ * is the false one.
  *
  * NO BULK-REVOKE JAVASCRIPT. Each device row is a checkbox with its OWN NAME (`device_<id>`), not a
  * shared `name="deviceIds"` — `src/admin/router.js`'s form parser keeps only the LAST value for a
@@ -45,16 +46,19 @@ import {
 const canManage = (ctx) => ctx.permissions.has("agents.manage");
 
 /**
- * D272 — the caveat above the fold. All three facts, in this order: no endpoint enrolls itself;
- * therefore the list is hand-enrolled devices only; therefore a running endpoint is absent and the
- * counters are not a fleet. Every one of them stops being true when P3 gives the client enrollment,
- * and test/admin-static.test.mjs §6a fails on that day so the copy is revisited rather than left.
+ * D272, revisited on 2026-09-12 when the client learned to enroll (D282/D285). The caveat above the
+ * fold now says what the list IS: every enrollment — by the endpoint itself at startup, or by hand
+ * — one per OS user, with an endpoint that has no secret absent. The same discipline as before with
+ * the premise inverted; test/admin-static.test.mjs §6a fails the day client/src stops calling the
+ * route, because then THIS is the false copy.
  */
-const NEVER_ENROLLS = html`<strong>No Matic Desk endpoint enrolls itself.</strong> Nothing in
-  <span class="mono">client/</span> calls <span class="mono">POST /v1/enroll</span>, so this page lists only
-  devices enrolled by hand — <span class="mono">bin/devices.mjs enroll</span>, curl, or the test suite.
-  <strong>A running endpoint does not appear here, and these counts are not a fleet.</strong> Client
-  enrollment is P3 of the ticket-lifecycle plan and waits on D271.`;
+const ENROLLS_AT_STARTUP = html`<strong>Matic Desk endpoints enroll themselves at startup</strong> when their
+  <span class="mono">config.json</span> carries this tenant's enrollment secret (D282/D285), then present the
+  credential on every request. Each row is one <strong>enrollment — per OS user, not per machine</strong>: the
+  credential lives in that account's userData, so two people on one PC are two rows. An endpoint with no
+  secret configured does not appear here, nor does one whose enrollment was refused; devices enrolled by
+  hand (<span class="mono">bin/devices.mjs enroll</span>) are here too. These counts are enrollments, not
+  people or machines.`;
 
 // ---- rendering ------------------------------------------------------------------------------------
 
@@ -88,28 +92,21 @@ function pendingTable(ctx, pending) {
 }
 
 /**
- * D273 — TEMPORARY BY DESIGN; BOTH SENTENCES REVERT WHEN P3 LANDS.
- *
- * "Last seen" was the column's heading and `last_seen_at` is the column. It is written in exactly
- * three places, all in src/devices/enrollment.js, all on the enroll / approve / re-submit paths —
- * nothing stamps it when a device talks to the hub, because nothing identifies a device on a call
- * (D61 is not built). So the value is the enrollment date wearing a heartbeat's name, and an
- * operator reading "3 days ago" against an endpoint that spoke to the hub a minute ago would be
- * misled by a true number. The heading now says what the column measures, and the muted line under
- * the table says what it does not.
- *
- * Likewise the Revoke control: `revokeDevices()` changes a row's status, and no route checks device
- * identity, so a revoked endpoint can still `/v1/ask` and `/v1/ticket`. REVOKED reads as "access
- * withdrawn" to anyone who has used another console; here it means "standing withdrawn", and the
- * sentence beside the button says so.
- *
- * When P3 presents a credential on every request, `last_seen_at` gets a real writer (one UPDATE)
- * and revocation becomes a real control — and BOTH of these notes become false and must go. That
- * is why they are written as conditions on the current build rather than as permanent copy, and
- * why test/admin-static.test.mjs §6a fails the day client/src calls the enrollment route.
+ * D273, REVERTED on 2026-09-12 — the condition it was written under was met, the same day. From
+ * 2026-09-12's morning the heading read "Last enrollment activity" and the Revoke control said it
+ * blocked nothing, both written as conditions on that build, because `last_seen_at` was written only by
+ * enrollment and no route checked a device on a call. That evening P3b gave the column its writer —
+ * `authenticateDeviceCredential()` stamps it on every request that presents the device's credential
+ * (addendum G2), and enrollment and approval still stamp it too — and made revocation a control: a
+ * revoked device's credential is refused on its NEXT request. So "Last seen" is a heartbeat again
+ * and says so; a device that has never presented its credential (hand-approved, endpoint not yet
+ * asked) shows its enrollment time, and the note says which reading applies. The loopback exception
+ * — an unauthenticated call from the hub's own machine is still accepted (D283) — is said beside the
+ * button rather than left to be discovered. Written first, enforced second, copy third: the order
+ * the P3a/P3b handover required, so the page never claimed a mechanism before it existed.
  */
-const LAST_ACTIVITY_NOTE = "Not a heartbeat. Nothing updates this when a device talks to the hub, because nothing identifies a device on a call (D61).";
-const REVOKE_NOTE = "Revoking removes the row's standing. It does not block anything — no route checks device identity, so a revoked endpoint can still ask and file (D61).";
+const LAST_SEEN_NOTE = "A heartbeat: written on every request that presents this device's credential (D282), and on enrollment and approval. A device that has never presented its credential shows when it was enrolled.";
+const REVOKE_NOTE = "Revoking blocks the endpoint's NEXT authenticated request — its credential is refused with a sentence saying so (D282). On a loopback-only hub, unauthenticated calls from the hub's own machine are still accepted (D283).";
 
 function devicesTable(ctx, devices) {
   if (!devices.length) return empty("No device has enrolled yet.");
@@ -119,17 +116,18 @@ function devicesTable(ctx, devices) {
 <form method="post" action="/admin/agents/revoke">
   ${csrfField(ctx.csrf)}
   <table>
-    <thead><tr>${manage ? html`<th></th>` : ""}<th>Device</th><th>Mode</th><th>Status</th><th>Enrolled</th><th>Last enrollment activity</th></tr></thead>
+    <thead><tr>${manage ? html`<th></th>` : ""}<th>Device</th><th>Mode</th><th>Status</th><th>Enrolled</th><th>Credential</th><th>Last seen</th></tr></thead>
     <tbody>${devices.map((d) => html`<tr>
       ${manage ? html`<td>${d.status !== "revoked" ? html`<input type="checkbox" name="device_${d.id}" value="1">` : ""}</td>` : ""}
       <td class="mono">${d.deviceKeyId}</td>
       <td>${d.mode}</td>
       <td><span class="pill ${d.status === "active" ? "open" : d.status === "revoked" ? "closed" : ""}">${d.status}</span></td>
       <td>${when(d.enrolledAt)}</td>
+      <td>${d.credentialIssuedAt ? html`issued ${when(d.credentialIssuedAt)}` : html`<span class="muted">none yet — approved, and the endpoint has not asked since</span>`}</td>
       <td>${d.lastSeenAt ? html`${when(d.lastSeenAt)} <span class="muted">(${ago(d.lastSeenAt)})</span>` : html`<span class="muted">never</span>`}</td>
     </tr>`)}</tbody>
   </table>
-  <p class="muted" style="font-size:13px;margin:8px 0 0">${LAST_ACTIVITY_NOTE}</p>
+  <p class="muted" style="font-size:13px;margin:8px 0 0">${LAST_SEEN_NOTE}</p>
   <div class="row" style="margin-top:10px">
     ${revocable ? html`<button type="submit">Revoke selected</button>` : ""}
     <span class="muted" style="font-size:13px">${REVOKE_NOTE}${revocable ? " Bulk, by batch (D83a) — a row with no checkbox is already revoked." : ""}</span>
@@ -180,7 +178,7 @@ export function agentsBody(ctx, { pending, devices, autoApprove, secrets, freshS
 
   return html`
 <h1>Agents</h1>
-<p class="lede">The devices enrolled with this tenant by hand, the ones waiting for approval, and the secret that lets a new one ask (B3).</p>
+<p class="lede">The endpoints enrolled with this tenant — by themselves at startup, or by hand — the ones waiting for approval, and the secret that lets a new one ask (B3, D282).</p>
 ${notice ? html`<div class="flash">${notice}</div>` : ""}
 
 <div class="grid">
@@ -188,7 +186,7 @@ ${notice ? html`<div class="flash">${notice}</div>` : ""}
   ${stat(active, "active devices", null)}
   ${stat(revoked, "revoked", null)}
 </div>
-${limit(NEVER_ENROLLS)}
+${limit(ENROLLS_AT_STARTUP)}
 
 <div class="panel">
   <h2>Pending requests<span class="count">${pending.length}</span></h2>
@@ -204,9 +202,9 @@ ${limit(NEVER_ENROLLS)}
 ${secretsPanel(ctx, secrets, freshSecret)}
 
 ${notYet({
-  heading: "Nothing here is authenticated yet",
-  missing: "A device on this page is KNOWN to the tenant. Nothing checks that a request claiming to be one of these devices actually holds the key that enrolled it.",
-  why: "That check is D61's job: a signed assertion exchanged for a short-lived access token, from a TPM-backed key in broker custody (D60/D64/D146). The custody chain needs the named-pipe transport between the agent and a LocalSystem broker, which is designed and not built (D200/D201) — building real device authentication here would mean building that transport first. This pass built the enrollment mechanism the phase-1 plan's B3 row actually names: the pending queue, auto-approve with this toggle, the rotatable secret above, rate limiting with a fallback to the queue on a burst (D83), and bulk revocation.",
+  heading: "What is authenticated here, and what is not",
+  missing: "A device on this page holds an enrollment credential the hub checks on every request that presents it (D282). That proves a per-OS-user enrollment of the software: the account whose userData holds the credential ran an endpoint that enrolled with this tenant's secret. It does NOT prove which machine that is, that the hardware is what it claims, or who is at the keyboard — the profile on a ticket is still self-asserted (D215).",
+  why: "Hardware-bound identity is D61's job: a signed assertion exchanged for a short-lived access token, from a TPM-backed key in broker custody (D60/D64/D146). The custody chain needs the named-pipe transport between the agent and a LocalSystem broker, which is designed and not built (D200/D201). The credential here is the weaker step on that path — the same route shape with a bearer secret where the signature will go — and the routes do not move when the assertion arrives.",
   arrives: "the token exchange, after the pipe transport (D200/D201) is built",
 })}`;
 }

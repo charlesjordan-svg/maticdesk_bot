@@ -347,12 +347,14 @@ try {
     // Real since B3 (2026-09-10) — B3-1..B3-N below exercise the mechanism against a live database;
     // this is just "the page renders for the tenant owner role" as part of the six-destination pass.
     check("Agents: 200, real stat tiles (no devices enrolled here yet)", agents.status === 200 && /waiting for approval/.test(agents.text));
-    // D272, on the REAL page over HTTP: the never-enrolls caveat sits between the counters and the
-    // first panel. The static half (rendered with fake rows, and pinned to client/src's behaviour)
-    // is admin-static.test.mjs §6a; this is the same sentence reaching a browser.
-    check("Agents (D272): the page says no Matic Desk endpoint enrolls itself, above the first panel",
-      /No Matic Desk endpoint enrolls itself/.test(agents.text) && agents.text.indexOf("enrolls itself") < agents.text.indexOf('<div class="panel">'));
-    check("Agents (D272): …and that a running endpoint does not appear here and the counts are not a fleet", /these counts are not a fleet/.test(agents.text));
+    // D272 revisited (2026-09-12, P3b): on the REAL page over HTTP, the caveat between the counters
+    // and the first panel now says endpoints enroll THEMSELVES at startup and that the counts are
+    // enrollments. The static half (rendered with fake rows, pinned to client/src's behaviour and
+    // inverted the day the client learned to enroll) is admin-static.test.mjs §6a; this is the same
+    // sentence reaching a browser.
+    check("Agents (D272 revisited): the page says Matic Desk endpoints enroll themselves at startup, above the first panel",
+      /Matic Desk endpoints enroll themselves at startup/.test(agents.text) && agents.text.indexOf("enroll themselves") < agents.text.indexOf('<div class="panel">'));
+    check("Agents (D272 revisited): …that each row is one enrollment per OS user, and the counts are enrollments, not people or machines", /per OS user, not per machine/.test(agents.text) && /enrollments, not\s+people or machines/.test(agents.text.replace(/\s+/g, " ")));
     const metrics = await owner.go("/admin/metrics");
     check("Metrics: 200, real question counts, deflection explained as not computable", metrics.status === 200 && /asked, all time/.test(metrics.text) && /cannot be computed/.test(metrics.text));
     check("Metrics: the tenant's tickets by category are real (hardware: 1)", /<td>hardware<\/td><td>1<\/td>/.test(metrics.text));
@@ -1424,9 +1426,11 @@ try {
     check("D282: a REVOKED device's credential is refused on its NEXT request — revocation is a control now, not a status change", Boolean(p3b.credential) && afterRevokeAuth.ok === false && afterRevokeAuth.why === "revoked" && /REVOKED by an administrator/.test(afterRevokeAuth.message), JSON.stringify(afterRevokeAuth));
     // D273, on the real page with real rows: the column heading and the two caveats.
     const pageD273 = await owner.go("/admin/agents");
-    check("Agents (D273): the device table is headed 'Last enrollment activity', never 'Last seen'", /<th>Last enrollment activity<\/th>/.test(pageD273.text) && !/Last seen/.test(pageD273.text));
-    check("Agents (D273): the not-a-heartbeat note is under the table", /Not a heartbeat\. Nothing updates this when a device talks to the hub/.test(pageD273.text));
-    check("Agents (D273): the revoke caveat says revoking blocks nothing (D61)", /Revoking removes the row&#39;s standing\. It does not block anything/.test(pageD273.text));
+    check("Agents (D273 reverted): the device table is headed 'Last seen' again, with a Credential column beside it", /<th>Credential<\/th><th>Last seen<\/th>/.test(pageD273.text) && !/Last enrollment activity/.test(pageD273.text));
+    check("Agents (D273 reverted): the note says it is a heartbeat, written on every request that presents the credential", /A heartbeat: written on every request that presents this device&#39;s credential/.test(pageD273.text));
+    check("Agents (D273 reverted): the revoke caveat says revoking blocks the NEXT authenticated request, and names the loopback exception", /blocks the endpoint&#39;s NEXT authenticated request/.test(pageD273.text) && /D283/.test(pageD273.text));
+    check("Agents: the revoked devices show their credential as issued — a real column over real rows", /issued \d{4}-\d\d-\d\d \d\d:\d\d/.test(pageD273.text));
+    check("Agents (D272 revisited): the page says endpoints enroll themselves at startup", /Matic Desk endpoints enroll themselves at startup/.test(pageD273.text) && !/No Matic Desk endpoint enrolls itself/.test(pageD273.text));
 
     const secretsPage = await owner.go("/admin/agents");
     const { rows: liveSecrets } = await getPool().query(
