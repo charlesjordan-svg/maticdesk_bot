@@ -97,6 +97,7 @@ import { retrievalHealthReader } from "./kb/health.js";
 import { enrollHandler, IDENTITY_NOTE } from "./devices/route.js";
 import { authenticateDeviceCredential } from "./devices/enrollment.js";
 import { ticketsReadHandler } from "./tickets/read.js";
+import { requesterActionHandler, ACTION_PATH, ACK_PATH } from "./tickets/requester-routes.js";
 import { questionLoggingEnabled, questionRetentionDays, QUESTION_RETENTION_MAX_DAYS } from "./kb/retrieve.js";
 import { adminHandler } from "./admin/router.js";
 import { bypassStartupBanner, bypassStatus } from "./admin/dev-bypass.js";
@@ -357,6 +358,8 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // D284: the requester's own tickets - GET /v1/tickets and /v1/tickets/:reference. Needs the
   // authenticated device on every listener; src/tickets/read.js holds no SQL and composes P3a's readers.
   const handleTicketsRead = ticketsReadHandler({ log });
+  // D286/D287: the requester's four POSTs - comment, reopen, confirm, ack. src/tickets/requester-routes.js.
+  const handleRequesterAction = requesterActionHandler({ log });
   // D237/D239: the endpoint's session lifecycle. SAME tenant resolution as tickets, so a session and
   // the ticket it produces land in one schema without either side naming it (src/sessions/route.js).
   const handleSession = sessionHandler({ tenantSchema: ticketTenant, log });
@@ -444,6 +447,11 @@ export function createHubServer({ provider, hubProvider = "local", log = console
       if (!kb) return send(503, { ok: false, error: "this hub is running without a knowledge base (kb: false)" });
       return handleAsk(req, res, send);
     }
+    if (pathname === ACK_PATH || ACTION_PATH.test(pathname)) {
+      // D286/D287. The requester acts on a ticket; every one of the four needs the device. Dispatched
+      // BEFORE the read route because /v1/tickets/ack shares its prefix.
+      return handleRequesterAction(req, res, send, { device: auth.principal, pathname });
+    }
     if (pathname === "/v1/tickets" || pathname.startsWith("/v1/tickets/")) {
       // D284. The requester's own tickets; the route refuses without a device on every listener.
       return handleTicketsRead(req, res, send, { device: auth.principal });
@@ -529,7 +537,11 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "GET", path: "/", what: "this" },
           { method: "GET", path: "/v1/health", what: "provider, embedder, corpus counts, and which model embedded it; the listener and what it requires" },
           { method: "GET", path: "/v1/tickets", what: "the tickets YOUR enrollment filed - requester-safe columns only (D281/D284). Requires the enrollment credential on every listener", headers: { authorization: "Bearer <the credential POST /v1/enroll returned once>" } },
-          { method: "GET", path: "/v1/tickets/:reference", what: "one of them, with its PUBLIC timeline entries. Same credential; another enrollment's reference is a 404" },
+          { method: "GET", path: "/v1/tickets/:reference", what: "one of them, with its PUBLIC timeline entries. Same credential; another enrollment's reference is a 404. Reading it stamps notifiedAt on the desk's entries - the hub's clock (D287)" },
+          { method: "POST", path: "/v1/ticket/:reference/comment", what: "the requester comments - a TRANSITION (D286): a resolved ticket reopens, a live one starts the desk's waiting clock, a closed one is refused with the way forward. Credential required", body: { body: "string (required, at most 4000 characters)" } },
+          { method: "POST", path: "/v1/ticket/:reference/reopen", what: "the requester says a resolved ticket is not fixed: resolved -> open, the reason recorded as a public comment (D286). Credential required", body: { reason: "string (required)" } },
+          { method: "POST", path: "/v1/ticket/:reference/confirm", what: "the requester confirms the fix: resolved -> closed, closed_by requester, the resolution kept (D286). Credential required" },
+          { method: "POST", path: "/v1/tickets/ack", what: "the endpoint acknowledges it SHOWED entries; the hub stamps readByRequesterAt with its own clock (D287). Credential required", body: { entryIds: "array of entry ids (uuids)" } },
           { method: "POST", path: "/v1/ask", what: "answer a question from the knowledge base, or decline", body: { text: "string (required)", probe: "object (optional machine state; supplies the platform pre-filter)" } },
           { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
           { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
@@ -558,7 +570,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     return send(404, {
       ok: false,
       error: `no such route: ${req.method} ${req.url}`,
-      routes: ["GET /", "GET /v1/health", "GET /v1/tickets", "GET /v1/tickets/:reference", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session"],
+      routes: ["GET /", "GET /v1/health", "GET /v1/tickets", "GET /v1/tickets/:reference", "POST /v1/ticket/:reference/comment", "POST /v1/ticket/:reference/reopen", "POST /v1/ticket/:reference/confirm", "POST /v1/tickets/ack", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session"],
     });
   });
 

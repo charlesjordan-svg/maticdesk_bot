@@ -31,7 +31,7 @@
  * exist. The query layer returns the same null for both, so this route could not tell them apart
  * if it wanted to.
  */
-import { getTicketForRequester, listTicketsForRequester, listEntriesForRequester } from "./query.js";
+import { getTicketForRequester, listTicketsForRequester, listEntriesForRequester, markEntriesNotified } from "./query.js";
 import { IDENTITY_NOTE } from "../devices/route.js";
 
 /** Reads per enrollment per minute before a 429. Sixty: one a second is the fastest poll this hub will honour. */
@@ -107,8 +107,12 @@ export function ticketsReadHandler({ log = () => {} } = {}) {
       if (!REF.test(reference)) return send(404, { ok: false, error: `no ticket ${reference.slice(0, 40)} is readable by this enrollment`, identity });
       const ticket = await getTicketForRequester(device.tenantSchema, reference, { deviceId: device.id });
       if (!ticket) return send(404, { ok: false, error: `no ticket ${reference} is readable by this enrollment`, identity });
+      // D287: the hub HANDS the desk's public entries over — `notified_at` is stamped with the hub's
+      // clock BEFORE the rows are read, so what the endpoint receives already says when it got it.
+      // The requester's own comments are not "delivered" and get no stamp.
+      const handed = await markEntriesNotified(device.tenantSchema, reference, { deviceId: device.id });
       const entries = await listEntriesForRequester(device.tenantSchema, reference, { deviceId: device.id });
-      return send(200, { ok: true, ticket, entries, identity, note: "public entries only; the desk's work notes are never here (D275)" });
+      return send(200, { ok: true, ticket, entries, handed, identity, note: "public entries only; the desk's work notes are never here (D275). notifiedAt is when this hub handed an entry to you; readByRequesterAt is when you acknowledged showing it (POST /v1/tickets/ack) - both the hub's clock (D287)" });
     } catch (err) {
       log(`[tickets] read failed for device ${device.id}: ${err.stack ?? err.message}`);
       return send(500, { ok: false, error: `the tickets could not be read: ${err.message}` });

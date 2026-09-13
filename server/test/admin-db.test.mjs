@@ -57,7 +57,8 @@ import { migrate } from "../src/db/migrate.js";
 import { createTenant, dropTenantForTests } from "../src/db/tenants.js";
 import { getPool, closePool, withControl } from "../src/db/pool.js";
 import { createTicket } from "../src/tickets/file.js";
-import { listTickets, getTicket, listEntries, addEntry, setTicketState, resolveTicket } from "../src/tickets/query.js";
+import { listTickets, getTicket, listEntries, addEntry, setTicketState, resolveTicket, replyToRequester, oldestUnansweredRequesterComment } from "../src/tickets/query.js";
+import { resetWriteThrottle, WRITES_PER_MINUTE, NEEDS_CREDENTIAL_TO_ACT } from "../src/tickets/requester-routes.js";
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { corpusStatus } from "../src/kb/ingest.js";
 import { gapFeed } from "../src/admin/queries.js";
@@ -475,8 +476,8 @@ try {
       pub6.length === 5 && pub6.every((e) => e.visibility === "public") && !pub6.some((e) => e.kind === "work_note"));
     check("listEntries() with no visibility THROWS — there is no default", await listEntries(schema, ref, {}).then(() => false, (e) => /no default/.test(e.message)));
     check("…and so does visibility: 'internal' — only 'public' and 'all' exist", await listEntries(schema, ref, { visibility: "internal" }).then(() => false, (e) => /public, all/.test(e.message)));
-    check("addEntry() REFUSES a comment in this build (WRITABLE_KINDS): no requester-visible entry can be written before P4 can deliver one",
-      await addEntry(schema, ref, { kind: "comment", body: "x", author: { kind: "console_user", label: "x" } }).then(() => false, (e) => /P4/.test(e.message)));
+    check("addEntry() REFUSES a comment: a comment is a transition (D286), with requesterComment() and replyToRequester() as its only writers",
+      await addEntry(schema, ref, { kind: "comment", body: "x", author: { kind: "console_user", label: "x" } }).then(() => false, (e) => /D286/.test(e.message)));
     const page5 = await owner.go(`/admin/tickets/${ref}`);
     check("the detail page renders the work note ESCAPED, labelled internal in words, newest last",
       page5.text.includes(escapeHtml(NOTE_BODY)) && !page5.text.includes("<dock>") && /pill internal">internal<\/span> <span>the requester never sees this/.test(page5.text) && page5.text.indexOf(escapeHtml(NOTE_BODY)) > page5.text.lastIndexOf("closed → open"));
@@ -604,11 +605,9 @@ try {
      */
     const RESERVED_COLUMNS = {
       tickets: {},
-      ticket_entries: {
-        // tenant/006's header carries the reason at length; one line each here (D269's rule).
-        notified_at: "D275 → P4 — hub-stamped when an entry is handed to the endpoint; nothing delivers in this build",
-        read_by_requester_at: "D275 → P4 — hub-stamped on the endpoint's ack, never client-sent; nothing acks in this build",
-      },
+      // ticket_entries: NOTHING reserved since P4 (D287) — notified_at and read_by_requester_at came off
+      // this list the day they gained writers (markEntriesNotified, ackEntries) and readers (shapeEntry).
+      ticket_entries: {},
       users: {
         logon_sid: "D148 — the broker-attested identity; the pipe that would carry it is designed and not built (D200/D201)",
         external_id: "D55/D145 — written by a directory sync (SCIM) that does not exist",
@@ -1562,6 +1561,108 @@ try {
     const throttled = await asDevice("/v1/tickets");
     check("twenty refused credentials from one peer in a minute -> the 21st is 429 with retryAfterMs (a speed bump against a misconfigured endpoint's tight loop)", st === 401 && throttled.status === 429 && typeof (await throttled.json()).retryAfterMs === "number");
     resetCredentialThrottle();
+  }
+
+  console.log("\n=== B3-6. the requester acts: a comment is a transition, confirm closes, the hub stamps hand-off and ack (D286, D287) ===");
+  {
+    resetEnrollmentThrottle(); resetReadThrottle(); resetWriteThrottle(); resetCredentialThrottle();
+    const page = await owner.go("/admin/agents");
+    const fresh = await owner.go("/admin/agents/secrets/new", { method: "POST", form: { _csrf: csrfOf(page.text), ttlDays: "1" } });
+    const secret = fresh.text.match(/<div class="mono" style="margin-top:6px;font-size:15px;word-break:break-all">([^<]+)<\/div>/)?.[1];
+    const enrolled = await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "p4-endpoint", secret }) })).json();
+    check("(fixture) a second endpoint enrolls", enrolled.status === "active" && /^mdc_/.test(enrolled.credential ?? ""), JSON.stringify(enrolled).slice(0, 200));
+    const cred = enrolled.credential;
+    const asDevice = (path, init = {}) => fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${cred}`, ...(init.headers ?? {}) } });
+    const post = (path, body) => asDevice(path, { method: "POST", body: JSON.stringify(body ?? {}) });
+    const desk = { kind: "console_user", adminUserId: made.owner.id, label: made.owner.email };
+    const filed = await (await post("/v1/ticket", { description: "p4: the badge reader is dead again", summary: "P4-SENTINEL badge reader", category: "hardware", suggestedOwner: null, machineName: "LAPTOP-P4", reporter: { osUsername: "p4.user" } })).json();
+    const ref = filed.reference;
+    check("(fixture) filed with the credential", filed.ok === true && Boolean(ref));
+
+    // Without a credential: every action is a 401 with a sentence, and GET is a 405.
+    for (const [path, body] of [[`/v1/ticket/${ref}/comment`, { body: "x" }], [`/v1/ticket/${ref}/reopen`, { reason: "x" }], [`/v1/ticket/${ref}/confirm`, {}], ["/v1/tickets/ack", { entryIds: [] }]]) {
+      const r = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      check(`POST ${path.replace(ref, "<ref>")} with NO credential -> 401 with the exact sentence`, r.status === 401 && (await r.json()).error === NEEDS_CREDENTIAL_TO_ACT);
+    }
+    check("GET on an action path -> 405", (await asDevice(`/v1/ticket/${ref}/comment`)).status === 405);
+
+    // The desk resolves; the endpoint reads; the hub stamps the hand-off BEFORE the rows leave.
+    await setTicketState(schema, ref, "open", { from: "new", author: desk });
+    await resolveTicket(schema, ref, { code: "fixed", notes: "P4: reader replaced. Please try your badge.", from: "open", author: desk });
+    const stamped = async () => (await getPool().query(`SELECT count(*)::int AS n FROM "${schema}".ticket_entries e JOIN "${schema}".tickets t ON t.id = e.ticket_id WHERE t.reference = $1 AND e.notified_at IS NOT NULL`, [ref])).rows[0].n;
+    check("(fixture) before the endpoint reads, no entry is stamped notified", (await stamped()) === 0);
+    const detail = await (await asDevice(`/v1/tickets/${ref}`)).json();
+    check("GET /v1/tickets/<ref> hands three public entries (two state changes, the resolution), each ALREADY carrying notifiedAt — stamped by the hub before the rows left — and none acknowledged yet",
+      detail.entries?.length === 3 && detail.entries.every((e) => typeof e.notifiedAt === "string") && detail.entries.every((e) => e.readByRequesterAt === null) && detail.handed === 3, JSON.stringify(detail.entries?.map((e) => [e.kind, e.notifiedAt !== null, e.readByRequesterAt])));
+    const again = await (await asDevice(`/v1/tickets/${ref}`)).json();
+    check("…a second read hands nothing new (handed 0) and the first stamp is unchanged", again.handed === 0 && again.entries[0].notifiedAt === detail.entries[0].notifiedAt);
+    check("…and the database agrees: three notified_at set", (await stamped()) === 3);
+
+    // Ack: the endpoint says it SHOWED two; the hub stamps read_by_requester_at with its own clock.
+    const ids = detail.entries.map((e) => e.id);
+    const ack = await (await post("/v1/tickets/ack", { entryIds: [ids[0], ids[1], "not-a-uuid", randomUUID()] })).json();
+    check("POST /v1/tickets/ack -> acknowledged 2: the two real ids of THIS enrollment; a non-uuid and a stranger's id stamp nothing and are not an error", ack.ok === true && ack.acknowledged === 2 && /hub&#39;s clock|hub's clock/.test(ack.note), JSON.stringify(ack));
+    const afterAck = await (await asDevice(`/v1/tickets/${ref}`)).json();
+    check("…the next read shows readByRequesterAt on exactly those two", afterAck.entries.filter((e) => e.readByRequesterAt !== null).length === 2 && afterAck.entries.find((e) => e.id === ids[2]).readByRequesterAt === null);
+    check("…acking all three again stamps only the one still open (acknowledged 1) - never re-stamps", (await (await post("/v1/tickets/ack", { entryIds: ids })).json()).acknowledged === 1);
+    check("ack with a non-array -> 400", (await post("/v1/tickets/ack", { entryIds: "x" })).status === 400);
+
+    // D286: a comment on a RESOLVED ticket reopens it.
+    check("(fixture) resolved with a code, and D276's clock is not running", (await getTicket(schema, ref)).state === "resolved" && (await oldestUnansweredRequesterComment(schema)) === null);
+    const c1 = await (await post(`/v1/ticket/${ref}/comment`, { body: "  It's still dead. The light doesn't even come on.  " })).json();
+    check("POST comment on a RESOLVED ticket -> 200, reopened: true, state open; the note says the resolution is undone and nobody is emailed", c1.ok === true && c1.reopened === true && c1.state === "open" && c1.from === "resolved" && /undone/.test(c1.note) && /Nobody is emailed/.test(c1.note), JSON.stringify(c1));
+    const t1 = await getTicket(schema, ref);
+    check("…the row: open, the CURRENT resolution cleared (history in the timeline), closed stamps null", t1.state === "open" && t1.resolutionCode === null && t1.resolutionNotes === null && t1.resolvedAt === null && t1.closedAt === null);
+    const all1 = await listEntries(schema, ref, { visibility: "all" });
+    const cmt = all1.find((e) => e.kind === "comment");
+    check("…the timeline gained a PUBLIC comment by the requester — trimmed, no label (the console glosses the kind) — and a state_change 'resolved → open' in the requester's name; the resolution entry stays",
+      Boolean(cmt) && cmt.visibility === "public" && cmt.authorKind === "requester" && cmt.body === "It's still dead. The light doesn't even come on." && cmt.authorLabel === null && all1.some((e) => e.kind === "state_change" && e.body === "resolved → open" && e.authorKind === "requester") && all1.filter((e) => e.kind === "resolution").length === 1, JSON.stringify(all1.map((e) => `${e.kind}:${e.authorKind}:${e.body.slice(0, 20)}`)));
+    const oldest1 = await oldestUnansweredRequesterComment(schema);
+    check("D276's clock STARTED: oldestUnansweredRequesterComment() names this ticket — the indicator has its writer", oldest1?.reference === ref && oldest1.since instanceof Date, JSON.stringify(oldest1));
+    const c2 = await (await post(`/v1/ticket/${ref}/comment`, { body: "Also the door won't open." })).json();
+    check("a second comment on the now-OPEN ticket -> 200, reopened: false, state open", c2.ok === true && c2.reopened === false && c2.state === "open" && c2.from === "open");
+    check("…and the clock did NOT restart: the oldest unanswered is still the first comment's moment", (await oldestUnansweredRequesterComment(schema)).since.getTime() === oldest1.since.getTime());
+    check("the hub stamps no notified_at on the requester's OWN comments when the endpoint reads them — it wrote them", (await (await asDevice(`/v1/tickets/${ref}`)).json()).entries.filter((e) => e.kind === "comment" && e.authorKind === "requester").every((e) => e.notifiedAt === null));
+
+    // D287: the desk replies; the clock stops; the reply is handed over on the next read.
+    const replied = await replyToRequester(schema, ref, { body: "Thanks - an engineer is on the way this afternoon.", author: desk });
+    check("replyToRequester() writes a PUBLIC comment in the console user's name and STOPS the clock", Boolean(replied?.id) && (await oldestUnansweredRequesterComment(schema)) === null && (await listEntries(schema, ref, { visibility: "public" })).some((e) => e.kind === "comment" && e.authorKind === "console_user" && e.authorLabel === made.owner.email));
+    const withReply = await (await asDevice(`/v1/tickets/${ref}`)).json();
+    check("…and it reaches the endpoint on its next read, stamped notified", withReply.entries.some((e) => e.authorKind === "console_user" && e.kind === "comment" && e.notifiedAt !== null) && withReply.handed === 1);
+    check("addEntry() REFUSES a comment: a comment is a transition with two named writers (D286)", await addEntry(schema, ref, { kind: "comment", body: "x", author: desk }).then(() => false, (e) => /D286/.test(e.message)));
+    check("replyToRequester() refuses a non-console author", await replyToRequester(schema, ref, { body: "x", author: { kind: "system", label: "cli" } }).then(() => false, (e) => /console_user/.test(e.message)));
+
+    // Reopen needs a resolved ticket and a reason; confirm needs a resolved ticket.
+    check("POST reopen on an OPEN ticket -> 409 naming the state and pointing at /comment", (await (async () => { const r = await post(`/v1/ticket/${ref}/reopen`, { reason: "x" }); return r.status === 409 && /not resolved/.test((await r.json()).error); })()));
+    check("POST reopen without a reason -> 400 saying so", (await (async () => { const r = await post(`/v1/ticket/${ref}/reopen`, {}); return r.status === 400 && /reason/.test((await r.json()).error); })()));
+    check("POST confirm on an OPEN ticket -> 409: only a resolved ticket can be confirmed, and nothing moved", (await post(`/v1/ticket/${ref}/confirm`)).status === 409 && (await getTicket(schema, ref)).state === "open");
+    check("POST comment with no words -> 400", (await post(`/v1/ticket/${ref}/comment`, { body: "   " })).status === 400);
+    await resolveTicket(schema, ref, { code: "fixed", notes: "P4: second attempt.", from: "open", author: desk });
+    const ro = await (await post(`/v1/ticket/${ref}/reopen`, { reason: "Nope. Same fault." })).json();
+    check("POST reopen on a RESOLVED ticket -> 200, reopened: true — the same transition as a comment, the reason recorded as the comment", ro.ok === true && ro.reopened === true && ro.state === "open" && (await listEntries(schema, ref, { visibility: "public" })).some((e) => e.kind === "comment" && e.body === "Nope. Same fault."), JSON.stringify(ro));
+
+    // Confirm closes, by the requester, keeping the resolution.
+    await replyToRequester(schema, ref, { body: "New cable fitted.", author: desk });
+    await resolveTicket(schema, ref, { code: "fixed", notes: "P4: third attempt, new cable.", from: "open", author: desk });
+    const ok = await (await post(`/v1/ticket/${ref}/confirm`)).json();
+    const t2 = await getTicket(schema, ref);
+    check("POST confirm on a RESOLVED ticket -> 200 closed by requester; the row: closed, closed_by requester, closed_at set, the resolution KEPT, the clock cleared, and a state_change in the requester's name",
+      ok.ok === true && ok.state === "closed" && ok.closedBy === "requester" && t2.state === "closed" && t2.closedBy === "requester" && t2.closedAt instanceof Date && t2.resolutionCode === "fixed" && (await oldestUnansweredRequesterComment(schema)) === null && (await listEntries(schema, ref, { visibility: "public" })).some((e) => e.body === "resolved → closed" && e.authorKind === "requester"), JSON.stringify(ok));
+    const onClosed = await post(`/v1/ticket/${ref}/comment`, { body: "it broke again" });
+    const onClosedBody = await onClosed.json();
+    check("POST comment on a CLOSED ticket -> 409: read-only, and the sentence says to raise a new ticket with reopenedFrom naming this one", onClosed.status === 409 && /read-only/.test(onClosedBody.error) && onClosedBody.error.includes(`reopenedFrom: "${ref}"`) && onClosedBody.state === "closed", JSON.stringify(onClosedBody));
+    check("POST confirm on a CLOSED ticket -> 409 too", (await post(`/v1/ticket/${ref}/confirm`)).status === 409);
+    check("an unknown reference -> 404 'readable by this enrollment' for comment and confirm alike", (await post("/v1/ticket/MD-999999/comment", { body: "x" })).status === 404 && (await post("/v1/ticket/MD-999999/confirm")).status === 404);
+    const notMine = (await listTickets(schema)).find((t) => t.reference !== ref);
+    check("a ticket this enrollment did not file -> 404, the same sentence (no existence oracle)", Boolean(notMine) && (await post(`/v1/ticket/${notMine.reference}/comment`, { body: "x" })).status === 404);
+
+    // The write limit, the read limit's sibling.
+    resetWriteThrottle();
+    let last = 0;
+    for (let i = 0; i < WRITES_PER_MINUTE; i++) last = (await post(`/v1/ticket/${ref}/confirm`)).status;
+    const over = await post(`/v1/ticket/${ref}/confirm`);
+    check(`write ${WRITES_PER_MINUTE} in a minute is still answered (a 409 here); write ${WRITES_PER_MINUTE + 1} is 429 with retryAfterMs`, last === 409 && over.status === 429 && typeof (await over.json()).retryAfterMs === "number");
+    resetWriteThrottle();
   }
 
   console.log("\n=== 2. a read-only role cannot reach a page its role forbids ===");

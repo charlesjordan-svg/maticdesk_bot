@@ -107,13 +107,16 @@ export const KIND_VISIBILITY = Object.freeze({
 });
 
 /**
- * THE KINDS THIS BUILD WRITES. `comment` is refused until P4 ships the delivery path — a
+ * THE KINDS THIS BUILD WRITES. `comment` was refused until something could deliver one — a
  * requester-visible entry that reaches nobody is this project's signature defect (plan v3 §0
- * finding 8) and this list is what stops it being built by accident. `resolution` joined in P2
- * (D278): `resolveTicket()` writes one, public, with the requester-visible notes as its body.
- * test/admin-static.test.mjs §5d pins this list.
+ * finding 8) and this list is what stopped it being built by accident. `resolution` joined in P2
+ * (D278). `comment` joined in P4 (D286, 2026-09-12), the day the endpoint could poll for it: it is
+ * written by exactly two functions — `requesterComment()` (a TRANSITION, the requester's) and
+ * `replyToRequester()` (the console's, which stops D276's clock) — and `addEntry()` still refuses
+ * it, because a comment that only appended would be the one message here guaranteed to land where
+ * nobody is watching. test/admin-static.test.mjs §5d pins the list and the two writers.
  */
-export const WRITABLE_KINDS = Object.freeze(["work_note", "state_change", "resolution"]);
+export const WRITABLE_KINDS = Object.freeze(["work_note", "state_change", "resolution", "comment"]);
 
 export const ENTRY_AUTHOR_KINDS = ["requester", "console_user", "agent", "system"];
 
@@ -150,7 +153,11 @@ const shapeEntry = (r) => ({
   authorKind: r.author_kind,
   authorLabel: r.author_label ?? null,
   createdAt: r.created_at,
-  // notified_at and read_by_requester_at are NOT returned: P4's, reserved (admin-db §5c).
+  // D287's two stamps, both the HUB's clock: when the hub handed the entry to the endpoint
+  // (GET /v1/tickets/:ref), and when the endpoint acknowledged it was shown (POST /v1/tickets/ack).
+  // Null on internal entries and on the requester's own comments, which are never "delivered".
+  notifiedAt: r.notified_at ?? null,
+  readByRequesterAt: r.read_by_requester_at ?? null,
 });
 
 /**
@@ -164,7 +171,7 @@ const shapeEntry = (r) => ({
  */
 async function insertEntry(client, ticketId, { kind, body, author = SYSTEM_AUTHOR }) {
   if (!WRITABLE_KINDS.includes(kind)) {
-    throw new Error(`entry kind must be one of: ${WRITABLE_KINDS.join(", ")} in this build (comment arrives with P4's delivery path, resolution with P2's code); got ${JSON.stringify(kind)}`);
+    throw new Error(`entry kind must be one of: ${WRITABLE_KINDS.join(", ")}; got ${JSON.stringify(kind)}`);
   }
   if (!ENTRY_AUTHOR_KINDS.includes(author?.kind)) throw new Error(`author.kind must be one of: ${ENTRY_AUTHOR_KINDS.join(", ")}`);
   const text = typeof body === "string" ? body.trim().slice(0, 4000) : "";
@@ -191,6 +198,10 @@ async function insertEntry(client, ticketId, { kind, body, author = SYSTEM_AUTHO
  * @returns {Promise<{ id: string, createdAt: Date }|null>}
  */
 export async function addEntry(schema, reference, { kind, body, author }) {
+  // D286 (P4). A comment is a TRANSITION, not an append: the requester's goes through
+  // requesterComment() (it may reopen the ticket and starts D276's clock), the console's through
+  // replyToRequester() (it stops the clock). A comment written here would do neither.
+  if (kind === "comment") throw new Error("a comment is a transition, not an append (D286): a requester comments through requesterComment(), the console replies through replyToRequester(). addEntry() writes work notes.");
   return withTenant(schema, async (c) => {
     const { rows } = await c.query("SELECT id FROM tickets WHERE reference = $1", [reference]);
     if (!rows.length) return null;
@@ -217,7 +228,7 @@ export async function listEntries(schema, reference, { visibility }) {
   }
   return withTenant(schema, async (c) => {
     const { rows } = await c.query(
-      `SELECT e.id, e.kind, e.visibility, e.body, e.author_kind, e.author_label, e.created_at
+      `SELECT e.id, e.kind, e.visibility, e.body, e.author_kind, e.author_label, e.created_at, e.notified_at, e.read_by_requester_at
          FROM ticket_entries e JOIN tickets t ON t.id = e.ticket_id
         WHERE t.reference = $1 ${visibility === "public" ? "AND e.visibility = 'public'" : ""}
         ORDER BY e.created_at ASC, e.id ASC`,
@@ -230,8 +241,9 @@ export async function listEntries(schema, reference, { visibility }) {
 /**
  * D276's indicator: the oldest requester comment nobody has answered, as the moment it began
  * waiting — the console turns that into an AGE, never a count. Reads `tickets.awaiting_agent_since`
- * (tenant/006), which in this build has NO WRITER: no requester can comment until P4. So this
- * returns null today, and both ticket screens say why rather than drawing an empty cell.
+ * (tenant/006). Until P4 the column had NO WRITER and this returned null with both screens saying
+ * why; since D286 (2026-09-12) `requesterComment()` sets it — COALESCE, so a second comment does
+ * not restart the clock — and `replyToRequester()` and `confirmResolution()` clear it.
  *
  * @param {string} schema
  * @returns {Promise<{ reference: string, since: Date }|null>}
@@ -526,6 +538,189 @@ export async function listTicketsForRequester(schema, identity, { limit = 50 } =
 export async function listEntriesForRequester(schema, reference, identity) {
   if (!(await getTicketForRequester(schema, reference, identity))) return [];
   return listEntries(schema, reference, { visibility: "public" });
+}
+
+// ---- the requester's actions, and what the desk sends back (D286, D287; P4, 2026-09-12) ------------
+
+/**
+ * A requester's comment is a TRANSITION, not an append (D286; plan v3 §6.3, its "D255"). The comment
+ * has to change what the QUEUE looks like, because nothing can notify anyone (D86): a comment that
+ * only appended would be the one message in this store guaranteed to land where nobody is watching.
+ *
+ *   resolved     -> open. The desk said it was fixed; the requester says otherwise. The current
+ *                  resolution columns are cleared exactly as setTicketState() clears them on any
+ *                  move to a live state (the history stays in the timeline), and a `state_change`
+ *                  entry is written in the requester's name. `awaiting_agent_since` starts.
+ *   new, open    -> stays. `awaiting_agent_since` is set if it is not already running (COALESCE):
+ *                  D276's clock measures the OLDEST unanswered comment, so a second one does not
+ *                  restart it.
+ *   closed       -> REFUSED (D279: closed is terminal). The sentence says to raise a new ticket
+ *                  about it, with `reopenedFrom` naming this one, so the link survives.
+ *
+ * The ticket is locked (FOR UPDATE) and scoped to the requester's ENROLLMENT in the same SELECT
+ * (D284): another enrollment's reference is the same null as no ticket. `onlyFromResolved` is
+ * `POST /v1/ticket/:ref/reopen`'s shape — the same transition, requiring the ticket to be resolved,
+ * so "reopen" can never be a no-op comment on a live ticket by mistake.
+ *
+ * P5 WILL CANCEL THE AUTO-CLOSE JOB HERE. The `ticket.autoclose` job must be bound to the RESOLUTION
+ * it was enqueued for (D270's condition 2), and its refId is P5's to decide; the cancel belongs on
+ * the resolved -> open branch below and is written there when the job exists.
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ deviceId: string, body: string, onlyFromResolved?: boolean }} p
+ * @returns {Promise<{ from: string, to: string, entryId: string, reopened: boolean, awaitingSince: Date|null }|RefusedMove|null>}
+ */
+export async function requesterComment(schema, reference, { deviceId, body, onlyFromResolved = false } = {}) {
+  const dev = requesterDeviceId("requesterComment", { deviceId });
+  const text = typeof body === "string" ? body.trim().slice(0, 4000) : "";
+  if (!text) throw new Error("a requester comment needs words");
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      "SELECT id, state, user_id FROM tickets WHERE reference = $1 AND device_id = $2::uuid FOR UPDATE",
+      [reference, dev],
+    );
+    if (!rows.length) return null;
+    const t = rows[0];
+    if (t.state === "closed") {
+      return { refused: `${reference} is closed, and a closed ticket is read-only (D279). If the problem is back, raise a new ticket about it - POST /v1/ticket with reopenedFrom: "${reference}" - so the two are linked. Nothing was changed.`, state: "closed" };
+    }
+    if (onlyFromResolved && t.state !== "resolved") {
+      return { refused: `${reference} is ${t.state}, not resolved: there is no resolution to reopen. A comment on a live ticket is POST /v1/ticket/${reference}/comment. Nothing was changed.`, state: t.state };
+    }
+    // The requester as author: the tenant's users row by id, no label — the console glosses the
+    // kind as "the requester" rather than showing a self-asserted name as if it were verified.
+    const who = { kind: "requester", userId: t.user_id, label: null };
+    const entry = await insertEntry(c, t.id, { kind: "comment", body: text, author: who });
+    let to = t.state;
+    if (t.state === "resolved") {
+      await c.query(
+        `UPDATE tickets
+            SET state = 'open', updated_at = now(),
+                resolution_code = NULL, resolution_notes = NULL, resolved_at = NULL,
+                closed_at = NULL, closed_by = NULL,
+                awaiting_agent_since = COALESCE(awaiting_agent_since, now())
+          WHERE id = $1`,
+        [t.id],
+      );
+      await insertEntry(c, t.id, { kind: "state_change", body: "resolved → open", author: who });
+      to = "open";
+      // P5: cancel the ticket.autoclose job bound to the resolution just undone — here.
+    } else {
+      await c.query("UPDATE tickets SET updated_at = now(), awaiting_agent_since = COALESCE(awaiting_agent_since, now()) WHERE id = $1", [t.id]);
+    }
+    const { rows: [after] } = await c.query("SELECT awaiting_agent_since FROM tickets WHERE id = $1", [t.id]);
+    return { from: t.state, to, entryId: entry.id, reopened: t.state === "resolved", awaitingSince: after.awaiting_agent_since ?? null };
+  });
+}
+
+/**
+ * The requester confirms the fix (D286): resolved -> closed, `closed_by = 'requester'`, the
+ * resolution KEPT (a closed ticket's code is the point, D278), D276's clock cleared — nobody is
+ * waiting on the desk any more. Guarded in the UPDATE like every other move (D280): only a
+ * `resolved` ticket of THIS enrollment closes; anything else is a refusal naming the state now.
+ *
+ * P5 WILL CANCEL THE AUTO-CLOSE JOB HERE TOO: a confirmed closure makes the timer moot.
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ deviceId: string }} identity
+ * @returns {Promise<{ from: "resolved", to: "closed", closedBy: "requester" }|RefusedMove|null>}
+ */
+export async function confirmResolution(schema, reference, { deviceId } = {}) {
+  const dev = requesterDeviceId("confirmResolution", { deviceId });
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      `UPDATE tickets t
+          SET state = 'closed', updated_at = now(), closed_at = now(), closed_by = 'requester', awaiting_agent_since = NULL
+         FROM (SELECT id, state AS was, user_id FROM tickets WHERE reference = $1 AND device_id = $2::uuid FOR UPDATE) prev
+        WHERE t.id = prev.id AND t.state = 'resolved'
+        RETURNING t.id, prev.user_id`,
+      [reference, dev],
+    );
+    if (!rows.length) {
+      const { rows: r2 } = await c.query("SELECT state FROM tickets WHERE reference = $1 AND device_id = $2::uuid", [reference, dev]);
+      if (!r2.length) return null;
+      return { refused: `${reference} is ${r2[0].state}, not resolved: only a resolved ticket can be confirmed fixed. Nothing was changed.`, state: r2[0].state };
+    }
+    await insertEntry(c, rows[0].id, { kind: "state_change", body: "resolved → closed", author: { kind: "requester", userId: rows[0].user_id, label: null } });
+    // P5: cancel the ticket.autoclose job bound to this resolution — here.
+    return { from: "resolved", to: "closed", closedBy: "requester" };
+  });
+}
+
+/**
+ * The desk replies to the requester (D287): a PUBLIC `comment` in the console user's name, and
+ * D276's clock STOPS — the oldest unanswered requester comment is answered. One transaction, so the
+ * entry and the cleared clock cannot disagree. This is the console's second composer, the one P1
+ * refused to build until something could deliver what it wrote; since D282 the endpoint polls for
+ * it, and the composer's copy says exactly how far that reaches (in-app, while the app is open —
+ * not email).
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ body: string, author: EntryAuthor }} r  author.kind must be console_user
+ * @returns {Promise<{ id: string, createdAt: Date }|null>}
+ */
+export async function replyToRequester(schema, reference, { body, author }) {
+  if (author?.kind !== "console_user") throw new Error("replyToRequester() is the console's: author.kind must be console_user (a requester's comment is requesterComment(), a transition)");
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query("SELECT id FROM tickets WHERE reference = $1 FOR UPDATE", [reference]);
+    if (!rows.length) return null;
+    const entry = await insertEntry(c, rows[0].id, { kind: "comment", body, author });
+    await c.query("UPDATE tickets SET awaiting_agent_since = NULL, updated_at = now() WHERE id = $1", [rows[0].id]);
+    return entry;
+  });
+}
+
+/**
+ * The hub HANDS the desk's public entries to the endpoint (D287): `notified_at` is stamped, by the
+ * hub's clock, on every public entry of THIS enrollment's ticket that the requester did not write
+ * and that has not been handed over before. Called by `GET /v1/tickets/:reference` before it lists
+ * the entries, so the rows the endpoint receives already carry the stamp. Never client-sent.
+ *
+ * @returns {Promise<number>} how many entries were stamped now
+ */
+export async function markEntriesNotified(schema, reference, { deviceId } = {}) {
+  const dev = requesterDeviceId("markEntriesNotified", { deviceId });
+  return withTenant(schema, async (c) => {
+    const { rowCount } = await c.query(
+      `UPDATE ticket_entries e SET notified_at = now()
+         FROM tickets t
+        WHERE e.ticket_id = t.id AND t.reference = $1 AND t.device_id = $2::uuid
+          AND e.visibility = 'public' AND e.author_kind <> 'requester' AND e.notified_at IS NULL`,
+      [reference, dev],
+    );
+    return rowCount;
+  });
+}
+
+/**
+ * The endpoint ACKNOWLEDGES that it SHOWED entries (D287): `read_by_requester_at` is stamped, by
+ * the hub's clock, on the public entries named — and only those that belong to THIS enrollment's
+ * tickets and were not already acknowledged. An id from another enrollment's ticket stamps nothing
+ * and is not reported as a miss: the count is what was stamped, and that is all the endpoint needs.
+ * The timestamp is the hub's, never the client's (plan v3 §7.1: "hub-stamped on ack, never
+ * client-sent").
+ *
+ * @param {string} schema
+ * @param {{ deviceId: string, entryIds: string[] }} p
+ * @returns {Promise<number>} how many entries were acknowledged now
+ */
+export async function ackEntries(schema, { deviceId, entryIds } = {}) {
+  const dev = requesterDeviceId("ackEntries", { deviceId });
+  const ids = (Array.isArray(entryIds) ? entryIds : []).filter((x) => typeof x === "string" && UUID.test(x)).slice(0, 200);
+  if (!ids.length) return 0;
+  return withTenant(schema, async (c) => {
+    const { rowCount } = await c.query(
+      `UPDATE ticket_entries e SET read_by_requester_at = now()
+         FROM tickets t
+        WHERE e.ticket_id = t.id AND t.device_id = $1::uuid AND e.id = ANY($2::uuid[])
+          AND e.visibility = 'public' AND e.read_by_requester_at IS NULL`,
+      [dev, ids],
+    );
+    return rowCount;
+  });
 }
 
 /**
