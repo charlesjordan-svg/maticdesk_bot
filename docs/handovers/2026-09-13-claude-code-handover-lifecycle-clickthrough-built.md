@@ -42,10 +42,18 @@ closes.
 
 ---
 
-## 2. BUILT UNDER FREE REIN — NEEDS RATIFICATION
+## 2. BUILT UNDER FREE REIN — D290 AND D291 RATIFIED THE SAME DAY; D292 STILL THE FOUNDER'S
 
-Three decisions, all **PROPOSED**, all at the top because a founder-shaped decision buried in a diff
-is the thing §7.3 forbids.
+> **Answered 2026-09-13.** Charles read this section and the scorecard in a Cowork session and said
+> **"Do the recommended"**. **D290 and D291 are RATIFIED** — register §5.60c, and their rows there now
+> say so. `MAX_AUTOCLOSE_REARMS` = 3 and the 72-hour interval are ratified **as proposals carried into
+> a ratified decision**, not as measurements: at the default that is nine days before a person is told
+> the desk could not reach someone, and it is a judgement, revisable by decision. **D292 was not
+> ratified and was not meant to be.** The three rows below are left exactly as they were written,
+> before the answer, because that is the record.
+
+Three decisions, all **PROPOSED when this was written**, all at the top because a founder-shaped
+decision buried in a diff is the thing §7.3 forbids.
 
 ### D290 — the auto-close clock starts at DELIVERY, not at resolution
 
