@@ -1,18 +1,18 @@
 {
   "summary": {
-    "runId": "20260913085305",
-    "at": "2026-09-13T08:53:19.831Z",
+    "runId": "20260913091328",
+    "at": "2026-09-13T09:13:42.871Z",
     "tenant": "clickthrough",
-    "canary": "INTERNAL-CANARY-20260913085305",
+    "canary": "INTERNAL-CANARY-20260913091328",
     "tests": 59,
-    "passed": 51,
-    "failed": 8,
+    "passed": 59,
+    "failed": 0,
     "notRun": 0,
     "assertions": {
-      "passed": 169,
-      "failed": 14
+      "passed": 185,
+      "failed": 0
     },
-    "wireResponsesCaptured": 151
+    "wireResponsesCaptured": 153
   },
   "tests": [
     {
@@ -41,11 +41,9 @@
       "surface": "console",
       "proves": "the session outcome is a deflection (D89 counts SESSIONS) and the console's deflection surface reflects it",
       "eyes": "console",
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 5,
-      "failed": [
-        "the console's Metrics page shows a deflection FIGURE, not 'cannot be computed' — Deflection"
-      ]
+      "failed": []
     },
     {
       "id": "T1.4",
@@ -73,12 +71,9 @@
       "surface": "console",
       "proves": "the ticket lands in the console queue with provenance (device_key_id, os_username) and state = new",
       "eyes": "console",
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 5,
-      "failed": [
-        "the detail page names the enrollment the Agents page lists — the device KEY, not only an internal uuid — device <span class=\"mono\">d3c4fb29-5c33-4a61-a5f0-de42af856900",
-        "with the profile source GLOSSED in words, not shown as a raw enum (D244's rule, on the console) — self_asserted"
-      ]
+      "failed": []
     },
     {
       "id": "T2.3",
@@ -236,11 +231,9 @@
       "surface": "console",
       "proves": "suggested_owner routes nothing and NO surface implies it does",
       "eyes": "console",
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 3,
-      "failed": [
-        "the console calls it a suggestion and says it routes nothing —  \n     \n   \n \n \n \n   \n     Routing \n     \n       Category  other \n       Suggested owner  desktop support \n       Machine  LAPTOP-CT-A \n       Session  none — the endpoint creates no sessions yet (D75) \n       Follow-up to   none  \n     \n   \n   \n     Reporter \n     \n       Name  ct."
-      ]
+      "failed": []
     },
     {
       "id": "T4.5",
@@ -339,7 +332,7 @@
       "proves": "the second handler run twice writes nothing the second time (D270, re-proven end to end)",
       "eyes": null,
       "result": "PASS",
-      "checks": 2,
+      "checks": 3,
       "failed": []
     },
     {
@@ -448,12 +441,9 @@
       "surface": "both",
       "proves": "THE FRIDAY/TUESDAY TEST: a resolution the requester was never shown does not close the ticket",
       "eyes": "both",
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 3,
-      "failed": [
-        "THE TICKET DOES NOT CLOSE: a resolution the requester was never shown is not consent — state is closed, closed_by auto — a ticket closed on a notice nobody could receive (D290)",
-        "and when the client finally starts, the requester is shown the resolution — not a closure — state closed"
-      ]
+      "failed": []
     },
     {
       "id": "T8.6",
@@ -461,13 +451,9 @@
       "surface": "hub",
       "proves": "a resolution with read_by_requester_at unstamped does not close; the handler re-arms and says so",
       "eyes": null,
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 3,
-      "failed": [
-        "a resolution with read_by_requester_at unstamped does not close the ticket",
-        "and the handler says so — it names delivery, not the binding",
-        "it RE-ARMS rather than giving up: the ticket is still bound to a live job — [[\"863\",\"queued\"]]"
-      ]
+      "failed": []
     },
     {
       "id": "T8.7",
@@ -475,12 +461,9 @@
       "surface": "hub",
       "proves": "a delivered and acked resolution closes on the interval measured FROM THE ACK, not from resolved_at",
       "eyes": null,
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 3,
-      "failed": [
-        "once the resolution is delivered and acked, a clock exists — [\"2026-09-13T08:53:14.819Z\",null]",
-        "and it is measured from the ACK, not from resolved_at — resolved_at 2026-09-13T08:53:14.703Z, read Sun Sep 13 2026 01:53:14 GMT-0700 (Pacific Daylight Time), due undefined"
-      ]
+      "failed": []
     },
     {
       "id": "T8.8",
@@ -488,12 +471,9 @@
       "surface": "console",
       "proves": "an undelivered resolution does not re-arm forever: the backstop fires and it surfaces as 'resolved, never delivered'",
       "eyes": "console",
-      "result": "FAIL",
+      "result": "PASS",
       "checks": 3,
-      "failed": [
-        "and it does not close the ticket either: it stays resolved for a human — state closed",
-        "the console surfaces it as resolved and never delivered — a queue item for a person — no such surface"
-      ]
+      "failed": []
     },
     {
       "id": "T9.1",
@@ -621,11 +601,9 @@
       "surface": "hub",
       "proves": "a hub restart mid-job leaves NO row stuck running (the reaper)",
       "eyes": null,
-      "result": "FAIL",
-      "checks": 3,
-      "failed": [
-        "the reaper returns it to the queue rather than leaving it stuck running — [\"queued\"]"
-      ]
+      "result": "PASS",
+      "checks": 4,
+      "failed": []
     }
   ]
 }

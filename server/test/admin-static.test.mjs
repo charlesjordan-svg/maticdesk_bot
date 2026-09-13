@@ -388,8 +388,12 @@ console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and 
   // here rather than excluded silently: an exception a rule does not mention is a rule that has
   // quietly stopped applying.
   const sqlPages = pageFiles.filter((f) => /\.query\(/.test(jsCode(readFileSync(f, "utf8")))).map(rel);
-  check("metrics.js is still the only page that issues SQL at all",
-    sqlPages.length === 1 && sqlPages[0] === "src/admin/pages/metrics.js", sqlPages.join(","));
+  // 2026-09-13: metrics.js was the one exception and no longer is. It had its own SELECT over the
+  // sessions table while outcomeCounts() and deflectionOf() sat in src/sessions/store.js - which is
+  // how a page comes to say a number cannot be computed while the store computes it. NO page issues
+  // SQL now, so this is the stronger statement rather than the named exception.
+  check("NO admin page issues SQL at all - every figure on every page comes from a store (D224)",
+    sqlPages.length === 0, sqlPages.join(","));
   check("no admin page imports the retrieval legs directly — the composition in kb-search.js is the console's one definition of a search",
     pageFiles.every((f) => !/from "[^"]*kb\/retrieve\.js"/.test(jsCode(readFileSync(f, "utf8")))));
   check("the console's ingest goes through ingestAndEmbed() in src/kb/ingest.js",
@@ -467,11 +471,28 @@ console.log("\n=== 5g. auto-close (P5, D289): bound to the resolution, cancelled
   check("resolveTicket() binds the fresh resolution to ONE job inside its transaction, after the UPDATE, and returns the instant",
     /RETURNING t\.id, prev\.was, t\.resolved_at/.test(qCode) && /const \{ autoCloseAt \} = await scheduleAutoclose\(c, \{ schema, ticketId: rows\[0\]\.id, resolvedAt: rows\[0\]\.resolved_at \}\);/.test(qCode) && /return \{ from: was, to: "resolved", code, noted: trimmed !== null, autoCloseAt \};/.test(qCode));
   check("scheduleAutoclose(): reads the tenant's hours, cancels any queued job for the ticket FIRST, enqueues at resolved_at + hours, writes id and instant on the row; off -> both null and nothing enqueued",
-    /const hours = await autocloseHoursForSchema\(schema\);\s*await cancelJobsFor\(AUTOCLOSE_JOB, ticketId\);/.test(qCode) && /if \(hours === null\) \{\s*await c\.query\("UPDATE tickets SET auto_close_at = NULL, auto_close_job_id = NULL WHERE id = \$1"/.test(qCode) && /hours \* 3_600_000/.test(qCode) && /enqueue\(\{ type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId, runAfter: at \}\)/.test(qCode) && /SET auto_close_at = \$2, auto_close_job_id = \$3::bigint WHERE id = \$1/.test(qCode));
+    /const hours = await autocloseHoursForSchema\(schema\);\s*await cancelJobsFor\(AUTOCLOSE_JOB, ticketId\);/.test(qCode) && /if \(hours === null\) \{\s*await c\.query\("UPDATE tickets SET auto_close_at = NULL, auto_close_job_id = NULL WHERE id = \$1"/.test(qCode) && /hours \* 3_600_000/.test(qCode) && /enqueue\(\{ type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId, runAfter: at \}\)/.test(qCode) && /SET auto_close_at = \$2, auto_close_job_id = \$3::bigint,\s*auto_close_rearms = 0, resolution_undelivered_at = NULL/.test(qCode));
+  // D290. TWO functions bind a clock now, and the difference between them IS the decision: one
+  // runs from when the desk wrote the resolution, one from when the requester was SHOWN it.
+  check("rearmAutoclose() binds the clock to a moment passed IN, so one function serves the ack (from the moment they saw it) and the re-arm (from now)",
+    /async function rearmAutoclose\(c, \{ schema, ticketId, from, attempt \}\)/.test(qCode) && /new Date\(from\)\.getTime\(\) \+ hours \* 3_600_000/.test(qCode) && /auto_close_rearms = \$4, resolution_undelivered_at = NULL/.test(qCode));
+  check("ARM ON ACK: acknowledging a resolution re-arms that ticket's clock FROM the acknowledgement, and only the FIRST ack can, because the UPDATE stamps only a null column",
+    /RETURNING e\.ticket_id, e\.kind, e\.read_by_requester_at/.test(qCode) && /rows\.filter\(\(x\) => x\.kind === "resolution"\)/.test(qCode) && /rearmAutoclose\(c, \{ schema, ticketId: t\[0\]\.id, from: r\.read_by_requester_at, attempt: 0 \}\)/.test(qCode) && /e\.read_by_requester_at IS NULL/.test(qCode));
+  check("the delivery the gate reads is read_by_requester_at on the CURRENT resolution entry - the newest written at or after resolved_at, so an EARLIER resolution the requester did see cannot close this one",
+    /async function currentResolutionDelivery\(c, ticketId, resolvedAt\)/.test(qCode) && /kind = 'resolution' AND created_at >= \$2::timestamptz/.test(qCode) && /ORDER BY created_at DESC, id DESC LIMIT 1/.test(qCode));
   check("EVERY way out of resolved clears the binding in its UPDATE and withdraws the job: requesterComment (reopen), confirmResolution, setTicketState",
-    (qCode.match(/auto_close_at = NULL, auto_close_job_id = NULL/g) ?? []).length >= 5 && (qCode.match(/await cancelJobsFor\(AUTOCLOSE_JOB, /g) ?? []).length === 4 && /if \(was === "resolved"\) await cancelJobsFor\(AUTOCLOSE_JOB, rows\[0\]\.id\);/.test(qCode));
+    (qCode.match(/auto_close_at = NULL, auto_close_job_id = NULL/g) ?? []).length >= 5 && (qCode.match(/await cancelJobsFor\(AUTOCLOSE_JOB, /g) ?? []).length >= 4 && /if \(was === "resolved"\) await cancelJobsFor\(AUTOCLOSE_JOB, rows\[0\]\.id\);/.test(qCode));
+  check("…and clears D290's two columns with it: a new resolution is a fresh attempt to reach the requester, and a ticket that has left resolved carries no verdict about delivery",
+    (qCode.match(/auto_close_rearms = 0, resolution_undelivered_at = NULL/g) ?? []).length >= 4);
   check("closeByAutoclose() is the handler's one write and it is guarded on state, the job id AND the due instant, in the WHERE (D280's rule, D270's contract)",
-    /export async function closeByAutoclose\(c, \{ ticketId, jobId, author \}\)/.test(qCode) && /WHERE t\.id = prev\.id AND t\.state = 'resolved' AND t\.auto_close_job_id = \$2::bigint AND t\.auto_close_at <= now\(\)/.test(qCode) && /closed_by = 'auto'/.test(qCode));
+    /export async function closeByAutoclose\(c, \{ schema, ticketId, jobId, author, maxRearms = 3 \}\)/.test(qCode) && /WHERE t\.id = \$1::uuid AND t\.state = 'resolved' AND t\.auto_close_job_id = \$2::bigint AND t\.auto_close_at <= now\(\)/.test(qCode) && /closed_by = 'auto'/.test(qCode) && /FOR UPDATE/.test(qCode));
+  // D290 - THE FOURTH CONDITION, and the one the click-through's T8.5 was written to catch.
+  check("…and it does not close at all until the resolution has been DELIVERED: the gate is read_by_requester_at, not notified_at - handed to an app is not shown to a person",
+    /if \(!delivery\?\.readByRequesterAt\)/.test(qCode) && /const delivery = await currentResolutionDelivery\(c, t\.id, t\.resolved_at\);/.test(qCode));
+  check("…undelivered RE-ARMS rather than closing or failing, and gives up out loud after maxRearms rather than waiting forever",
+    /if \(attempt > maxRearms\)/.test(qCode) && /resolution_undelivered_at = now\(\)/.test(qCode) && /gaveUp: true/.test(qCode) && /rearmed: true/.test(qCode));
+  check("…and the console has a reader for the give-up list, so 'resolved, never delivered' is a queue item and not only a column",
+    /export async function listUndeliveredResolutions\(schema\)/.test(qCode) && /state = 'resolved' AND resolution_undelivered_at IS NOT NULL/.test(qCode) && /listUndeliveredResolutions/.test(read("src/admin/pages/tickets.js")));
   check("…and a miss returns a sentence rather than throwing - the four reasons, each named", /is \$\{t\.state\}, not resolved/.test(qCode) && /not bound to any job/.test(qCode) && /NEWER resolution bound to job/.test(qCode) && /is not due until/.test(qCode));
   check("the job type is ONE constant, exported from query.js and re-exported by autoclose.js; nothing spells the string twice", (q.match(/"ticket\.autoclose"/g) ?? []).length === 1 && !/"ticket\.autoclose"/.test(acJs) && /export \{ AUTOCLOSE_JOB \};/.test(acJs));
   check("no P5 placeholder comment survives in query.js", !/P5 WILL CANCEL|P5: cancel the ticket\.autoclose job/.test(q));
@@ -552,8 +573,10 @@ console.log("\n=== 6a. the Agents page's premise is pinned to the CLIENT's behav
 
 console.log("\n=== 7. transcripts: no console route reads session content (exit criterion 4, D154) ===");
 const sessionReaders = adminFiles.filter((f) => /FROM sessions/.test(jsCode(readFileSync(f, "utf8"))));
-check("the only admin file that reads `sessions` is metrics.js, and it selects counts only",
-  sessionReaders.length === 1 && rel(sessionReaders[0]) === "src/admin/pages/metrics.js" && !/SELECT \*|SELECT s\.\*/.test(jsCode(read("src/admin/pages/metrics.js"))), sessionReaders.map(rel).join(","));
+check("NO admin file reads `sessions` directly - the console asks the sessions store for counts and gets counts, so exit criterion 4 is structural rather than a promise about one SELECT",
+  sessionReaders.length === 0, sessionReaders.map(rel).join(","));
+check("…and the readers it uses return counts and a ratio, never a row with content in it",
+  /import \{ outcomeCounts, deflectionOf \} from "\.\.\/\.\.\/sessions\/store\.js"/.test(read("src/admin/pages/metrics.js")) && !/listSessions|getSession/.test(jsCode(read("src/admin/pages/metrics.js"))));
 check("no admin route pattern mentions sessions or transcripts", pageFiles.every((f) => !/route\("(GET|POST)", [^,]*(session|transcript)/i.test(readFileSync(f, "utf8"))));
 check("tiers.js refuses the unescalated tier unconditionally (no 'unless')", /case "unescalated":\s*return \{ allowed: false/.test(jsCode(read("src/admin/tiers.js"))));
 

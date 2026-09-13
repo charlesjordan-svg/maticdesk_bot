@@ -52,6 +52,7 @@ import { html, notYet, empty, when, ago, csrfField, limit } from "../html.js";
 import { route } from "../route.js";
 import {
   countTicketsByState, getTicket, listTickets, setTicketState, resolveTicket, NEXT_STATES, TICKET_STATES,
+  listUndeliveredResolutions,
   RESOLUTION_CODES, RESOLUTION_CODE_WORDS, addEntry, listEntries, oldestUnansweredRequesterComment, replyToRequester,
 } from "../../tickets/query.js";
 import { autocloseSetting, setAutocloseHours, DEFAULT_AUTOCLOSE_HOURS, MAX_AUTOCLOSE_HOURS } from "../../tickets/autoclose.js";
@@ -165,6 +166,18 @@ function timelinePanel(ctx, t, entries) {
 </div>`;
 }
 const owner = (o) => o ? o.replace(/_/g, " ") : html`<span class="muted">unrouted</span>`;
+/**
+ * `users.profile_source` in words. Every other closed enum on this page is glossed —
+ * RESOLUTION_CODE_WORDS, CLOSED_BY_WORDS, KIND_WORDS — and this one was the exception, rendering as
+ * `self_asserted` beside them. D244's rule is written for the end-user panel; the argument holds
+ * here for the same reason it holds there: a stored value is not a sentence, and an operator
+ * reading a column name is reading the schema rather than the fact.
+ */
+const PROFILE_SOURCE_WORDS = Object.freeze({
+  self_asserted: "self-asserted — typed or read from the machine by the endpoint, believed by nobody",
+  directory: "from the company directory",
+  admin_entered: "entered by an administrator",
+});
 const category = (c) => c.replace(/_/g, " ");
 
 /**
@@ -197,10 +210,38 @@ function autocloseSettingPanel(ctx, hours, notice) {
 /** The sentence a resolved ticket carries about its own future (D289). */
 function autocloseWords(t, hours) {
   if (t.state !== "resolved") return "";
+  // D290's end state, and the one that needs a person. Said first, because a desk agent scanning
+  // this page needs to know the requester never saw the resolution before anything else about it.
+  if (t.resolutionUndeliveredAt) {
+    return html`<p class="flash" style="font-size:13px"><strong>Resolved, never delivered.</strong> This resolution has never been shown to the requester — their Matic Desk has not been open and polling since it was written ${ago(t.resolvedAt)}. Auto-close tried ${t.autoCloseRearms} time${t.autoCloseRearms === 1 ? "" : "s"} and <strong>gave up ${ago(t.resolutionUndeliveredAt)}</strong> rather than close a ticket nobody was shown (D290). It will not close on its own. Reach the person another way, or move the ticket yourself.</p>`;
+  }
   if (t.autoCloseAt) {
-    return html`<p class="muted" style="font-size:13px"><strong>Closes automatically ${when(t.autoCloseAt)}</strong> (${ago(t.autoCloseAt)}) unless the requester says otherwise before then: a comment from them reopens it, a confirmation closes it as theirs. The requester's Matic Desk shows this date.</p>`;
+    const delivery = t.autoCloseRearms > 0
+      ? html` The requester has <strong>not been shown it yet</strong>, so the clock has been re-armed ${t.autoCloseRearms} time${t.autoCloseRearms === 1 ? "" : "s"}: it closes only once their app has shown it to them (D290).`
+      : html` The clock runs from when their Matic Desk <strong>shows</strong> them the resolution, not from when you wrote it — a resolution nobody was shown never closes a ticket (D290).`;
+    return html`<p class="muted" style="font-size:13px"><strong>Closes automatically ${when(t.autoCloseAt)}</strong> (${ago(t.autoCloseAt)}) unless the requester says otherwise before then: a comment from them reopens it, a confirmation closes it as theirs.${delivery} The requester's Matic Desk shows this date.</p>`;
   }
   return html`<p class="muted" style="font-size:13px"><strong>Will not close on its own</strong>${hours === null ? " — auto-close is off for this tenant" : " — it was resolved while auto-close was off, or the binding was cleared"}. It stays resolved until the requester confirms or comments, or the desk moves it.</p>`;
+}
+
+/**
+ * D290's queue item for a person: the resolutions the hub could not get in front of anybody. Drawn
+ * only when there are some, above the filters, because an empty list is not news and a non-empty one
+ * is the only place the desk learns that a requester never saw an answer.
+ */
+function undeliveredPanel(rows) {
+  if (!rows.length) return "";
+  return html`<div class="panel">
+  <h2>Resolved, never delivered<span class="count">${rows.length}</span></h2>
+  <p class="muted" style="font-size:13px;margin:0 0 8px">Each of these was resolved, and the requester's Matic Desk has never been open and polling since — so they have not been shown the answer, and auto-close stopped rather than close a ticket nobody saw (D290). Nothing here is waiting on the requester; it is waiting on someone reaching them another way.</p>
+  <table><thead><tr><th>Ref</th><th>Resolved</th><th>Gave up</th><th>Intervals tried</th></tr></thead>
+  <tbody>${rows.map((r) => html`<tr>
+    <td class="mono"><a href="/admin/tickets/${r.reference}">${r.reference}</a></td>
+    <td title="${r.resolvedAt.toISOString()}">${when(r.resolvedAt)} <span class="muted">(${ago(r.resolvedAt)})</span></td>
+    <td title="${r.undeliveredSince.toISOString()}">${ago(r.undeliveredSince)}</td>
+    <td>${r.attempts}</td>
+  </tr>`)}</tbody></table>
+</div>`;
 }
 
 async function listPage(ctx) {
@@ -216,6 +257,7 @@ async function listPage(ctx) {
   const page = Math.min(Math.max(Number(ctx.url.searchParams.get("page")) || 1, 1), pages);
   const rows = await listTickets(schema, { state: filter, limit: PAGE, offset: (page - 1) * PAGE });
   const oldest = await oldestUnansweredRequesterComment(schema);
+  const undelivered = await listUndeliveredResolutions(schema);
   const hours = ctx.permissions.has("settings.read") ? await autocloseSetting({ tenantId: ctx.tenant.id }) : undefined;
   const autocloseNotice = ctx.url.searchParams.get("autoclose") === "set" ? "Auto-close interval changed for tickets resolved from now on." : ctx.url.searchParams.get("autoclose") === "off" ? "Auto-close turned off. Nothing already queued fires: a job finds its ticket's binding and, if the desk turns this back on later, only new resolutions are bound." : ctx.url.searchParams.get("autoclose") === "refused" ? "Not changed: the interval is a whole number of hours from 1 to 8760, or off." : null;
   const pageHref = (p) => `/admin/tickets?${filter ? `state=${filter}&` : ""}page=${p}`;
@@ -224,6 +266,7 @@ async function listPage(ctx) {
 <p class="lede">${total} in ${ctx.tenant.displayName}.</p>
 ${limit(NOBODY_EMAILED)}
 ${unansweredLimit(oldest)}
+${undeliveredPanel(undelivered)}
 <p class="filters"><strong>Show</strong><a href="/admin/tickets" class="${filter ? "" : "current"}">All<span class="n">${total}</span></a>${TICKET_STATES.map((s) => html`<a href="/admin/tickets?state=${s}" class="${filter === s ? "current" : ""}">${s}<span class="n">${counts[s]}</span></a>`)}</p>
 <div class="panel" style="padding:0 0 4px">
   ${rows.length ? html`
@@ -408,7 +451,9 @@ ${timelinePanel(ctx, t, entries)}
     <h2>Routing</h2>
     <dl class="kv">
       <dt>Category</dt><dd>${category(t.category)}</dd>
-      <dt>Suggested owner</dt><dd>${t.suggestedOwner ? owner(t.suggestedOwner) : html`<span class="muted">none — the model would not guess, and that is allowed</span>`}</dd>
+      <dt>Suggested owner</dt><dd>${t.suggestedOwner
+        ? html`${owner(t.suggestedOwner)} <div class="muted" style="font-size:12px">A suggestion from the model, and <strong>nothing routes on it</strong>: this ticket has not been sent to that team, nobody there has been told, and it is not assigned. Assignment is not built (OPEN-4).</div>`
+        : html`<span class="muted">none — the model would not guess, and that is allowed. Nothing routes on this field either way.</span>`}</dd>
       <dt>Machine</dt><dd class="mono">${t.machineName ?? "-"}</dd>
       <dt>Session</dt><dd class="muted">${t.sessionId ?? "none — the endpoint creates no sessions yet (D75)"}</dd>
       <dt>Follow-up to</dt><dd>${t.reopenedFrom ? html`<a class="mono" href="/admin/tickets/${t.reopenedFrom}">${t.reopenedFrom}</a> <span class="muted">— the requester raised this about a closed ticket (D286)</span>` : html`<span class="muted">none</span>`}</dd>
@@ -422,8 +467,8 @@ ${timelinePanel(ctx, t, entries)}
       <dt>Contact</dt><dd>${t.contactId ?? "-"}</dd>
       <dt>OS user</dt><dd class="mono">${t.osUsername ?? "-"}</dd>
       <dt>Identity</dt><dd>${t.deviceId
-        ? html`<strong>filed with an enrollment credential</strong> — device <span class="mono">${t.deviceId}</span>. That is a per-OS-user enrollment of the software (D282), not a person: the profile fields above are still <strong>${t.profileSource ?? "unknown"}</strong>. No attested logon SID (D148).`
-        : html`<strong>${t.profileSource ?? "unknown"}</strong> — not authenticated: filed with no enrollment credential (a loopback hub, or before tenant/008). No attested logon SID (D148).`}</dd>
+        ? html`<strong>filed with an enrollment credential</strong> — the enrollment <a class="mono" href="/admin/agents">${t.deviceKeyId ?? "(no longer listed)"}</a> <span class="muted mono">${t.deviceId}</span>. That is a per-OS-user enrollment of the software (D282), not a person: the profile fields above are still <strong>${PROFILE_SOURCE_WORDS[t.profileSource] ?? t.profileSource ?? "of unknown origin"}</strong>. No attested logon SID (D148).`
+        : html`<strong>${PROFILE_SOURCE_WORDS[t.profileSource] ?? t.profileSource ?? "of unknown origin"}</strong> — not authenticated: filed with no enrollment credential (a loopback hub, or before tenant/008). No attested logon SID (D148).`}</dd>
     </dl>
   </div>
 </div>

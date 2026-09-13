@@ -296,6 +296,13 @@ async function ageAwaiting(reference, hours) {
 const snake = (s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
 const autocloseHandler = createAutocloseHandler({ log: () => {} });
+/** Finish a job this file claimed by hand, so nothing is left `running` on the shared queue. */
+async function runOneClaimed(job) {
+  const { finish } = await import("../src/db/jobs.js");
+  await withTenant(job.tenantSchema, (c) => autocloseHandler(job, c));
+  await finish(job.id);
+}
+
 /** Run ONE autoclose job through the real runner. `ran` is "a job was claimed and finished". */
 const runJob = async (worker = `clickthrough-${RUN_ID}`) => {
   const job = await runOne(worker, async (j, c) => autocloseHandler(j, c), { types: [AUTOCLOSE_JOB] });
@@ -474,7 +481,7 @@ try {
     const after = await jobsFor(resolvedRow.id);
     check("T2.8", "confirm closes the ticket, closed_by the requester", confirm.body.ok === true && closed.state === "closed" && closed.closed_by === "requester", JSON.stringify(confirm.body).slice(0, 200));
     check("T2.8", "the desk's resolution stays on the record (D278)", closed.resolution_code === "fixed" && /replaced the docking station/i.test(closed.resolution_notes));
-    check("T2.8", "and the queued auto-close job is CANCELLED, not left to fire", queued.length === 1 && after.every((j) => j.status === "cancelled"), JSON.stringify(after.map((j) => j.status)));
+    check("T2.8", "and the queued auto-close job is CANCELLED, not left to fire", queued.filter((j) => j.status === "queued").length === 1 && after.every((j) => j.status === "cancelled"), JSON.stringify([queued.map((j) => j.status), after.map((j) => j.status)]));
 
     const entries = await listEntries(schema, spine, { visibility: "all" });
     const times = entries.map((e) => new Date(e.createdAt).getTime());
@@ -673,12 +680,16 @@ try {
     const stale = await autocloseHandlerVerdict(firstJob.id, reResolved.id);
     check("T6.4", "the first job, run by hand, closes nothing and says why", stale.closed === false && /NEWER resolution|not bound|is open/.test(stale.why), stale.why);
 
+    await epA.poll(ref); // D290: the requester is shown the resolution, which is what starts their clock
+    const armed = await row(ref);
+    const liveNow = (await jobsFor(armed.id)).find((j) => j.status === "queued");
+    check("T6.5", "showing the requester the re-resolution arms the clock from the moment they saw it (D290)", Boolean(liveNow) && String(armed.auto_close_job_id) === String(liveNow.id), JSON.stringify((await jobsFor(armed.id)).map((j) => [j.id, j.status])));
     await makeDue(ref);
     const first = await runJob();
     const closedRow = await row(ref);
     check("T6.5", "the second job, run once when due, closes the ticket", first.ran === true && closedRow.state === "closed" && closedRow.closed_by === "auto", JSON.stringify(first).slice(0, 200));
     const entriesBefore = (await listEntries(schema, ref, { visibility: "all" })).length;
-    const again = await autocloseHandlerVerdict(live.id, closedRow.id);
+    const again = await autocloseHandlerVerdict(liveNow.id, closedRow.id);
     const entriesAfter = (await listEntries(schema, ref, { visibility: "all" })).length;
     check("T6.5", "run TWICE, the second run writes nothing (D270's at-least-once, re-proven end to end)", again.closed === false && entriesAfter === entriesBefore, `${again.why}; ${entriesBefore} -> ${entriesAfter}`);
   }
@@ -1029,12 +1040,19 @@ const applyStart = renderer.indexOf("function applyHubStatus");
     await epA.poll(reaped);
     const reapedRow = await row(reaped);
     await makeDue(reaped);
-    const claimed = await claim("clickthrough-dying-hub", { types: [AUTOCLOSE_JOB] });
-    check("T10.6", "a claimed job is `running` while the hub holds it", claimed && (await jobsFor(reapedRow.id)).some((j) => j.status === "running"), JSON.stringify((await jobsFor(reapedRow.id)).map((j) => j.status)));
+    let claimed = null;
+    for (let i = 0; i < 20; i++) {
+      const c = await claim("clickthrough-dying-hub", { types: [AUTOCLOSE_JOB] });
+      if (!c) break;
+      if (String(c.refId) === String(reapedRow.id)) { claimed = c; break; }
+      await runOneClaimed(c); // somebody else's due job: run it properly rather than stranding it
+    }
+    check("T10.6", "a claimed job is running while the hub holds it", Boolean(claimed) && (await jobsFor(reapedRow.id)).some((j) => j.status === "running"), JSON.stringify((await jobsFor(reapedRow.id)).map((j) => [j.id, j.status])));
     // The hub dies here: no finish(), no fail(). TIME TRAVEL: age the claim past the stuck window.
     await withControl((c) => c.query("UPDATE control.job_queue SET locked_at = now() - interval '30 minutes' WHERE id = $1", [claimed.id]));
-    const reapedCount = await reapStuck({ olderThanMs: 10 * 60_000, maxAttempts: 5 });
-    check("T10.6", "the reaper returns it to the queue rather than leaving it stuck running", reapedCount >= 1 && (await jobsFor(reapedRow.id)).every((j) => j.status !== "running"), JSON.stringify((await jobsFor(reapedRow.id)).map((j) => j.status)));
+    const reapResult = await reapStuck({ olderThanMs: 10 * 60_000, maxAttempts: 5 });
+    check("T10.6", "the reaper returns THIS job to the queue rather than leaving it stuck running", reapResult.requeued.includes(String(claimed.id)) && (await jobsFor(reapedRow.id)).every((j) => j.status !== "running") && (await jobsFor(reapedRow.id)).some((j) => j.status === "queued"), `requeued ${JSON.stringify(reapResult)}: ${JSON.stringify((await jobsFor(reapedRow.id)).map((j) => [j.id, j.status]))}`);
+    check("T10.6", "and it is not failed instead — a hub that died mid-job did not do anything wrong", !reapResult.failed.includes(String(claimed.id)), JSON.stringify(reapResult.failed));
     const after = await runJob();
     check("T10.6", "and it runs to completion on the next tick — at-least-once, not at-most-once", after.ran === true && (await row(reaped)).state === "closed");
   }
@@ -1066,7 +1084,8 @@ async function autocloseHandlerVerdict(jobId, ticketId) {
   const { rows } = await withControl((c) => c.query("SELECT id, type, tenant_schema, ref_id FROM control.job_queue WHERE id = $1", [jobId]));
   const job = rows[0] ? { id: rows[0].id, type: rows[0].type, tenantSchema: rows[0].tenant_schema, refId: rows[0].ref_id } : { id: jobId, type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId };
   const { closeByAutoclose } = await import("../src/tickets/query.js");
-  return withTenant(schema, (c) => closeByAutoclose(c, { ticketId: job.refId ?? ticketId, jobId: job.id, author: AUTOCLOSE_AUTHOR }));
+  const { MAX_AUTOCLOSE_REARMS } = await import("../src/tickets/autoclose.js");
+  return withTenant(schema, (c) => closeByAutoclose(c, { schema, ticketId: job.refId ?? ticketId, jobId: job.id, author: AUTOCLOSE_AUTHOR, maxRearms: MAX_AUTOCLOSE_REARMS }));
 }
 
 

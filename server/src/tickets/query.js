@@ -35,6 +35,9 @@
 import { withTenant } from "../db/tenant.js";
 import { withControl } from "../db/pool.js";
 import { enqueue, cancelJobsFor } from "../db/jobs.js";
+// D224's sibling (admin-static §5b): control.devices is src/devices/enrollment.js's table, so the
+// ticket store ASKS for the enrollment's key rather than writing a second query for it.
+import { deviceKeyIdById } from "../devices/enrollment.js";
 
 export const TICKET_STATES = ["new", "open", "resolved", "closed"];
 
@@ -128,44 +131,180 @@ async function scheduleAutoclose(c, { schema, ticketId, resolvedAt }) {
   }
   const at = new Date(new Date(resolvedAt).getTime() + hours * 3_600_000);
   const jobId = await enqueue({ type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId, runAfter: at });
-  await c.query("UPDATE tickets SET auto_close_at = $2, auto_close_job_id = $3::bigint WHERE id = $1", [ticketId, at, jobId]);
+  // D290: a fresh resolution is a fresh attempt to reach the requester — the re-arm count and any
+  // previous "never delivered" verdict go with the resolution they were about.
+  await c.query(
+    `UPDATE tickets SET auto_close_at = $2, auto_close_job_id = $3::bigint,
+            auto_close_rearms = 0, resolution_undelivered_at = NULL
+      WHERE id = $1`,
+    [ticketId, at, jobId],
+  );
   return { autoCloseAt: at, jobId };
 }
 
 /**
- * The handler's one write (D289): resolved -> closed by 'auto', ONLY IF the ticket is still bound to
- * THIS job — `state = 'resolved' AND auto_close_job_id = $jobId AND auto_close_at <= now()` — in one
- * UPDATE, under the row lock, with a public `state_change` entry the requester's app shows. No row:
- * the world moved on (confirmed, reopened, moved by the desk, re-resolved with a newer job, or the
- * interval turned off before the binding was written) and the answer says which without throwing.
- * Run twice on one job, the second run finds the binding cleared by the first — D270's proof.
+ * D290 — RE-ARM. Move a resolved ticket's auto-close clock to `from + the tenant's interval`, and
+ * bind it to a new job. Two callers, and the difference between them is the whole of D290:
+ *
+ *   - `ackEntries()`, when the endpoint acknowledges SHOWING the resolution. `attempt` is 0: the
+ *     requester has seen it, the clock is theirs now, and it runs from the moment they saw it.
+ *   - `closeByAutoclose()`, when the clock came due and the resolution had NOT been shown.
+ *     `attempt` is the re-arm number, and at MAX_REARMS the caller gives up instead of calling this.
+ *
+ * The old job is withdrawn first, exactly as `scheduleAutoclose()` does, so one resolution is bound
+ * to one job at a time. Off for the tenant (hours null): the binding is cleared and nothing is
+ * enqueued — the same kill switch, reached from a different direction.
+ *
+ * @param {import("pg").PoolClient} c  inside withTenant
+ * @param {{ schema: string, ticketId: string, from: Date, attempt: number }} p
+ * @returns {Promise<{ autoCloseAt: Date|null, jobId: string|null }>}
+ */
+async function rearmAutoclose(c, { schema, ticketId, from, attempt }) {
+  const hours = await autocloseHoursForSchema(schema);
+  await cancelJobsFor(AUTOCLOSE_JOB, ticketId);
+  if (hours === null) {
+    await c.query("UPDATE tickets SET auto_close_at = NULL, auto_close_job_id = NULL WHERE id = $1", [ticketId]);
+    return { autoCloseAt: null, jobId: null };
+  }
+  const at = new Date(new Date(from).getTime() + hours * 3_600_000);
+  const jobId = await enqueue({ type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId, runAfter: at });
+  await c.query(
+    `UPDATE tickets SET auto_close_at = $2, auto_close_job_id = $3::bigint,
+            auto_close_rearms = $4, resolution_undelivered_at = NULL
+      WHERE id = $1`,
+    [ticketId, at, jobId, attempt],
+  );
+  return { autoCloseAt: at, jobId };
+}
+
+/**
+ * The delivery stamp on the resolution a ticket is CURRENTLY resolved by (D287/D290). The newest
+ * `resolution` entry written at or after `resolved_at` — a reopen clears `resolved_at` and a
+ * re-resolve writes a newer entry, so "newest at or after" is exactly the current one and never an
+ * earlier resolution the requester happened to have seen.
+ *
+ * `readByRequesterAt` is the one that counts. `notifiedAt` means the hub handed the entry to an
+ * app; `readByRequesterAt` means the app said it SHOWED it. Handed to an app is not shown to a
+ * person, and D290 is about the second.
+ *
+ * @returns {Promise<{ notifiedAt: Date|null, readByRequesterAt: Date|null }|null>} null when the
+ *   ticket carries no resolution entry at all — which is a resolution written before tenant/006
+ *   (or by a path that should not exist), and is treated as undelivered.
+ */
+async function currentResolutionDelivery(c, ticketId, resolvedAt) {
+  const { rows } = await c.query(
+    `SELECT notified_at, read_by_requester_at
+       FROM ticket_entries
+      WHERE ticket_id = $1::uuid AND kind = 'resolution' AND created_at >= $2::timestamptz
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [ticketId, resolvedAt],
+  );
+  if (!rows.length) return null;
+  return { notifiedAt: rows[0].notified_at ?? null, readByRequesterAt: rows[0].read_by_requester_at ?? null };
+}
+
+/**
+ * The handler's one write: resolved -> closed by 'auto'. FOUR conditions, not three (D289 + D290),
+ * all checked under the row lock:
+ *
+ *   1. the ticket is still `resolved`;
+ *   2. it is still bound to THIS job (`auto_close_job_id` = the job's own id) — D289's binding, which
+ *      is what makes a job run twice, or a job for a resolution since undone, do nothing;
+ *   3. `auto_close_at` has passed;
+ *   4. **the resolution was DELIVERED** — the resolution entry the ticket is currently resolved by
+ *      carries `read_by_requester_at` (D287): the endpoint said it SHOWED it to the requester.
+ *
+ * D290 IS THE FOURTH. Auto-close exists to convert SILENCE into consent. Before this it converted
+ * UNREACHABILITY into consent, which is a different fact and one this project has a standing
+ * position on: D238 gives the user's explicit "no, that did not fix it" its own timestamp precisely
+ * so that a non-answer is not recorded as a "no". The same reasoning in reverse — a notice nobody
+ * could receive is not a notice nobody answered. The click-through's T8.5 observed it: a ticket
+ * resolved with the client shut closed itself, and the requester's first sight of the ticket was
+ * its closure.
+ *
+ * UNDELIVERED IS NOT A FAILURE AND NOT A CLOSE — it RE-ARMS. The clock restarts for another of the
+ * tenant's intervals, up to `maxRearms`; after that the hub gives up out loud
+ * (`resolution_undelivered_at`, tenant/011) and the ticket goes on the console's "resolved, never
+ * delivered" list, because a ticket that re-arms forever is its own quiet failure.
+ *
+ * Every non-close is SUCCESS, not an error: the world moved on (confirmed, reopened, moved by the
+ * desk, re-resolved with a newer job, the interval turned off), or the requester has not been
+ * reached yet. The handler never throws for any of it — D270's contract.
  *
  * @param {import("pg").PoolClient} c  inside withTenant(job.tenantSchema)
- * @param {{ ticketId: string, jobId: string, author: EntryAuthor }} p
- * @returns {Promise<{ closed: true, reference: string }|{ closed: false, why: string }>}
+ * @param {{ schema: string, ticketId: string, jobId: string, author: EntryAuthor, maxRearms?: number }} p
+ * @returns {Promise<{ closed: true, reference: string, seenAt: Date }|{ closed: false, why: string, rearmed?: boolean, gaveUp?: boolean, attempt?: number }>}
  */
-export async function closeByAutoclose(c, { ticketId, jobId, author }) {
+export async function closeByAutoclose(c, { schema, ticketId, jobId, author, maxRearms = 3 }) {
+  const { rows: locked } = await c.query(
+    `SELECT id, reference, state, resolved_at, auto_close_at, auto_close_job_id, auto_close_rearms
+       FROM tickets WHERE id = $1::uuid FOR UPDATE`,
+    [ticketId],
+  );
+  if (!locked.length) return { closed: false, why: `no ticket ${ticketId} in this tenant` };
+  const t = locked[0];
+
+  // The binding, exactly as D289 left it. Every one of these is SUCCESS: the world moved on.
+  if (t.state !== "resolved") return { closed: false, why: `${t.reference} is ${t.state}, not resolved` };
+  if (t.auto_close_job_id === null) return { closed: false, why: `${t.reference} is resolved but auto-close is not bound to any job (the interval was off, or a move cleared it)` };
+  if (String(t.auto_close_job_id) !== String(jobId)) return { closed: false, why: `${t.reference} is resolved by a NEWER resolution bound to job ${t.auto_close_job_id}` };
+  if (!t.auto_close_at || new Date(t.auto_close_at).getTime() > Date.now()) return { closed: false, why: `${t.reference} is not due until ${new Date(t.auto_close_at).toISOString()}` };
+
+  // D290 — THE DELIVERY GATE. Auto-close converts SILENCE into consent. Silence is a requester who
+  // was shown the resolution and said nothing; a requester whose app never ran was never asked, and
+  // closing their ticket tells them their unfixed problem is finished (plan v3 §8.1).
+  const delivery = await currentResolutionDelivery(c, t.id, t.resolved_at);
+  if (!delivery?.readByRequesterAt) {
+    const attempt = (t.auto_close_rearms ?? 0) + 1;
+    const shown = delivery?.notifiedAt ? `handed to their app ${new Date(delivery.notifiedAt).toISOString()} but never acknowledged as shown` : "never handed to their app";
+    if (attempt > maxRearms) {
+      // THE BACKSTOP. Re-arming forever leaves a ticket resolved and nobody looking at it, which is
+      // its own quiet failure. The hub stops, keeps the ticket resolved, and says so to a person.
+      await c.query(
+        `UPDATE tickets SET auto_close_at = NULL, auto_close_job_id = NULL,
+                resolution_undelivered_at = now(), updated_at = now()
+          WHERE id = $1`,
+        [t.id],
+      );
+      await cancelJobsFor(AUTOCLOSE_JOB, t.id);
+      return { closed: false, gaveUp: true, rearmed: false, reference: t.reference, why: `${t.reference}: the resolution was NEVER DELIVERED to the requester (${shown}) after ${maxRearms} intervals. Auto-close has given up rather than close a ticket nobody was shown: the ticket stays resolved and is now on the console's 'resolved, never delivered' list for a person to pick up (D290)` };
+    }
+    const { autoCloseAt } = await rearmAutoclose(c, { schema, ticketId: t.id, from: new Date(), attempt });
+    return { closed: false, rearmed: true, attempt, reference: t.reference, autoCloseAt, why: `${t.reference}: the resolution has NOT been delivered to the requester (${shown}), so nothing was closed. Re-armed for ${autoCloseAt ? new Date(autoCloseAt).toISOString() : "nothing — the interval is off"} (attempt ${attempt} of ${maxRearms}) (D290)` };
+  }
+
   const { rows } = await c.query(
     `UPDATE tickets t
         SET state = 'closed', updated_at = now(), closed_at = now(), closed_by = 'auto',
-            awaiting_agent_since = NULL, auto_close_at = NULL, auto_close_job_id = NULL
-       FROM (SELECT id, reference, state, auto_close_job_id, auto_close_at FROM tickets WHERE id = $1::uuid FOR UPDATE) prev
-      WHERE t.id = prev.id AND t.state = 'resolved' AND t.auto_close_job_id = $2::bigint AND t.auto_close_at <= now()
+            awaiting_agent_since = NULL, auto_close_at = NULL, auto_close_job_id = NULL,
+            resolution_undelivered_at = NULL
+      WHERE t.id = $1::uuid AND t.state = 'resolved' AND t.auto_close_job_id = $2::bigint AND t.auto_close_at <= now()
       RETURNING t.reference`,
-    [ticketId, jobId],
+    [t.id, jobId],
   );
-  if (rows.length) {
-    await insertEntry(c, ticketId, { kind: "state_change", body: "resolved → closed", author });
-    return { closed: true, reference: rows[0].reference };
-  }
-  const { rows: now } = await c.query("SELECT reference, state, auto_close_job_id, auto_close_at FROM tickets WHERE id = $1::uuid", [ticketId]);
-  if (!now.length) return { closed: false, why: `no ticket ${ticketId} in this tenant` };
-  const t = now[0];
-  const why = t.state !== "resolved" ? `${t.reference} is ${t.state}, not resolved`
-    : t.auto_close_job_id === null ? `${t.reference} is resolved but auto-close is not bound to any job (the interval was off, or a move cleared it)`
-    : String(t.auto_close_job_id) !== String(jobId) ? `${t.reference} is resolved by a NEWER resolution bound to job ${t.auto_close_job_id}`
-    : `${t.reference} is not due until ${new Date(t.auto_close_at).toISOString()}`;
-  return { closed: false, why };
+  if (!rows.length) return { closed: false, why: `${t.reference} moved between the lock and the write` };
+  await insertEntry(c, t.id, { kind: "state_change", body: "resolved → closed", author });
+  return { closed: true, reference: rows[0].reference, seenAt: delivery.readByRequesterAt };
+}
+
+/**
+ * D290's backstop list: tickets whose resolution was written, never shown to the requester, and
+ * whose auto-close has given up. The console's queue item for a person — the desk finds out it
+ * could not reach someone, instead of the ticket quietly agreeing with itself.
+ *
+ * @param {string} schema
+ * @returns {Promise<Array<{ reference: string, resolvedAt: Date, undeliveredSince: Date, attempts: number }>>}
+ */
+export async function listUndeliveredResolutions(schema) {
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      `SELECT reference, resolved_at, resolution_undelivered_at, auto_close_rearms
+         FROM tickets
+        WHERE state = 'resolved' AND resolution_undelivered_at IS NOT NULL
+        ORDER BY resolution_undelivered_at`,
+    );
+    return rows.map((r) => ({ reference: r.reference, resolvedAt: r.resolved_at, undeliveredSince: r.resolution_undelivered_at, attempts: r.auto_close_rearms }));
+  });
 }
 
 // ---- the timeline (tenant/006, D275) ------------------------------------------------------------
@@ -475,6 +614,16 @@ export async function getTicket(schema, reference) {
       // When the CURRENT resolution closes on its own unless the requester acts (tenant/010, D289);
       // null when not resolved or the tenant's interval is off. Both readers draw it.
       autoCloseAt: t.auto_close_at ?? null,
+      // D290 (tenant/011). How many of the tenant's intervals have passed with the resolution still
+      // not SHOWN to the requester, and — once the hub has given up trying — when it gave up. Both
+      // are internal: the requester whose app never ran is precisely the person who cannot be told.
+      // Read by the console's detail page and by `bin/tickets.mjs show`.
+      autoCloseRearms: t.auto_close_rearms ?? 0,
+      resolutionUndeliveredAt: t.resolution_undelivered_at ?? null,
+      // The ENROLLMENT'S OWN KEY, the string the Agents page lists and an operator can match to a
+      // machine — not only the internal uuid, which appears on no other screen. One control read,
+      // the way autocloseHoursForSchema() does it: the ticket store is what has to know.
+      deviceKeyId: t.device_id ? await deviceKeyIdById(t.device_id) : null,
     };
   });
 }
@@ -692,6 +841,7 @@ export async function requesterComment(schema, reference, { deviceId, body, only
                 resolution_code = NULL, resolution_notes = NULL, resolved_at = NULL,
                 closed_at = NULL, closed_by = NULL,
                 auto_close_at = NULL, auto_close_job_id = NULL,
+                auto_close_rearms = 0, resolution_undelivered_at = NULL,
                 awaiting_agent_since = COALESCE(awaiting_agent_since, now())
           WHERE id = $1`,
         [t.id],
@@ -729,7 +879,8 @@ export async function confirmResolution(schema, reference, { deviceId } = {}) {
     const { rows } = await c.query(
       `UPDATE tickets t
           SET state = 'closed', updated_at = now(), closed_at = now(), closed_by = 'requester', awaiting_agent_since = NULL,
-              auto_close_at = NULL, auto_close_job_id = NULL
+              auto_close_at = NULL, auto_close_job_id = NULL,
+              auto_close_rearms = 0, resolution_undelivered_at = NULL
          FROM (SELECT id, state AS was, user_id FROM tickets WHERE reference = $1 AND device_id = $2::uuid FOR UPDATE) prev
         WHERE t.id = prev.id AND t.state = 'resolved'
         RETURNING t.id, prev.user_id`,
@@ -810,14 +961,26 @@ export async function ackEntries(schema, { deviceId, entryIds } = {}) {
   const ids = (Array.isArray(entryIds) ? entryIds : []).filter((x) => typeof x === "string" && UUID.test(x)).slice(0, 200);
   if (!ids.length) return 0;
   return withTenant(schema, async (c) => {
-    const { rowCount } = await c.query(
+    const { rows } = await c.query(
       `UPDATE ticket_entries e SET read_by_requester_at = now()
          FROM tickets t
         WHERE e.ticket_id = t.id AND t.device_id = $1::uuid AND e.id = ANY($2::uuid[])
-          AND e.visibility = 'public' AND e.read_by_requester_at IS NULL`,
+          AND e.visibility = 'public' AND e.read_by_requester_at IS NULL
+        RETURNING e.ticket_id, e.kind, e.read_by_requester_at`,
       [dev, ids],
     );
-    return rowCount;
+    // D290 — ARM ON ACK. The interval is the requester's time to disagree, so it starts when they
+    // were SHOWN the resolution, not when the desk wrote it. Only the first acknowledgement of a
+    // resolution re-arms: the UPDATE above stamps only rows where the column was still null, so a
+    // client that acks the same entry twice cannot keep pushing its own ticket's clock back.
+    for (const r of rows.filter((x) => x.kind === "resolution")) {
+      const { rows: t } = await c.query(
+        "SELECT id, state, auto_close_job_id FROM tickets WHERE id = $1::uuid FOR UPDATE", [r.ticket_id],
+      );
+      if (!t.length || t[0].state !== "resolved" || t[0].auto_close_job_id === null) continue;
+      await rearmAutoclose(c, { schema, ticketId: t[0].id, from: r.read_by_requester_at, attempt: 0 });
+    }
+    return rows.length;
   });
 }
 
@@ -935,7 +1098,8 @@ export async function setTicketState(schema, reference, next, { note = null, aut
               resolved_at      = CASE WHEN $2 IN ('new', 'open') THEN NULL ELSE t.resolved_at END,
               closed_at = CASE WHEN $2 = 'closed' THEN now() ELSE NULL END,
               closed_by = CASE WHEN $2 = 'closed' THEN $5::text ELSE NULL END,
-              auto_close_at = NULL, auto_close_job_id = NULL
+              auto_close_at = NULL, auto_close_job_id = NULL,
+              auto_close_rearms = 0, resolution_undelivered_at = NULL
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
         WHERE t.id = prev.id AND ($4::text IS NULL OR t.state = $4::text)
         RETURNING t.id, prev.was`,

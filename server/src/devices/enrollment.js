@@ -445,6 +445,23 @@ export async function setAutoApprove({ tenantId, enabled }) {
 }
 
 /** Every device for a tenant, newest first. */
+/**
+ * The device_key_id behind one control.devices.id — the string the Agents page lists and the one an
+ * operator can match to a machine. The ticket store calls it to put the ENROLLMENT on a ticket
+ * beside the internal uuid, which appears on no other screen.
+ *
+ * Here rather than in src/tickets/query.js for D224's sibling rule (test/admin-static.test.mjs §5b):
+ * this file is the one that touches control.devices, so a reader added anywhere else is a second
+ * definition of what a device is. Null when the row is gone.
+ *
+ * @param {string} deviceId
+ * @returns {Promise<string|null>}
+ */
+export async function deviceKeyIdById(deviceId) {
+  const { rows } = await withControl((c) => c.query("SELECT device_key_id FROM control.devices WHERE id = $1::uuid", [deviceId]));
+  return rows[0]?.device_key_id ?? null;
+}
+
 export async function listDevices({ tenantId }) {
   const { rows } = await withControl((c) => c.query(
     `SELECT id, device_key_id, mode, status, enrolled_at, revoked_at, last_seen_at, created_at, credential_issued_at

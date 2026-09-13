@@ -42,6 +42,17 @@ export { AUTOCLOSE_JOB };
 export const DEFAULT_AUTOCLOSE_HOURS = 72;
 /** control/009's CHECK: a year. "Never" without a magic value. */
 export const MAX_AUTOCLOSE_HOURS = 8760;
+/**
+ * D290's backstop: how many of the tenant's own intervals the hub will wait for a resolution to be
+ * SHOWN to the requester before it gives up and hands the ticket back to a person.
+ *
+ * Three, and the unit is the tenant's interval rather than days on purpose — a tenant on one hour
+ * and a tenant on seventy-two both get three tries, and "we tried three times over three of YOUR
+ * intervals and could not reach them" is the fact a desk needs. At the 72-hour default that is nine
+ * days, which is longer than any holiday weekend and shorter than a fortnight's leave; both of those
+ * are judgements, not measurements, and this number is a PROPOSAL like the interval beside it.
+ */
+export const MAX_AUTOCLOSE_REARMS = 3;
 /** The author every auto-close entry carries — the label is what lets the endpoint say "on its own". */
 export const AUTOCLOSE_AUTHOR = Object.freeze({ kind: "system", label: "auto-close" });
 
@@ -94,9 +105,18 @@ export async function setAutocloseHours({ tenantId, hours }) {
 export function createAutocloseHandler({ log = () => {} } = {}) {
   return async function autoclose(job, client) {
     if (!job.refId) throw new Error(`ticket.autoclose job ${job.id} carries no ticket reference; nothing to close`);
-    const r = await closeByAutoclose(client, { ticketId: job.refId, jobId: job.id, author: AUTOCLOSE_AUTHOR });
+    const r = await closeByAutoclose(client, {
+      schema: job.tenantSchema, ticketId: job.refId, jobId: job.id,
+      author: AUTOCLOSE_AUTHOR, maxRearms: MAX_AUTOCLOSE_REARMS,
+    });
     if (r.closed) {
-      log(`[jobs] ticket.autoclose ${job.id}: ${r.reference} resolved -> closed (closed_by auto) - the requester neither confirmed nor reopened within the interval; a public state change is on the timeline`);
+      log(`[jobs] ticket.autoclose ${job.id}: ${r.reference} resolved -> closed (closed_by auto) - the requester was SHOWN the resolution ${new Date(r.seenAt).toISOString()} and neither confirmed nor reopened within the interval; a public state change is on the timeline`);
+    } else if (r.gaveUp) {
+      // D290's backstop. Loud, because this is the one outcome that needs a human and the console's
+      // list is the only other place it appears.
+      log(`[jobs] ticket.autoclose ${job.id}: GAVE UP - ${r.why}`);
+    } else if (r.rearmed) {
+      log(`[jobs] ticket.autoclose ${job.id}: re-armed, nothing closed - ${r.why}`);
     } else {
       log(`[jobs] ticket.autoclose ${job.id}: nothing to do - ${r.why} (at-least-once: this is success, not failure)`);
     }

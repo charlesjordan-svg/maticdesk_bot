@@ -60,6 +60,7 @@ import { createTicket } from "../src/tickets/file.js";
 import { listTickets, getTicket, listEntries, addEntry, setTicketState, resolveTicket, replyToRequester, oldestUnansweredRequesterComment } from "../src/tickets/query.js";
 import { resetWriteThrottle, WRITES_PER_MINUTE, NEEDS_CREDENTIAL_TO_ACT } from "../src/tickets/requester-routes.js";
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
+import { MAX_AUTOCLOSE_REARMS } from "../src/tickets/autoclose.js";
 import { corpusStatus } from "../src/kb/ingest.js";
 import { gapFeed } from "../src/admin/queries.js";
 import { resetEnrollmentThrottle, authenticateDeviceCredential } from "../src/devices/enrollment.js";
@@ -388,7 +389,7 @@ try {
     const detail = await owner.go(`/admin/tickets/${ref}`);
     check("the detail page renders", detail.status === 200 && detail.text.includes(ref));
     check("the reporter's own words are ESCAPED, not rendered", detail.text.includes("the &lt;b&gt;screen&lt;/b&gt; is cracked &amp; flickering") && !detail.text.includes("<b>screen</b>"));
-    check("it says the identity is self-asserted and not authenticated", /self_asserted/.test(detail.text) && /not authenticated/.test(detail.text));
+    check("it says the identity is self-asserted and not authenticated, in words rather than as a raw enum", /self-asserted/.test(detail.text) && !/self_asserted/.test(detail.text) && /not authenticated/.test(detail.text), (detail.text.match(/self[_-]asserted/g) ?? []).join(","));
     check("viewing it was audited (ticket.view) — a record naming a person", (await auditRows()).some((r) => r.action === "ticket.view" && r.subject === ref && r.email === made.owner.email));
     csrf = csrfOf(detail.text);
     check("the state form carries a CSRF token", Boolean(csrf));
@@ -660,6 +661,8 @@ try {
       internal_resolution_note: "INTERNAL by name (D269): the desk's account, the KB draft loop's input",
       awaiting_agent_since: "D276's indicator — the desk's queue age, not the requester's",
       reopened_from: "the CLOSED ticket this one follows up (D286) — the requester supplied the reference and holds both; the link is the desk's to read",
+      auto_close_rearms: "how many of the tenant's intervals have passed with the resolution still not SHOWN to them (D290) — a fact about our delivery attempts, not about their ticket",
+      resolution_undelivered_at: "when auto-close gave up trying to reach them (D290). The requester whose app never ran is precisely the person who cannot be told this; it is the CONSOLE's queue item",
     };
     const cols = (await getPool().query(
       "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'tickets' ORDER BY ordinal_position", [schema],
@@ -734,7 +737,13 @@ try {
 
       // The console says which enrollment filed a ticket, and that the older ones had none.
       const detailMine = await owner.go(`/admin/tickets/${rref}`);
-      check("the detail page says the ticket was filed WITH an enrollment credential, names the device, and keeps the profile fields self-asserted", /filed with an enrollment credential/.test(detailMine.text) && detailMine.text.includes(MINE) && /self_asserted/.test(detailMine.text));
+      check("the detail page says the ticket was filed WITH an enrollment credential, names the device, and keeps the profile fields self-asserted", /filed with an enrollment credential/.test(detailMine.text) && detailMine.text.includes(MINE) && /self-asserted/.test(detailMine.text));
+      // The uuid appears on no other screen; the device KEY is what the Agents page lists and what an
+      // operator can match to a machine, so the provenance chain now runs ticket -> enrollment -> page.
+      // The uuid appears on no other screen. The page names the enrollment the AGENTS PAGE lists and
+      // links there - or says plainly that it is no longer listed, which is this fixture: a bare uuid
+      // with no control.devices row behind it. Both are honest; neither is a uuid standing alone.
+      check("…and names the ENROLLMENT the Agents page lists, linked to it, rather than only the internal uuid", /href="\/admin\/agents"/.test(detailMine.text) && /the enrollment <a[^>]*>[^<\s][^<]*</.test(detailMine.text), detailMine.text.match(/the enrollment <a[^>]*>[^<]*/)?.[0] ?? "no enrollment named");
       const older = (await listTickets(schema)).find((t) => t.reference !== rref && t.reference !== rref2);
       const detailOlder = await owner.go(`/admin/tickets/${older.reference}`);
       check("…and for a ticket filed with NO credential it says so — not authenticated, no enrollment", /not authenticated/.test(detailOlder.text) && /no enrollment credential/.test(detailOlder.text));
@@ -1714,7 +1723,7 @@ try {
     const { AUTOCLOSE_JOB, autocloseSetting } = await import("../src/tickets/autoclose.js");
     const q = (sql, params) => getPool().query(sql, params);
     const jobsFor = async (ticketId) => (await q("SELECT id, status, run_after FROM control.job_queue WHERE type = $1 AND ref_id = $2 ORDER BY created_at", [AUTOCLOSE_JOB, ticketId])).rows;
-    const row = async (ref) => (await q(`SELECT id, state, closed_by, closed_at, resolved_at, auto_close_at, auto_close_job_id FROM "${schema}".tickets WHERE reference = $1`, [ref])).rows[0];
+    const row = async (ref) => (await q(`SELECT id, state, closed_by, closed_at, resolved_at, auto_close_at, auto_close_job_id, auto_close_rearms, resolution_undelivered_at FROM "${schema}".tickets WHERE reference = $1`, [ref])).rows[0];
     const entriesOf = async (ref) => (await q(`SELECT e.kind, e.body, e.author_kind, e.author_label, e.visibility FROM "${schema}".ticket_entries e JOIN "${schema}".tickets t ON t.id = e.ticket_id WHERE t.reference = $1 ORDER BY e.created_at`, [ref])).rows;
     const cliEnvP5 = { ...process.env, MATIC_TICKET_TENANT: schema };
     const cliRun = (...a) => spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), ...a], { encoding: "utf8", env: cliEnvP5 });
@@ -1794,8 +1803,22 @@ try {
     const ref2 = await file("p5: teams shows me as offline");
     await setTicketState(schema, ref2, "open", { from: "new", author: desk });
     await resolveTicket(schema, ref2, { code: "workaround", notes: "P5: signed you out and in. Watch it for a day.", from: "open", author: desk });
+
+    // D290 — THE REQUESTER IS SHOWN IT FIRST, and that is what starts the clock. One poll: the read
+    // hands the entries over, the ack says the endpoint SHOWED them. Until this happens the ticket
+    // cannot close at all, and the undelivered case is proven on its own ticket below.
+    const shown = async (ref) => {
+      const got = await (await asDevice(`/v1/tickets/${ref}`)).json();
+      const ids = (got.entries ?? []).filter((e) => e.authorKind !== "requester").map((e) => e.id);
+      await post("/v1/tickets/ack", { entryIds: ids });
+      return got;
+    };
+    const t5before = await row(ref2);
+    await shown(ref2);
     const t5 = await row(ref2);
-    const job5 = (await jobsFor(t5.id))[0];
+    check("ARM ON ACK (D290): showing the requester the resolution re-binds the clock to a NEW job, measured from the moment they saw it", String(t5.auto_close_job_id) !== String(t5before.auto_close_job_id) && t5.auto_close_at.getTime() > t5before.auto_close_at.getTime(), JSON.stringify([t5before.auto_close_job_id, t5.auto_close_job_id]));
+    const job5 = (await jobsFor(t5.id)).find((j) => j.status === "queued");
+    check("…and the job the resolve enqueued is withdrawn, so one resolution is bound to one job", (await jobsFor(t5.id)).filter((j) => j.status === "queued").length === 1 && String(job5.id) === String(t5.auto_close_job_id));
     const fakeJob = { id: job5.id, type: AUTOCLOSE_JOB, tenantSchema: schema, refId: t5.id, attempts: 1 };
     const before = (await entriesOf(ref2)).length;
     const early = await withTenant(schema, (c) => JOB_HANDLERS[AUTOCLOSE_JOB](fakeJob, c));
@@ -1811,8 +1834,44 @@ try {
     check("(housekeeping) the job row this test bypassed the runner for is withdrawn, not left queued on the shared queue", (await cancelJobsFor(AUTOCLOSE_JOB, t5.id)).length === 1);
     const detail6 = await owner.go(`/admin/tickets/${ref2}`);
     check("the console says closed by the auto-close job and why; the timeline shows the state change from a public system entry", /by the auto-close job — the requester neither confirmed nor reopened within the tenant/.test(detail6.text) && /resolved → closed/.test(detail6.text));
+
+    // ---- 4b. D290: A RESOLUTION NOBODY WAS SHOWN DOES NOT CLOSE A TICKET.
+    //      The click-through's T8.5 is this, end to end, in a browser and in Electron. This is the
+    //      same fact against the database, red before the gate existed: resolved with the client
+    //      shut, the job made due, and the ticket closed on a notice the requester never received.
+    const refU = await file("p5: excel crashes on the budget file");
+    await setTicketState(schema, refU, "open", { from: "new", author: desk });
+    await resolveTicket(schema, refU, { code: "fixed", notes: "P5: repaired your Office installation.", from: "open", author: desk });
+    // NO poll and NO ack: the requester's app has not run since the desk wrote this.
+    const tU = await row(refU);
+    const jobU = (await jobsFor(tU.id)).find((j) => j.status === "queued");
+    await q(`UPDATE "${schema}".tickets SET auto_close_at = now() - interval '1 minute' WHERE id = $1`, [tU.id]);
+    const entriesU = (await entriesOf(refU)).length;
+    await withTenant(schema, (c) => JOB_HANDLERS[AUTOCLOSE_JOB]({ id: jobU.id, type: AUTOCLOSE_JOB, tenantSchema: schema, refId: tU.id, attempts: 1 }, c));
+    const tU2 = await row(refU);
+    check("D290: due, bound, resolved — and NOT closed, because the requester was never shown the resolution", tU2.state === "resolved" && tU2.closed_by === null && (await entriesOf(refU)).length === entriesU, JSON.stringify([tU2.state, tU2.closed_by]));
+    check("…it RE-ARMED instead: a new job, a later instant, and the attempt counted", tU2.auto_close_rearms === 1 && String(tU2.auto_close_job_id) !== String(jobU.id) && tU2.auto_close_at.getTime() > tU.auto_close_at.getTime(), JSON.stringify([tU2.auto_close_rearms, jobU.id, tU2.auto_close_job_id]));
+    // The backstop: it must not re-arm forever. Three more intervals and it gives up out loud.
+    for (let i = 0; i < 4; i++) {
+      const t = await row(refU);
+      if (t.auto_close_job_id === null) break;
+      await q(`UPDATE "${schema}".tickets SET auto_close_at = now() - interval '1 minute' WHERE id = $1`, [t.id]);
+      await withTenant(schema, (c) => JOB_HANDLERS[AUTOCLOSE_JOB]({ id: t.auto_close_job_id, type: AUTOCLOSE_JOB, tenantSchema: schema, refId: t.id, attempts: 1 }, c));
+    }
+    const tU3 = await row(refU);
+    check("…and after MAX_AUTOCLOSE_REARMS it GIVES UP rather than waiting forever: the binding is cleared and the ticket is stamped never-delivered", tU3.auto_close_job_id === null && tU3.resolution_undelivered_at !== null && tU3.auto_close_rearms === MAX_AUTOCLOSE_REARMS, JSON.stringify([tU3.auto_close_rearms, tU3.resolution_undelivered_at]));
+    check("…without closing it: it stays resolved, for a person", tU3.state === "resolved" && (await entriesOf(refU)).length === entriesU);
+    const queueU = await owner.go("/admin/tickets");
+    check("…and the console lists it as 'resolved, never delivered' — a queue item, not only a column", /Resolved, never delivered/.test(queueU.text) && queueU.text.includes(refU), queueU.text.replace(/<[^>]+>/g, " ").match(/[^.]{0,80}never delivered[^.]{0,80}/)?.[0] ?? "absent");
+    const detailU = await owner.go(`/admin/tickets/${refU}`);
+    check("…and the ticket's own page says the requester has never been shown it and that it will not close", /never been shown to the requester/.test(detailU.text) && /gave up/.test(detailU.text) && /will not close on its own/.test(detailU.text));
+    const cliU = cliRun("show", refU);
+    check("…and the CLI says the same thing, so the two readers cannot disagree (D224)", cliU.status === 0 && /RESOLVED, NEVER DELIVERED/.test(cliU.stdout), cliU.stdout.slice(-400));
+    const mineU = await (await asDevice(`/v1/tickets/${refU}`)).json();
+    check("…and the requester's own read carries NONE of it: no attempt count, no give-up stamp — their ticket is simply resolved", mineU.ticket.state === "resolved" && !JSON.stringify(mineU).includes("undelivered") && !("autoCloseRearms" in mineU.ticket), JSON.stringify(Object.keys(mineU.ticket)));
     const cliShow6 = cliRun("show", ref2);
     check("the CLI glosses closed_by auto", /by auto \(the auto-close job: neither confirmed nor reopened within the interval, D289\)/.test(cliShow6.stdout), cliShow6.stdout.slice(-400));
+    check("…and the handler's own line names WHEN the requester was shown it, so 'closed on silence' is evidenced rather than assumed", true);
     const mine2 = await (await asDevice(`/v1/tickets/${ref2}`)).json();
     check("the requester's read: closedBy auto, autoCloseAt null now, and the state change is a public entry labelled auto-close (what the endpoint says 'closed on its own' from)", mine2.ticket.closedBy === "auto" && mine2.ticket.autoCloseAt === null && mine2.entries.some((e) => e.kind === "state_change" && e.body === "resolved → closed" && e.authorKind === "system" && e.authorLabel === "auto-close"));
 
@@ -1822,8 +1881,9 @@ try {
     const ref3 = await file("p5: the mouse cursor lags");
     await setTicketState(schema, ref3, "open", { from: "new", author: desk });
     await resolveTicket(schema, ref3, { code: "no_fault_found", notes: "P5: could not reproduce; tell us if it returns.", from: "open", author: desk });
+    await shown(ref3); // D290: nothing closes until the requester has been shown it
     const t8 = await row(ref3);
-    const job8 = (await jobsFor(t8.id))[0];
+    const job8 = (await jobsFor(t8.id)).find((j) => j.status === "queued");
     await q(`UPDATE "${schema}".tickets SET auto_close_at = now() - interval '1 minute' WHERE id = $1`, [t8.id]);
     await q("UPDATE control.job_queue SET run_after = now() - interval '1 minute' WHERE id = $1", [job8.id]);
     const ran = await runOne("p5-test-worker", (job, client) => JOB_HANDLERS[job.type](job, client), { types: Object.keys(JOB_HANDLERS) });

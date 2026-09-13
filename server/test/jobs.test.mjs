@@ -227,47 +227,72 @@ console.log("\n=== 1b. the ticket.autoclose handler, headless, against a fake te
       seen,
       async query(sql, params) {
         seen.push({ sql, params });
-        if (/UPDATE tickets t/.test(sql)) return { rows: script.update ?? [] };
+        // The lock-and-read the handler decides from (D290 made it the first statement: four
+        // conditions cannot be checked in one UPDATE's WHERE when the fourth is on another table).
+        if (/SELECT id, reference, state, resolved_at, auto_close_at, auto_close_job_id, auto_close_rearms/.test(sql)) return { rows: script.ticket ?? [] };
+        // The delivery stamp on the CURRENT resolution entry — D290's fourth condition.
+        if (/SELECT notified_at, read_by_requester_at/.test(sql)) return { rows: script.resolution ?? [] };
+        if (/UPDATE tickets/.test(sql)) return { rows: script.update ?? [] };
         if (/INSERT INTO ticket_entries/.test(sql)) return { rows: [{ id: "entry-1", created_at: new Date() }] };
-        if (/SELECT reference, state, auto_close_job_id, auto_close_at FROM tickets/.test(sql)) return { rows: script.now ?? [] };
         throw new Error("unexpected statement: " + sql.slice(0, 60));
       },
     };
   }
+  const ticketRow = (over = {}) => [{
+    id: "22222222-2222-4222-8222-222222222222", reference: "MD-77", state: "resolved",
+    resolved_at: new Date("2026-09-10T09:00:00Z"), auto_close_at: new Date("2026-09-11T09:00:00Z"),
+    auto_close_job_id: "564", auto_close_rearms: 0, ...over,
+  }];
+  const SEEN = [{ notified_at: new Date("2026-09-10T09:30:00Z"), read_by_requester_at: new Date("2026-09-10T09:31:00Z") }];
+  const NEVER_SEEN = [{ notified_at: null, read_by_requester_at: null }];
   const said = [];
   const handler = createAutocloseHandler({ log: (l) => said.push(l) });
   // A job id is control.job_queue's BIGSERIAL as a string (jobs.js returns String(rows[0].id)); the ticket id is the tenant's uuid.
   const theJob = { id: "564", type: "ticket.autoclose", tenantSchema: "t_fake", refId: "22222222-2222-4222-8222-222222222222", attempts: 1 };
 
-  const bound = fakeClient({ update: [{ reference: "MD-77" }] });
+  const bound = fakeClient({ ticket: ticketRow(), resolution: SEEN, update: [{ reference: "MD-77" }] });
   await handler(theJob, bound);
-  const upd = bound.seen[0];
-  check("the ONE write is a guarded UPDATE: still resolved, bound to THIS job's id, due - all in the WHERE, under FOR UPDATE", /t\.state = 'resolved' AND t\.auto_close_job_id = \$2::bigint AND t\.auto_close_at <= now\(\)/.test(upd.sql) && /FOR UPDATE/.test(upd.sql) && upd.params[0] === theJob.refId && upd.params[1] === theJob.id);
+  const lock = bound.seen[0], del = bound.seen[1], upd = bound.seen[2];
+  check("it LOCKS the ticket and reads the four things it decides from", /FOR UPDATE/.test(lock.sql) && lock.params[0] === theJob.refId);
+  check("…then reads whether the CURRENT resolution was actually SHOWN to the requester (D290's fourth condition)", /kind = 'resolution' AND created_at >= \$2::timestamptz/.test(del.sql) && del.params[1] instanceof Date);
+  check("the write is still guarded on state, THIS job's id and the due instant, in the WHERE (D280's rule)", /t\.state = 'resolved' AND t\.auto_close_job_id = \$2::bigint AND t\.auto_close_at <= now\(\)/.test(upd.sql) && upd.params[1] === theJob.id);
   check("…it closes as closed_by 'auto' and clears the binding in the same statement", /closed_by = 'auto'/.test(upd.sql) && /auto_close_at = NULL, auto_close_job_id = NULL/.test(upd.sql));
-  const ins = bound.seen[1];
+  const ins = bound.seen[3];
   check("…then writes ONE public state_change entry 'resolved → closed' by the auto-close author (system, labelled)", /INSERT INTO ticket_entries/.test(ins.sql) && ins.params[1] === "state_change" && ins.params[2] === "public" && ins.params[3] === "resolved → closed" && ins.params[4] === "system" && ins.params[7] === "auto-close" && AUTOCLOSE_AUTHOR.label === "auto-close");
-  check("…and logs the close by reference, never the notes", said.length === 1 && /MD-77 resolved -> closed \(closed_by auto\)/.test(said[0]) && bound.seen.length === 2);
+  check("…and logs the close naming WHEN THE REQUESTER SAW IT, never the notes", said.length === 1 && /MD-77 resolved -> closed \(closed_by auto\)/.test(said[0]) && /was SHOWN the resolution 2026-09-10T09:31/.test(said[0]) && bound.seen.length === 4, said.join(" | "));
+
+  // D290, THE FRIDAY/TUESDAY CASE, headless. The re-arm and the give-up both reach the queue, so
+  // they are proven end to end in admin-db and in test/clickthrough-e2e.mjs (T8.5-T8.8); what is
+  // provable here without a database is the thing that matters most: it does NOT close, and it
+  // writes NOTHING, when the requester was never shown the resolution.
+  said.length = 0;
+  const unseen = fakeClient({ ticket: ticketRow(), resolution: NEVER_SEEN });
+  await handler(theJob, unseen).catch(() => {});
+  check("UNDELIVERED: the ticket is resolved, bound and due, and it is STILL not closed - no UPDATE to closed, no entry", !unseen.seen.some((x) => /closed_by = 'auto'/.test(x.sql)) && !unseen.seen.some((x) => /INSERT INTO ticket_entries/.test(x.sql)), unseen.seen.map((x) => x.sql.slice(0, 40)).join(" | "));
+  check("…and it reads the delivery stamp before deciding, rather than closing and apologising later", /SELECT notified_at, read_by_requester_at/.test(unseen.seen[1]?.sql ?? ""));
 
   said.length = 0;
-  const gone = fakeClient({ update: [], now: [{ reference: "MD-77", state: "closed", auto_close_job_id: null, auto_close_at: null }] });
+  const gone = fakeClient({ ticket: ticketRow({ state: "closed", auto_close_job_id: null, auto_close_at: null }) });
   await handler(theJob, gone);
-  check("the world moved on (closed already): NO throw, no entry written, one log line saying why and that this is success", gone.seen.length === 2 && !gone.seen.some((s) => /INSERT/.test(s.sql)) && /MD-77 is closed, not resolved/.test(said[0]) && /at-least-once: this is success/.test(said[0]), said.join(" | "));
+  check("the world moved on (closed already): NO throw, no delivery read, no entry, one log line saying why and that this is success", gone.seen.length === 1 && !gone.seen.some((s) => /INSERT/.test(s.sql)) && /MD-77 is closed, not resolved/.test(said[0]) && /at-least-once: this is success/.test(said[0]), said.join(" | "));
   said.length = 0;
-  const newer = fakeClient({ update: [], now: [{ reference: "MD-77", state: "resolved", auto_close_job_id: "565", auto_close_at: new Date() }] });
+  const newer = fakeClient({ ticket: ticketRow({ auto_close_job_id: "565" }) });
   await handler(theJob, newer);
-  check("resolve -> reopen -> resolve: the ticket is resolved by a NEWER resolution bound to another job, so this job does nothing and says so", /resolved by a NEWER resolution bound to job 565/.test(said[0]));
+  check("resolve -> reopen -> resolve: the ticket is resolved by a NEWER resolution bound to another job, so this job does nothing and says so", /resolved by a NEWER resolution bound to job 565/.test(said[0]), said.join(" | "));
   said.length = 0;
-  const unbound = fakeClient({ update: [], now: [{ reference: "MD-77", state: "resolved", auto_close_job_id: null, auto_close_at: null }] });
+  const unbound = fakeClient({ ticket: ticketRow({ auto_close_job_id: null, auto_close_at: null }) });
   await handler(theJob, unbound);
-  check("resolved with no binding (interval off, or a move cleared it): nothing to do", /not bound to any job/.test(said[0]));
+  check("resolved with no binding (interval off, or a move cleared it): nothing to do", /not bound to any job/.test(said[0]), said.join(" | "));
   said.length = 0;
-  const early = fakeClient({ update: [], now: [{ reference: "MD-77", state: "resolved", auto_close_job_id: theJob.id, auto_close_at: new Date("2099-01-01T00:00:00Z") }] });
+  const early = fakeClient({ ticket: ticketRow({ auto_close_at: new Date("2099-01-01T00:00:00Z") }) });
   await handler(theJob, early);
-  check("bound to this job but not yet due: nothing to do, and the line names the instant", /not due until 2099-01-01/.test(said[0]));
+  check("bound to this job but not yet due: nothing to do, and the line names the instant", /not due until 2099-01-01/.test(said[0]), said.join(" | "));
   check("a job with no reference THROWS (the runner records it failed) - there is nothing it could re-check", await handler({ ...theJob, refId: null }, fakeClient({})).then(() => false, (e) => /carries no ticket reference/.test(e.message)));
   const src = read("src/tickets/autoclose.js"), js = jsCode(src);
-  check("autoclose.js holds NO SQL of its own (D224): the guarded UPDATE is closeByAutoclose() in query.js", !/UPDATE tickets|INSERT INTO|SELECT .* FROM tickets/.test(js) && /closeByAutoclose\(client, \{ ticketId: job\.refId, jobId: job\.id, author: AUTOCLOSE_AUTHOR \}\)/.test(js));
-  check("…and its header records D270's proof and the kill switch", /AT-LEAST-ONCE, PROVEN/.test(src) && /NULL is the kill switch/.test(src));
+  check("autoclose.js holds NO SQL of its own (D224): the guarded UPDATE and the delivery read are closeByAutoclose()'s, in query.js", !/UPDATE tickets|INSERT INTO|SELECT .* FROM tickets/.test(js) && /closeByAutoclose\(client, \{/.test(js));
+  check("…and it passes the job's OWN schema and the re-arm cap through, so the handler decides nothing the store does not know", /schema: job\.tenantSchema, ticketId: job\.refId, jobId: job\.id/.test(js) && /maxRearms: MAX_AUTOCLOSE_REARMS/.test(js) && /export const MAX_AUTOCLOSE_REARMS = 3;/.test(js));
+  check("…its header records D270's proof, the kill switch, and D290's gate", /AT-LEAST-ONCE, PROVEN/.test(src) && /NULL is the kill switch/.test(src) && /D290/.test(src));
+  check("…and the handler reports a re-arm and a give-up as their own outcomes, not as 'nothing to do'", /r\.gaveUp/.test(js) && /r\.rearmed/.test(js) && /GAVE UP/.test(js));
 }
 
 console.log("\n=== 2. the rules, in the source ===");

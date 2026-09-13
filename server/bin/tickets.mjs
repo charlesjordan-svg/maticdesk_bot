@@ -113,7 +113,7 @@ if (!tenant) {
           console.log(`  contact         ${t.contactId ?? "-"}`);
           // The one caveat that has to travel with a reporter's name on this build.
           if (t.deviceId) {
-            console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — filed with an enrollment credential: device ${t.deviceId} (D282, a per-OS-user enrollment of the software, not a person). No attested logon SID (D148).`);
+            console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — filed with an enrollment credential: the enrollment ${t.deviceKeyId ?? "(no longer listed)"} / ${t.deviceId} (D282, a per-OS-user enrollment of the software, not a person). No attested logon SID (D148).`);
           } else {
             console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — NOT AUTHENTICATED: filed with no enrollment credential (a loopback hub, or before tenant/008). No attested logon SID (D148).`);
           }
@@ -135,7 +135,14 @@ if (!tenant) {
           } else {
             console.log(`    not resolved${t.state === "closed" ? " — closed without a resolution (this CLI, or before tenant/007)" : ""}`);
           }
-          if (t.autoCloseAt) console.log(`  auto-close      ${t.autoCloseAt.toISOString()} unless the requester confirms or comments first (D289); the requester's app shows this date`);
+          if (t.resolutionUndeliveredAt) {
+            console.log(`  auto-close      GAVE UP ${t.resolutionUndeliveredAt.toISOString()} — RESOLVED, NEVER DELIVERED: the requester has never been shown this resolution (their app has not polled since it was written), so after ${t.autoCloseRearms} interval(s) auto-close stopped rather than close a ticket nobody saw (D290). It will not close on its own; reach the person another way.`);
+          } else if (t.autoCloseAt) {
+            console.log(`  auto-close      ${t.autoCloseAt.toISOString()} unless the requester confirms or comments first (D289); the requester's app shows this date`);
+            console.log(t.autoCloseRearms > 0
+              ? `                  re-armed ${t.autoCloseRearms} time(s): the resolution has NOT been shown to the requester yet, and a resolution nobody was shown never closes a ticket (D290)`
+              : `                  the clock runs from when the requester's app SHOWS them the resolution, not from when it was written (D290)`);
+          }
           if (t.closedAt) console.log(`  closed          ${t.closedAt.toISOString()} by ${t.closedBy}${t.closedBy === "auto" ? " (the auto-close job: neither confirmed nor reopened within the interval, D289)" : ""}`);
           if (t.reopenedFrom) console.log(`  follow-up to    ${t.reopenedFrom} (the requester raised this about a closed ticket, D286)`);
           // The timeline, through the same function the console's detail page calls (D224, D275).
