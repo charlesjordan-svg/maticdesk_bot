@@ -27,6 +27,13 @@
  * See src/devices/enrollment.js for the state machine, the rate limiting and the anomaly fallback
  * (D83) this route is a thin HTTP wrapper over, and server/docs/B3-DEVICE-ENROLLMENT.md for what
  * this pass built against D60-D83a and what it deliberately left for the next one.
+ *
+ * SINCE 2026-09-12 THE RESPONSE THAT MAKES A DEVICE ACTIVE CARRIES ITS CREDENTIAL, ONCE (D282).
+ * `credential` is the bearer token the endpoint presents on every later /v1 request; `identity` says
+ * in words what it proves and does not; a re-submission from a device that already holds one gets
+ * `credential: null` and `why`. A 202 (queued) carries no credential — the endpoint re-submits after
+ * an administrator approves, and THAT submission mints it. This route still requires no credential
+ * itself: it is how a device gets one.
  */
 import { readJson } from "../turn.js";
 import { tenantBySlug } from "../db/tenants.js";
@@ -45,6 +52,25 @@ export function checkEnrollRequest(body) {
 }
 
 const REFUSED = { ok: false, error: "enrollment refused: unknown tenant, or the secret is wrong, expired or revoked" };
+
+/**
+ * D282. What the credential proves, in words, on every response that could carry one — the
+ * `notified: false` discipline applied to an identity: a surface that hands out a credential says
+ * what it is not, so nobody downstream describes it as a device or a person.
+ */
+export const IDENTITY_NOTE = "a per-OS-user enrollment of the software: it lives in the enrolling account's userData and proves that account's installation enrolled with this tenant's secret. Not a machine identity, not hardware-bound, not a person (D282; D60/D61/D63/D64 are not built)";
+
+/** The credential rides on the response that made the device active, ONCE, with its handling note. */
+function credentialFields(result) {
+  if (result.credential) {
+    return {
+      credential: result.credential,
+      credentialNote: "shown ONCE; the hub keeps only its hash. Present it as Authorization: Bearer <credential> on every /v1 request. If it is lost, an administrator revokes this device and the endpoint enrolls again under a new device key",
+      identity: IDENTITY_NOTE,
+    };
+  }
+  return { credential: null, ...(result.why ? { why: result.why } : {}), identity: IDENTITY_NOTE };
+}
 
 /**
  * @param {{ log?: (s: string) => void }} [deps]
@@ -74,9 +100,9 @@ export function enrollHandler({ log = () => {} } = {}) {
       case "refused":
         return send(403, REFUSED);
       case "already":
-        return send(200, { ok: true, status: result.status, deviceId: result.deviceId });
+        return send(200, { ok: true, status: result.status, deviceId: result.deviceId, ...credentialFields(result) });
       case "approved":
-        return send(200, { ok: true, status: "active", deviceId: result.deviceId, requestId: result.requestId });
+        return send(200, { ok: true, status: "active", deviceId: result.deviceId, requestId: result.requestId, ...credentialFields(result) });
       case "queued":
         return send(202, {
           ok: true, status: "pending", deviceId: result.deviceId, requestId: result.requestId,

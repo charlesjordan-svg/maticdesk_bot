@@ -156,7 +156,7 @@ async function main() {
       const rows = await listDevices({ tenantId: tenant.id });
       if (!rows.length) return void out(`  no device has enrolled in ${tenant.slug} yet`);
       for (const d of rows) {
-        out(`  ${d.id}  ${d.deviceKeyId.padEnd(40)}  ${d.mode.padEnd(11)} ${d.status.padEnd(8)}  last seen ${d.lastSeenAt ? d.lastSeenAt.toISOString().slice(0, 19).replace("T", " ") : "never"}`);
+        out(`  ${d.id}  ${d.deviceKeyId.padEnd(40)}  ${d.mode.padEnd(11)} ${d.status.padEnd(8)}  last seen ${d.lastSeenAt ? d.lastSeenAt.toISOString().slice(0, 19).replace("T", " ") : "never"}  credential ${d.credentialIssuedAt ? `issued ${d.credentialIssuedAt.toISOString().slice(0, 10)}` : "none yet"}`);
       }
       out(`\n  ${rows.length} device(s) in ${tenant.slug}.`);
       break;
@@ -181,6 +181,15 @@ async function main() {
       out(`  outcome: ${r.outcome}`);
       if (r.outcome === "refused" || r.outcome === "locked") { process.exitCode = 1; break; }
       out(`  device ${r.deviceId ?? ""}${r.requestId ? `, request ${r.requestId}` : ""}`);
+      // D282. Printed ONCE, like a new admin's password: the hub keeps only the hash.
+      if (r.credential) {
+        out(`  credential (shown once; the hub stores only its hash):`);
+        out(`    ${r.credential}`);
+        out(`  An endpoint presents it as  Authorization: Bearer <credential>  on every /v1 request. It is a per-OS-user`);
+        out(`  enrollment of the software, not a machine identity (D282). Lost? Revoke the device and enroll again.`);
+      } else if (r.why) {
+        out(`  no credential: ${r.why}`);
+      }
       break;
     }
 

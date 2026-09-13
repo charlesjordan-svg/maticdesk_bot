@@ -89,6 +89,18 @@ async function main() {
     controlOnDisk.join(",") === controlApplied.map((r) => r.version).join(","),
     `${controlOnDisk} vs ${controlApplied.map((r) => r.version)}`);
 
+  // D282: control/008 is all IF NOT EXISTS. Running it a second time must leave the devices
+  // catalog byte for byte where it was (the shape tenant/006 and /007 are held to).
+  const m008 = readMigrations("control").find((m) => /008-device-credential/.test(m.version));
+  const devicesCatalog = async () => JSON.stringify({
+    cols: (await getPool().query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'control' AND table_name = 'devices' ORDER BY 1")).rows.map((r) => r.column_name),
+    idx: (await getPool().query("SELECT indexname FROM pg_indexes WHERE schemaname = 'control' AND tablename = 'devices' ORDER BY 1")).rows.map((r) => r.indexname),
+  });
+  const snap008 = await devicesCatalog();
+  check("control/008 gave devices credential_hash, credential_issued_at and the partial unique index on the hash", Boolean(m008) && /credential_hash/.test(snap008) && /credential_issued_at/.test(snap008) && /devices_credential_hash/.test(snap008), snap008);
+  await getPool().query(m008.sql);
+  check("running control/008's SQL a SECOND time changes nothing in the catalog", (await devicesCatalog()) === snap008);
+
   // =============================================================================================
   console.log("\n=== 1. two tenants, two schemas ===");
   const ta = await createTenant(A, { displayName: "Alpha" });

@@ -59,7 +59,7 @@ import { listTickets, getTicket, listEntries, addEntry, setTicketState, resolveT
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { corpusStatus } from "../src/kb/ingest.js";
 import { gapFeed } from "../src/admin/queries.js";
-import { resetEnrollmentThrottle } from "../src/devices/enrollment.js";
+import { resetEnrollmentThrottle, authenticateDeviceCredential } from "../src/devices/enrollment.js";
 import { lexicalLeg } from "../src/kb/retrieve.js";
 import { verifyPassword } from "../src/admin/auth.js";
 import { revokeUserSessions } from "../src/admin/session.js";
@@ -1300,7 +1300,10 @@ try {
       !(await auditRows()).some((r) => r.action === "device.secret.create" && JSON.stringify(r.detail).includes(b3Secret)));
   }
 
-  console.log("\n=== B3-2. POST /v1/enroll: auto-approve on (the default), then off ===");
+  /** D282: the auto-approved device's credential, kept across blocks so B3-3 can prove revocation refuses it. */
+  const p3b = { credential: null, deviceId: null };
+
+  console.log("\n=== B3-2. POST /v1/enroll: auto-approve on (the default), then off — and the credential, once (D282) ===");
   {
     // Mint a secret dedicated to this block so it does not depend on B3-1's intermediate state.
     const page = await owner.go("/admin/agents");
@@ -1313,7 +1316,23 @@ try {
     });
     const e1 = await enroll1.json();
     check("auto-approve is the default (D80) -> 200, status active", enroll1.status === 200 && e1.ok === true && e1.status === "active", JSON.stringify(e1));
-    check("re-submitting the SAME device -> 200, 'already active', not a new row", (await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-auto", secret }) })).json()).status === "active");
+    check("D282: the response that made it active carries the credential ONCE — mdc_ + 43 url-safe chars — a handling note, and what it proves in words",
+      typeof e1.credential === "string" && /^mdc_[A-Za-z0-9_-]{43}$/.test(e1.credential) && /shown ONCE/.test(e1.credentialNote) && /Authorization: Bearer/.test(e1.credentialNote) && /per-OS-user enrollment/.test(e1.identity) && /Not a machine identity/.test(e1.identity), JSON.stringify(e1).slice(0, 400));
+    p3b.credential = e1.credential; p3b.deviceId = e1.deviceId;
+    check("the hub stored the HASH, never the credential", (await getPool().query("SELECT credential_hash, credential_issued_at FROM control.devices WHERE id = $1", [e1.deviceId])).rows[0].credential_hash?.length === 32 && !JSON.stringify((await getPool().query("SELECT * FROM control.devices WHERE id = $1", [e1.deviceId])).rows[0]).includes(e1.credential.slice(4)));
+    const again = await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-auto", secret }) })).json();
+    check("re-submitting the SAME device -> 200, 'already active', not a new row — and NO second credential, with the reason", again.status === "active" && again.deviceId === e1.deviceId && again.credential === null && /already holds a credential/.test(again.why) && /revoke the device/.test(again.why), JSON.stringify(again));
+
+    // authenticateDeviceCredential(): what every authenticated route calls, and last_seen_at's writer.
+    const { rows: [seen0] } = await getPool().query("SELECT last_seen_at FROM control.devices WHERE id = $1", [e1.deviceId]);
+    await new Promise((r) => setTimeout(r, 25));
+    const authed = await authenticateDeviceCredential(e1.credential);
+    check("authenticateDeviceCredential(): the credential resolves to THIS device, THIS tenant's schema and slug, and the device key", authed.ok === true && authed.device.id === e1.deviceId && authed.device.tenantSchema === schema && authed.device.tenantSlug === slug && authed.device.deviceKeyId === "b3test-device-auto", JSON.stringify(authed));
+    const { rows: [seen1] } = await getPool().query("SELECT last_seen_at FROM control.devices WHERE id = $1", [e1.deviceId]);
+    check("…and it MOVED last_seen_at — the column's first writer that is not enrollment (addendum G2)", seen1.last_seen_at > seen0.last_seen_at, `${seen0.last_seen_at?.toISOString()} -> ${seen1.last_seen_at?.toISOString()}`);
+    check("a credential nobody issued -> refused: unknown, pointing at POST /v1/enroll", (await authenticateDeviceCredential("mdc_" + "A".repeat(43))).why === "unknown" && /POST \/v1\/enroll/.test((await authenticateDeviceCredential("mdc_" + "A".repeat(43))).message));
+    check("a string that is not a credential -> refused: malformed, saying they begin mdc_", (await authenticateDeviceCredential("not-a-credential")).why === "malformed" && /begin mdc_/.test((await authenticateDeviceCredential("not-a-credential")).message));
+    check("…and so does nothing at all", (await authenticateDeviceCredential(undefined)).why === "malformed");
 
     const wrongTenant = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: "no-such-tenant-slug", deviceKeyId: "x", secret }) });
     check("an unknown tenant slug -> 403, same message as a wrong secret (no enumeration)", wrongTenant.status === 403);
@@ -1332,6 +1351,7 @@ try {
     const enroll2 = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-pending", secret }) });
     const e2 = await enroll2.json();
     check("with auto-approve off -> 202, status pending", enroll2.status === 202 && e2.status === "pending", JSON.stringify(e2));
+    check("D282: a QUEUED device gets no credential — it has not been approved", e2.credential === undefined || e2.credential === null);
 
     const queue = await owner.go("/admin/agents");
     check("the pending device is on the Agents page queue", /b3test-device-pending/.test(queue.text));
@@ -1341,6 +1361,9 @@ try {
     const approved = await owner.go(`/admin/agents/${e2.requestId}/approve`, { method: "POST", form: { _csrf: approveToken } });
     check("Approve -> 200, and the device is now active", approved.status === 200 && /Approved b3test-device-pending/.test(approved.text));
     check("device.enroll.approve is audited with the actor and the device", (await auditRows()).some((r) => r.action === "device.enroll.approve" && r.email === made.owner.email && r.subject === "b3test-device-pending"));
+    const askAgain = await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-pending", secret }) })).json();
+    check("D282: a device approved BY HAND gets its credential on its next submission — minted on the approval its endpoint did not see", askAgain.status === "active" && /^mdc_/.test(askAgain.credential ?? ""), JSON.stringify(askAgain));
+    check("…and a third submission yields none", (await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-pending", secret }) })).json()).credential === null);
 
     // A third device, this time rejected — it must end up revoked, not stuck pending (state-machine note in enrollment.js).
     const enroll3 = await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "b3test-device-rejected", secret }) });
@@ -1372,6 +1395,8 @@ try {
       [slug],
     );
     check("none of them are active any more", stillActive[0].n === 0);
+    const afterRevokeAuth = await authenticateDeviceCredential(p3b.credential);
+    check("D282: a REVOKED device's credential is refused on its NEXT request — revocation is a control now, not a status change", Boolean(p3b.credential) && afterRevokeAuth.ok === false && afterRevokeAuth.why === "revoked" && /REVOKED by an administrator/.test(afterRevokeAuth.message), JSON.stringify(afterRevokeAuth));
     // D273, on the real page with real rows: the column heading and the two caveats.
     const pageD273 = await owner.go("/admin/agents");
     check("Agents (D273): the device table is headed 'Last enrollment activity', never 'Last seen'", /<th>Last enrollment activity<\/th>/.test(pageD273.text) && !/Last seen/.test(pageD273.text));
