@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D281 onward**, as of D280), with a status
+- New decisions are **appended** to the register with the next free ID (**D282 onward**, as of D281), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -196,14 +196,15 @@ cd ../server
 npm.cmd install            # pg - the only dependency
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
 #                            B0 hub (51) + B1 source rules (85) + B7a source rules (112) + the job runner
-#                            with fake primitives (67) + B2 console pure parts (86) + B2 source rules (191) = 592
+#                            with fake primitives (67) + B2 console pure parts (86) + B2 source rules (206) = 607
 npm.cmd run db:up          # PostgreSQL 17 + pgvector in Docker, loopback, port 5433 (D197)
 npm.cmd run migrate        # control plane + every tenant schema in one run
 npm.cmd run test:db        # the files that need the database: B1's six exit criteria + the job runtime (93) + B7a retrieval (52)
-#                            + B2 console end to end (353: login+TOTP, roles, CSRF, audit, tickets vs the CLI, the internal
+#                            + B2 console end to end (372: login+TOTP, roles, CSRF, audit, tickets vs the CLI, the internal
 #                              resolution note round trip, no orphan columns, self-hosted fonts, and the Knowledge pass - ingest,
 #                              embedder-down, the second-model refusal, search vs `kb.mjs legs`, the gap link, admin reset,
-#                              D266 keep-flags and totp --user, D267 bypass end to end, the work-note timeline round trip, the Agents page's caveats, P2's resolution round trip and the concurrent-move race) = 498
+#                              D266 keep-flags and totp --user, D267 bypass end to end, the work-note timeline round trip, the Agents page's caveats, P2's resolution round trip and the concurrent-move race, P3a's requester-safe
+#                              read shape with every `tickets` column classified visible or hidden) = 517
 #                            A RUNNING DEV HUB SHARES THIS DATABASE AND POLLS control.job_queue (D270). It claims only
 #                            types it has handlers for - none today - so the suite's b1-* jobs are safe beside it.
 #                            THE KB IS CROSS-TENANT (D45), so admin-db.test.mjs ingests articles with
