@@ -35,6 +35,9 @@
 #>
 [CmdletBinding()]
 param(
+  # The tenant schema the demo's tickets go into. The dev tenant every rehearsal has used; pass
+  # -Tenant to point one run somewhere else without editing this file.
+  [string]$Tenant = 't_devco',
   [switch]$CheckOnly,
   [switch]$NoWarm
 )
@@ -164,8 +167,28 @@ if ($tenantLines.Count -eq 0) {
     if ($t -match '003-tickets') { Ok ('tenant:  ' + $t.Trim()) }
     else { Fail ('tenant schema missing 003-tickets: ' + $t.Trim()) @("cd $server", 'npm.cmd run migrate') }
   }
-  if ($tenantLines.Count -gt 1 -and -not $env:MATIC_TICKET_TENANT) {
-    Fail ("$($tenantLines.Count) tenants and MATIC_TICKET_TENANT is unset - the hub will not pick one (B6-TICKET-STORE.md 1) and /v1/ticket answers 503") @('$env:MATIC_TICKET_TENANT = "t_devco"   (in THIS window, before starting the hub)')
+  # WHICH TENANT THE DEMO FILES INTO. The hub picks nothing when there is more than one
+  # (B6-TICKET-STORE.md 1), so the LAUNCHER picks, out loud, rather than failing on a database that
+  # has grown a second tenant. Before 2026-09-13 this was a FAIL, and the click-through's own tenant
+  # turned a green preflight red without a line of product code changing - on the morning of a demo.
+  # Any customer hub has more than one tenant; a launcher that only works on a database with exactly
+  # one is stage tooling that breaks the first time the stage is used for anything else.
+  # -Tenant overrides the default; a MATIC_TICKET_TENANT already set in this window wins over both,
+  # because a value someone typed is a decision and this default is not.
+  if (-not $env:MATIC_TICKET_TENANT) { $env:MATIC_TICKET_TENANT = $Tenant }
+  $wanted = $env:MATIC_TICKET_TENANT
+  # @() BEFORE THE INDEX. A Where-Object that matches ONE thing returns a STRING, not an array, and
+  # [0] on a string is its first CHARACTER - so two tenants were reported as 't, t' and the fix line
+  # sent the reader looking for a schema called 't'. PowerShell's scalar-vs-array trap, the same
+  # family as CLAUDE.md's 'PowerShell helpers return ONE thing' rule, and caught here by running it.
+  $names  = @($tenantLines | ForEach-Object { @($_ -split '\s+' | Where-Object { $_ -match '^t_' })[0] })
+  if ($names -notcontains $wanted) {
+    Fail ("MATIC_TICKET_TENANT is '$wanted' and this database has no such schema - /v1/ticket would answer 503 (D213). Present: " + ($names -join ', ')) @(
+      "`$env:MATIC_TICKET_TENANT = '$($names[0])'   (in THIS window, before starting the hub)",
+      "cd $server",
+      'node bin/db.mjs create-tenant <slug>   (to make a new one)')
+  } else {
+    Ok ("tickets file into $wanted" + $(if ($names.Count -gt 1) { " - $($names.Count) tenants on this database, and this is the one the demo uses. Change it with -Tenant <schema>." } else { "" }))
   }
 }
 StopIfFailed 'the schema is not ready'
@@ -262,7 +285,23 @@ StopIfFailed 'the port is not usable'
 # This reports, it never fails - the mode is authorised, and a preflight that refuses to start a
 # development hub because it is in development mode would just be switched off.
 Step "7a. Admin console authentication"
-if ($env:MATIC_ADMIN_INSECURE_NO_TOTP -eq '1') {
+$hubSaysBypass = $null
+try {
+  $h = Invoke-RestMethod -Uri "$hubUrl/v1/health" -TimeoutSec 5 -ErrorAction Stop
+  if ($null -ne $h.adminAuth) { $hubSaysBypass = [string]$h.adminAuth.insecureBypass }
+} catch { $hubSaysBypass = $null }   # no hub yet: this window's environment is all there is to read
+
+if ($hubSaysBypass -and $hubSaysBypass -ne 'off') {
+  Warn ("THE RUNNING HUB reports the insecure bypass as '" + $hubSaysBypass + "' - its admin console does NOT ask for an authenticator code.")
+  Warn '      It was started in another window, so THIS shell''s environment does not tell you that.'
+  Warn '      The password is still required. Every such sign-in is audited as insecure-dev-bypass.'
+  Warn '      DEVELOPMENT ONLY. Do not demo, deploy or review this build while it is on.'
+  Warn '      Fix: stop that hub, then in a window with the variable UNSET:'
+  Warn ('             Remove-Item Env:MATIC_ADMIN_INSECURE_NO_TOTP')
+  Warn ('             cd ' + $server + '  ;  npm.cmd start        <- npm.cmd run start:dev TURNS IT BACK ON')
+} elseif ($hubSaysBypass -eq 'off') {
+  Ok 'the RUNNING hub requires the authenticator code (asked it, did not assume)'
+} elseif ($env:MATIC_ADMIN_INSECURE_NO_TOTP -eq '1') {
   Warn 'MATIC_ADMIN_INSECURE_NO_TOTP=1 - the admin console will NOT ask for an authenticator code.'
   Warn '      The password is still required. Every such sign-in is audited as insecure-dev-bypass.'
   Warn '      DEVELOPMENT ONLY. Do not demo, deploy or review this build while it is set.'
@@ -272,7 +311,7 @@ if ($env:MATIC_ADMIN_INSECURE_NO_TOTP -eq '1') {
 } elseif ($null -ne $env:MATIC_ADMIN_INSECURE_NO_TOTP) {
   Info ("MATIC_ADMIN_INSECURE_NO_TOTP is set to '" + $env:MATIC_ADMIN_INSECURE_NO_TOTP + "', which is not '1' - the authenticator code IS required")
 } else {
-  Ok 'the authenticator code is required (no insecure bypass set)'
+  Ok 'the authenticator code is required (nothing set in this window, and no hub was reachable to ask)'
 }
 
 if ($CheckOnly) {

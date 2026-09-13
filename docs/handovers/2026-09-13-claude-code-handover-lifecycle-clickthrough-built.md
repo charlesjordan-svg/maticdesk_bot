@@ -333,3 +333,69 @@ driver, the method of the 2026-09-11 and 2026-09-12 runs (register §10.3b/c) �
 panel, `Runtime.evaluate` on the live DOM and `Page.captureScreenshot` for the PNGs. **Read the DOM
 with `textContent`, never `innerText`** — CLAUDE.md's own trap caught this run once, silently, and it
 reported four console assertions as absent when the text was there.
+
+---
+
+## 9. THE DEMO PATH — checked last, and it found three things
+
+Charles's framing was *"I am preparing the tool for a demo. I need all these tests done and tool
+working without error."* So after the benchmark passed, the launcher Charles actually double-clicks
+was run: `tools\launchers\start-hub.ps1 -CheckOnly`. It **failed**, and then it lied. Both are fixed.
+
+**1. The preflight failed because this run created a second tenant.** The check was *"more than one
+tenant and `MATIC_TICKET_TENANT` unset → FAIL"*. Nothing in the product changed; a green preflight
+went red because the database grew a schema. **Any customer hub has more than one tenant**, so a
+launcher that only works on a database with exactly one is stage tooling that breaks the first time
+the stage is used for anything else. It now **picks** one, says which, and says how to change it:
+
+```
+OK    tickets file into t_devco - 2 tenants on this database, and this is the one the demo uses.
+      Change it with -Tenant <schema>.
+```
+
+A `-Tenant` parameter defaults to `t_devco`; a `MATIC_TICKET_TENANT` already set in the window still
+wins, because a value someone typed is a decision and a default is not. It fails only when the name
+it was given is not on the database — and then it lists what is.
+
+**2. The fix line named a schema called `t`.** PowerShell's scalar-vs-array trap: a `Where-Object`
+matching one thing returns a **string**, and `[0]` on a string is its first character. Two tenants
+were reported as `t, t`. The same family as CLAUDE.md's *"PowerShell helpers return ONE thing"* rule,
+and caught the only way it can be — by running the thing.
+
+**3. THE ONE THAT MATTERED. Step 7a said "the authenticator code is required (no insecure bypass
+set)" while the hub serving the demo had it ON.** Step 7 had just found a hub already running and
+said it would use that one; 7a then read **this window's** environment variable. The hub was started
+in another window — `npm run start:dev` sets it — so the check answered a question nobody asked.
+`GET /v1/health` said `insecureBypass: ACTIVE` a foot below the OK.
+
+CLAUDE.md says, in capitals, *"UNSET IT BEFORE ANY DEMO, DEPLOY OR REVIEW."* The preflight exists so
+that sentence does not have to be remembered, and it was the one check that could not see the
+failure it was written for. **7a asks the hub now** and only falls back to the environment when no
+hub answers:
+
+```
+WARN  THE RUNNING HUB reports the insecure bypass as 'ACTIVE' - its admin console does NOT ask
+      for an authenticator code.
+WARN        It was started in another window, so THIS shell's environment does not tell you that.
+```
+
+### What Charles has to do before the demo
+
+**The hub running right now on 8787 (pid 49980) has the bypass ON.** It is not a persisted
+environment variable — neither the User nor the Machine scope has it — so it is only that window.
+In PowerShell:
+
+```powershell
+cd C:\Users\Charles\Downloads\maticdesk_bot\server
+npm.cmd start
+```
+
+`npm.cmd run start:dev` turns the bypass back on, every time. `npm.cmd start` does not. Then
+`tools\launchers\start-hub.ps1 -CheckOnly` will say the authenticator code is required, and it will
+have asked the hub rather than assumed.
+
+**Everything else on the demo path is green** and was checked rather than assumed: Docker, the
+container, both migration ledgers at control/009 and tenant/011, the corpus at 6 articles / 18 chunks
+/ 18 embedded under one model, Ollama with both models present, GPU headroom with `mistral-small:24b`
+already resident, and the dev tenant untouched — **`MD-1008`, `MD-1009` and `MD-1010` are exactly
+where P3a left them**, which is the one rule §3 of the plan set for this run.
