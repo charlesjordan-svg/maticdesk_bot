@@ -396,9 +396,9 @@ function renderTickets(status) {
     : filed.length === 0
       ? "I haven't filed any tickets from this machine. Tickets raised anywhere else won't show here - looking those up isn't built yet."
       : known && listed === filed.length
-        ? "This is what I sent from this machine, with what the service desk showed when I last checked. I check every minute or so while I'm on screen, and nothing is sent to you by email. Quote the reference if you follow one up."
+        ? "This is what I sent from this machine, with what the service desk showed when I last checked. I check every minute or so, and I keep checking after you close this window - I stay in the notification area until you quit me from there, and nothing is sent to you by email. Quote the reference if you follow one up."
         : known && listed > 0
-          ? "This is what I sent from this machine. The ones with a status are what the service desk showed when I last checked - I check every minute or so while I'm on screen, and nothing is sent to you by email. The rest were filed before this machine was enrolled with the service desk, so it can't match them to me and I can't see how they're getting on. Quote the reference if you follow one up."
+          ? "This is what I sent from this machine. The ones with a status are what the service desk showed when I last checked - I check every minute or so, and I keep checking after you close this window - I stay in the notification area until you quit me from there, and nothing is sent to you by email. The rest were filed before this machine was enrolled with the service desk, so it can't match them to me and I can't see how they're getting on. Quote the reference if you follow one up."
           : known
             ? "This is what I sent from this machine. The service desk can't match any of these to this machine - they were filed before this machine was enrolled with the service desk - so I can't see how they're getting on. Anything I file from now on, I can follow here. Quote the reference if you follow one up."
             : "This is what I sent from this machine. I can't see how they're getting on - checking a ticket's progress with the service desk isn't something I can do in this build - so quote the reference if you follow one up.";
@@ -1733,6 +1733,10 @@ function bootGreeting(facts, hub) {
 
   const st = await ttsSettled;
   voiceReady = Boolean(st.ready);
+  // D293: the voice stops when the window hides and starts again when it shows, so `tts:ready`
+  // fires again after the boot one settled this promise. Track every one, or the first reply after
+  // a re-show goes to a voice that is still loading and the flag never learns it came back.
+  window.matic.onTtsReady((s) => { voiceReady = Boolean(s.ready); });
   // The voice pill is gone from the surface (it was ours, not theirs). Whether Piper loaded is
   // still worth knowing, so it is a developer-log line - and a failure still degrades to text with
   // the mouth moving, which the user can see without being told.

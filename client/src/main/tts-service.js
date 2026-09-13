@@ -36,6 +36,10 @@ export class TtsService {
       this.readyError = "voice disabled in config";
       return false;
     }
+    // D293: the worker is STOPPED when the window hides and STARTED again when it shows, so this
+    // runs more than once per process. Each start begins clean, and the previous worker's late
+    // exit event (below) must not be allowed to mark the new one not-ready.
+    this.readyError = null;
     this._tmpDir = await mkdtemp(join(tmpdir(), "matic-tts-"));
 
     // MATIC_VOICE_MODEL overrides config.json, the same way MATIC_LOCAL_MODEL does for the model
@@ -50,18 +54,26 @@ export class TtsService {
       ? `[piper] voice tuning: length_scale ${tuning.lengthScale}, shelf ${tuning.shelfDb} dB at ${tuning.shelfHz} Hz Q ${tuning.shelfQ} (D264)`
       : `[piper] voice tuning: OFF - plain Amy${process.env.MATIC_VOICE_TUNING ? " (MATIC_VOICE_TUNING=off)" : ""}`);
     const args = [...(this.config.pythonArgs ?? []), workerScript, modelPath, "--tuning", JSON.stringify(tuning)];
-    this.proc = spawn(this.config.pythonCommand ?? "py", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(this.config.pythonCommand ?? "py", args, { stdio: ["pipe", "pipe", "pipe"] });
+    this.proc = proc;
 
-    createInterface({ input: this.proc.stderr }).on("line", (l) => this.onLog(`[piper] ${l}`));
-    createInterface({ input: this.proc.stdout }).on("line", (line) => this._onLine(line));
+    createInterface({ input: proc.stderr }).on("line", (l) => this.onLog(`[piper] ${l}`));
+    createInterface({ input: proc.stdout }).on("line", (line) => this._onLine(line));
 
-    this.proc.on("exit", (code) => {
+    proc.on("exit", (code) => {
+      // A worker that was replaced (stop() then start(), D293) exits AFTER its successor may
+      // already be ready; its exit says nothing about the current one.
+      if (this.proc !== null && this.proc !== proc) return;
       this.ready = false;
       this.onLog(`[piper] worker exited code=${code}`);
       for (const { reject } of this._pending.values()) reject(new Error("piper worker exited"));
       this._pending.clear();
+      // A start() still waiting for "ready" from THIS worker gets its answer now rather than at
+      // the 30 s timeout - otherwise a hide during startup leaves the next show without a voice.
+      this._readyResolve?.(false);
+      this._readyResolve = null;
     });
-    this.proc.on("error", (err) => {
+    proc.on("error", (err) => {
       this.readyError = err.message;
       this.onLog(`[piper] spawn failed: ${err.message}`);
     });
@@ -127,11 +139,15 @@ export class TtsService {
 
   stop() {
     if (!this.proc) return;
-    try {
-      this.proc.stdin.write(JSON.stringify({ cmd: "quit" }) + "\n");
-    } catch { /* already gone */ }
-    this.proc.kill();
+    const proc = this.proc;
+    // Cleared FIRST, so a synthesize() that races the kill is refused rather than written to a
+    // closing pipe, and so the exit handler above knows this worker was ours when it fires.
     this.proc = null;
+    this.ready = false;
+    try {
+      proc.stdin.write(JSON.stringify({ cmd: "quit" }) + "\n");
+    } catch { /* already gone */ }
+    proc.kill();
   }
 }
 

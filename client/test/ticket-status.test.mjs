@@ -130,7 +130,7 @@ console.log("\n=== 5. D288: with the watch's snapshot the reply says what the de
   };
   const known = ticketStatusReply(filed, { now, hub: hubOk });
   check("the known reply names both references with the desk's view of each, in state-words.js's words", /MD-1042[^.]*the service desk is looking at it/.test(known) && /MD-1006[^.]*the service desk says it's fixed and is waiting to hear whether you agree/.test(known), known);
-  check("…says when the desk was checked, coarsely, and how often", /when I checked 2 minutes ago/.test(known) && /every minute or so while this window is open/.test(known), known);
+  check("…says when the desk was checked, coarsely, and how often", /when I checked 2 minutes ago/.test(known) && /every minute or so, and keep checking after you close this window/.test(known) && !/while this window is open/.test(known), known);
   check("…and names the one unseen update and where it is", /There's one update from the desk you haven't seen yet/.test(known) && /tickets list at the top of this window/.test(known));
   check("…does NOT say lookup is not built, and never says notified or email", !/isn't something I can do in this build|can't see how they're getting on/.test(known) && !/notified|email/i.test(known));
   check("…no state name reaches the sentence as itself, and no placeholder is left", !/\b(resolved|closed)\b/.test(known.replace(/it's closed/g, "")) && !/\{(list|reference|when|description|status|checked|unseen|n)\}/.test(known));

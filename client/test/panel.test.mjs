@@ -738,8 +738,10 @@ check("the preload's ticket channels are file, filed and ack - and ack carries e
     branches.some((b) => /nothing to look up/.test(b)));
   check("…the empty one says a ticket raised elsewhere will not show",
     branches.some((b) => /won't show here/.test(b)));
-  check("…the known one says when it was checked, how often, and that nothing is emailed (D86)",
-    branches.some((b) => /when I last checked/.test(b) && /every minute or so while I'm on screen/.test(b) && /nothing is sent to you by email/.test(b)));
+  check("…the known one says when it was checked, how often, that the checking continues from the notification area (D293), and that nothing is emailed (D86)",
+    branches.some((b) => /when I last checked/.test(b) && /every minute or so, and I keep checking after you close this window/.test(b) && /nothing is sent to you by email/.test(b)));
+  check("…and NO branch claims the checking stops when the window does - that premise ended with D293 (the tray), and presence.test.mjs fails the day the process quits on close again",
+    branches.every((b) => !/while I'm on screen|while I'm open|while the app is open/.test(b)));
   check("…the fully-known one is chosen by `known && listed === filed.length`, the mixed one by `listed > 0`, the none-listed one by `known` alone, the not-known one by its absence - so the note describes the ROWS it sits under, not the poll that ran (2026-09-13 finding)",
     /: known && listed === filed\.length\s*\? "This is what I sent from this machine, with what the service desk showed/.test(note) && /: known && listed > 0\s*\? "This is what I sent from this machine\. The ones with a status/.test(note) && /: known\s*\? "This is what I sent from this machine\. The service desk can't match any of these/.test(note)
     && /const listed = known \? filed\.filter\(\(t\) => known\[t\.reference\]\)\.length : 0;/.test(rendererCode));

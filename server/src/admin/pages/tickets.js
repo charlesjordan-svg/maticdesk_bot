@@ -85,8 +85,9 @@ const KIND_WORDS = { work_note: "work note", state_change: "state change", comme
  * D287 — THE CONSOLE REPORTS DELIVERY, IT DOES NOT IMPLY IT. A public entry the desk wrote renders
  * its own delivery state from the hub's two stamps: not yet handed to the requester's app; handed
  * <ago>, not yet seen; seen <ago>. The requester's own entries are labelled as theirs. Nothing here
- * says "sent" or "notified": the requester sees an entry only while their Matic Desk is open and
- * polling, and this is not email (D86).
+ * says "sent" or "notified": the requester's Matic Desk picks an entry up on its next check whenever
+ * it is running - from the notification area too, since D293 - and shows it when its window is next
+ * open. Not email (D86).
  */
 function deliveryWords(e) {
   if (e.authorKind === "requester") return html`<span>from the requester</span>`;
@@ -130,8 +131,8 @@ export function awaitingRequester(entries, state) {
  * operator is typing into is the whole choice, and the query layer decides the visibility from the
  * kind (D275).
  *
- * "REPLY TO REQUESTER" EXISTS SINCE P4 (D287) and says what it is: in-app, while their app is open
- * and polling — not email (D86). P1 refused to build this composer while nothing could deliver what
+ * "REPLY TO REQUESTER" EXISTS SINCE P4 (D287) and says what it is: in-app, picked up whenever their
+ * Matic Desk is running (D293) and shown when its window is open — not email (D86). P1 refused to build this composer while nothing could deliver what
  * it wrote; D282's credential and the endpoint's poll are what changed.
  */
 function timelinePanel(ctx, t, entries) {
@@ -142,7 +143,7 @@ function timelinePanel(ctx, t, entries) {
     ${csrfField(ctx.csrf)}
     <label for="reply">Reply to requester (public)</label>
     <textarea id="reply" name="body" rows="3" maxlength="4000" placeholder="What you want the requester to read — plainly, in your own words." style="max-width:100%"></textarea>
-    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>The requester sees this only while their Matic Desk app is open and polling. This is not email</strong> (D86). Each public entry below says whether it has been handed over and seen (D287). Replying clears the "oldest unanswered" clock for this ticket.</p>
+    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>The requester sees this in their Matic Desk, not by email</strong> (D86). Their app picks it up on its next check (about a minute) whenever it is running — it keeps checking from the notification area after its window is closed (D293) — and shows it when the window is next open. Each public entry below says whether it has been handed over and seen (D287). Replying clears the "oldest unanswered" clock for this ticket.</p>
     <div class="row">
       <button class="primary" type="submit">Reply to requester</button>
       <span class="muted" style="font-size:13px">Recorded in the audit log as who replied and when — never the words.</span>
@@ -213,7 +214,7 @@ function autocloseWords(t, hours) {
   // D290's end state, and the one that needs a person. Said first, because a desk agent scanning
   // this page needs to know the requester never saw the resolution before anything else about it.
   if (t.resolutionUndeliveredAt) {
-    return html`<p class="flash" style="font-size:13px"><strong>Resolved, never delivered.</strong> This resolution has never been shown to the requester — their Matic Desk has not been open and polling since it was written ${ago(t.resolvedAt)}. Auto-close tried ${t.autoCloseRearms} time${t.autoCloseRearms === 1 ? "" : "s"} and <strong>gave up ${ago(t.resolutionUndeliveredAt)}</strong> rather than close a ticket nobody was shown (D290). It will not close on its own. Reach the person another way, or move the ticket yourself.</p>`;
+    return html`<p class="flash" style="font-size:13px"><strong>Resolved, never delivered.</strong> This resolution has never been shown to the requester — their Matic Desk has not shown it since it was written ${ago(t.resolvedAt)} — the app has not been running for them, or its window has not been opened since (D293). Auto-close tried ${t.autoCloseRearms} time${t.autoCloseRearms === 1 ? "" : "s"} and <strong>gave up ${ago(t.resolutionUndeliveredAt)}</strong> rather than close a ticket nobody was shown (D290). It will not close on its own. Reach the person another way, or move the ticket yourself.</p>`;
   }
   if (t.autoCloseAt) {
     const delivery = t.autoCloseRearms > 0
@@ -233,7 +234,7 @@ function undeliveredPanel(rows) {
   if (!rows.length) return "";
   return html`<div class="panel">
   <h2>Resolved, never delivered<span class="count">${rows.length}</span></h2>
-  <p class="muted" style="font-size:13px;margin:0 0 8px">Each of these was resolved, and the requester's Matic Desk has never been open and polling since — so they have not been shown the answer, and auto-close stopped rather than close a ticket nobody saw (D290). Nothing here is waiting on the requester; it is waiting on someone reaching them another way.</p>
+  <p class="muted" style="font-size:13px;margin:0 0 8px">Each of these was resolved, and the requester's Matic Desk has never shown it since — the app has not been running for them, or its window has not been opened (D293) — so they have not been shown the answer, and auto-close stopped rather than close a ticket nobody saw (D290). Nothing here is waiting on the requester; it is waiting on someone reaching them another way.</p>
   <table><thead><tr><th>Ref</th><th>Resolved</th><th>Gave up</th><th>Intervals tried</th></tr></thead>
   <tbody>${rows.map((r) => html`<tr>
     <td class="mono"><a href="/admin/tickets/${r.reference}">${r.reference}</a></td>
@@ -364,7 +365,7 @@ function resolveBlock(ctx, t, next, autocloseHours) {
     </select>
     <label for="resolutionNotes">Resolution notes — for the requester (required)</label>
     <textarea id="resolutionNotes" name="resolutionNotes" rows="4" maxlength="4000" required placeholder="What was wrong and what was done, in words the person who reported it can read." style="max-width:100%"></textarea>
-    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>Requester-visible — shown in the requester's Matic Desk the next time it polls, while their app is open. This is not email</strong> (D86). The timeline below says when the hub handed them over and when they were seen (D287).</p>
+    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>Requester-visible — picked up by the requester's Matic Desk on its next check whenever it is running, and shown when its window is next open. This is not email</strong> (D86). The timeline below says when the hub handed them over and when they were seen (D287).</p>
     ${internalNoteField("-resolve")}
     <div class="row">
       <button class="primary" type="submit">Resolve ${t.reference}</button>
@@ -413,7 +414,7 @@ async function detailPage(ctx) {
 <p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
 ${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
 ${unansweredLimit(oldest)}
-${flash ? html`<div class="flash">${resolvedNow ? `Resolved. The requester's Matic Desk shows this the next time it polls while their app is open — nobody has been emailed (D86).${t.autoCloseAt ? ` Closes automatically ${when(t.autoCloseAt)} unless the requester says otherwise (D289).` : ""}` : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
+${flash ? html`<div class="flash">${resolvedNow ? `Resolved. The requester's Matic Desk picks this up on its next check whenever it is running and shows it when its window is next open — nobody has been emailed (D86).${t.autoCloseAt ? ` Closes automatically ${when(t.autoCloseAt)} unless the requester says otherwise (D289).` : ""}` : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
 ${workNoted ? html`<div class="flash">Work note added — internal, on the timeline below.</div>` : ""}
 ${replied ? html`<div class="flash">Reply added — public. The requester's Matic Desk shows it when it next polls; this is not email. The timeline below says when it was handed over and seen.</div>` : ""}
 
@@ -478,7 +479,7 @@ ${timelinePanel(ctx, t, entries)}
 
 ${notYet({
   heading: "Assignment, attachments, email",
-  missing: "This ticket cannot be assigned to a person, carry an attachment, or be sent anywhere by email. A reply here reaches the requester's Matic Desk while their app is open and polling — and nowhere else.",
+  missing: "This ticket cannot be assigned to a person, carry an attachment, or be sent anywhere by email. A reply here reaches the requester's Matic Desk — whenever it is running, in a window or in the notification area (D293) — and nowhere else.",
   why: "The store is create plus a four-state machine (B6-lite, D213), an internal timeline (D275), a resolution (D278) and, since P4, requester comments and desk replies delivered in-app (D286/D287). OPEN-4's remainder — assign, attachments, search — and D86's outbound email are not built, so a requester whose app is closed learns nothing until it opens.",
   arrives: "B6 proper; D86 email",
 })}`;

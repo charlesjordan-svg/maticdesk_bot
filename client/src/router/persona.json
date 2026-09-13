@@ -121,7 +121,7 @@
     "item": "{reference}, {when}, about {description}",
     "itemKnown": "{reference}, {when}, about {description} — {status}",
     "some": "From this machine I've filed {list}. I can't see how they're getting on yet — checking a ticket's progress with the service desk isn't something I can do in this build — so please quote the reference if you follow it up. If it's still a problem, tell me and I'll take another look.",
-    "someKnown": "From this machine I've filed {list}. That's what the service desk showed when I checked {checked}; I check every minute or so while this window is open.{unseen}{notListed} Quote the reference if you follow one up.",
+    "someKnown": "From this machine I've filed {list}. That's what the service desk showed when I checked {checked}; I check every minute or so, and keep checking after you close this window - I'm in the notification area until you quit me from there.{unseen}{notListed} Quote the reference if you follow one up.",
     "notListed": " The ones without a status were filed before this machine was enrolled with the service desk, so it can't match them to me and I can't see how they're getting on.",
     "noneListed": "From this machine I've filed {list}. The service desk can't match any of them to this machine — they were filed before this machine was enrolled with the service desk — so I can't see how they're getting on. Anything I file from now on, I can follow. Quote the reference if you follow one up.",
     "unseen": " There's {n} from the desk you haven't seen yet — it's in the tickets list at the top of this window.",

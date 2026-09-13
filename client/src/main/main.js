@@ -4,12 +4,20 @@
  *
  * Phase 1: change `new InProcessBroker(...)` to `new NamedPipeBroker(...)` here and nothing else
  * in the app moves - that is the whole point of the interface in broker.d.ts (§2).
+ *
+ * SINCE 2026-09-13 THE PROCESS OUTLIVES ITS WINDOW (D293–D296, register §5.61). Closing the window
+ * hides it to the notification area; the hub link and the ticket poll keep running; quitting is a
+ * deliberate act from the tray menu. Every decision about what the tray shows, whether the voice
+ * may speak and whether an update may be shown is made in `presence.js`, which is pure; this file
+ * applies it. `settings.js` remembers Start with Windows and the first-close notice.
  */
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog } from "electron";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { TtsService } from "./tts-service.js";
+import { presence, closeOutcome, UpdateHold, MENU } from "./presence.js";
+import { SettingsStore, resolveAutostart } from "./settings.js";
 import { InProcessBroker } from "../broker/in-process-broker.js";
 import { CloudClient } from "../agent/cloud-client.js";
 import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
@@ -29,6 +37,22 @@ import persona from "../router/persona.json" with { type: "json" };
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 
+// ---- D293: one process per user. ----
+//
+// With Start with Windows ON the app is already running when the user double-clicks the desktop
+// icon, and before this that started a second one. The lock is per userData directory, so two OS
+// users on one machine still get one each. The second launch hands over and exits; the first shows
+// its window (below, `second-instance`).
+const isPrimary = app.requestSingleInstanceLock();
+if (!isPrimary) app.quit();
+
+/**
+ * Started by Windows at logon (D294): to the notification area, with no window. The point of
+ * autostart is presence, not a window appearing at every logon. The login item is registered with
+ * this argument and nothing else uses it.
+ */
+const startInBackground = process.argv.includes("--background");
+
 let win = null;
 let tts = null;
 let broker = null;
@@ -47,6 +71,19 @@ let enrollment = null;
 // D288 (P4). The poll of this enrollment's own tickets on the hub, and the one source of "an update
 // arrived". null on a build with no hub provider; it starts polling only once a credential lands.
 let ticketWatch = null;
+// D293–D296. The tray, the process's own preferences, and what arrived while nobody could see it.
+let tray = null;
+let settings = null;
+/** Set by `before-quit` and nothing else: the one condition under which `close` is allowed to close. */
+let isQuitting = false;
+/** Desk updates held while no visible window can show them; their count is the tray's needsYou. */
+const held = new UpdateHold();
+/** The icon the tray is showing, so a repaint is a change and the startup gap keeps the last answer. */
+let lastIcon = null;
+/** The renderer has run its scripts and registered its listeners - a `send` before that is dropped. */
+let rendererReady = false;
+/** The resolved Start with Windows value (settings + the OS's answer), what the tray's box shows. */
+let autostart = false;
 
 const log = (line) => {
   console.log(line);
@@ -57,10 +94,166 @@ const log = (line) => {
   if (win && !win.isDestroyed()) win.webContents.send("app:log", line);
 };
 
+// ---- presence: the pure policy, applied ----------------------------------------------------------
+
+const windowVisible = () => Boolean(win && !win.isDestroyed() && win.isVisible());
+
+/** One object, from what is true right now. Every tray and voice decision below reads this. */
+function presenceNow() {
+  return presence({ visible: windowVisible(), hub: hubLink?.status().state ?? "standalone", unread: held.count, autostart, previous: lastIcon });
+}
+
+const TRAY_ICON_FILES = { idle: "idle", needsYou: "needs-you", unreachable: "unreachable" };
+const trayImages = {};
+/** `createFromPath` picks up the `@2x` beside it on a scaled display. The PNGs are built by scripts/build-tray-icons.mjs. */
+const trayImage = (state) => (trayImages[state] ??= nativeImage.createFromPath(join(ROOT, "assets/tray", `${TRAY_ICON_FILES[state]}.png`)));
+
+/** Repaint the tray from `presenceNow()`. Cheap, idempotent, called on every input change. */
+function refreshTray() {
+  if (!tray) return;
+  const p = presenceNow();
+  if (p.icon !== lastIcon) {
+    tray.setImage(trayImage(p.icon));
+    log(`[presence] tray -> ${p.icon} (${p.tooltip})`);
+    lastIcon = p.icon;
+  }
+  tray.setToolTip(p.tooltip);
+  tray.setContextMenu(Menu.buildFromTemplate(p.menu.map((m) => {
+    if (m.type === "separator") return { type: "separator" };
+    if (m.id === MENU.AUTOSTART) return { label: m.label, type: "checkbox", checked: m.checked === true, click: (item) => setAutostart(item.checked) };
+    if (m.id === MENU.QUIT) return { label: m.label, click: () => app.quit() };
+    return { label: m.label, click: () => void showWindow() };
+  })));
+}
+
+// ---- Start with Windows (D294, D295) --------------------------------------------------------------
+//
+// The OS is asked through Electron's login-item API and reduced to two booleans for the pure
+// `resolveAutostart`: is there a Run entry for this executable with our arguments, and does Task
+// Manager show it enabled. In development `process.execPath` is electron.exe, so the app path is
+// passed as an argument the way `electron .` does; a packaged build needs only `--background`.
+const LOGIN_ITEM_NAME = "MaticDesk";
+const quoted = (p) => (/\s/.test(p) ? `"${p}"` : p);
+const loginItem = () => ({ path: process.execPath, args: app.isPackaged ? ["--background"] : [quoted(app.getAppPath()), "--background"] });
+
+/** @returns {{ registered: boolean, enabled: boolean } | null} null when the OS could not be read. */
+function readOsAutostart() {
+  try {
+    const s = app.getLoginItemSettings(loginItem());
+    const items = Array.isArray(s.launchItems) ? s.launchItems : null;
+    const mine = items?.find((i) => i.name === LOGIN_ITEM_NAME || (i.args ?? []).includes("--background")) ?? null;
+    if (mine) return { registered: true, enabled: mine.enabled !== false };
+    if (items) return { registered: false, enabled: false };
+    return { registered: s.openAtLogin === true, enabled: s.openAtLogin === true };
+  } catch (err) {
+    log(`[presence] could not read the OS login-item state: ${err.message}`);
+    return null;
+  }
+}
+
+function applyOsAutostart(on) {
+  app.setLoginItemSettings({ ...loginItem(), name: LOGIN_ITEM_NAME, openAtLogin: on, enabled: on });
+}
+
+/** Read both sides, let the pure rule decide, apply and store only what it says to. */
+function reconcileAutostart(reason) {
+  const stored = settings.read().openAtLogin;
+  const os = readOsAutostart();
+  const r = resolveAutostart({ stored, os });
+  if (r.apply) applyOsAutostart(r.openAtLogin);
+  if (r.store) settings.write({ openAtLogin: r.openAtLogin });
+  autostart = r.openAtLogin;
+  const osWords = os ? (os.registered ? `registered, ${os.enabled ? "enabled" : "DISABLED in Task Manager"}` : "absent") : "unreadable";
+  log(`[presence] start with Windows: ${autostart ? "ON" : "off"} - ${r.why} (stored ${stored === null ? "nothing" : stored}, OS ${osWords}; ${reason})`);
+}
+
+/** The tray's checkbox. The user's click is the decision; it goes to the OS and the store together. */
+function setAutostart(on) {
+  applyOsAutostart(on === true);
+  settings.write({ openAtLogin: on === true });
+  autostart = on === true;
+  log(`[presence] start with Windows turned ${autostart ? "ON" : "off"} from the tray menu (D294)`);
+  refreshTray();
+}
+
+// ---- the voice follows the window (D293) -----------------------------------------------------------
+//
+// STRUCTURAL, NOT A HABIT. Three things make "nothing is ever spoken with no visible window" true:
+// `tts:speak` refuses while `presenceNow().speech` is "muted"; the window's audio is muted the
+// moment it hides (a hidden BrowserWindow can still play sound); and the Piper worker is stopped
+// on hide and started again on show - which also means a background agent is not holding a 63 MB
+// model and a Python process for nobody.
+let voiceStarting = null;
+async function startVoice() {
+  if (!tts || tts.ready || voiceStarting) return;
+  if (presenceNow().speech !== "allowed") return;
+  voiceStarting = (async () => {
+    const ok = await tts.start(join(ROOT, "scripts/piper_worker.py"));
+    log(ok ? "[tts] voice ready" : `[tts] voice unavailable, running text-only: ${tts.readyError}`);
+    if (win && !win.isDestroyed()) win.webContents.send("tts:ready", { ready: tts.ready, error: tts.readyError, sampleRate: tts.sampleRate });
+  })().finally(() => { voiceStarting = null; });
+  await voiceStarting;
+}
+
+/** Held updates reach the renderer only when it is listening AND a person can see the window. */
+function deliverHeld() {
+  if (!rendererReady || !win || win.isDestroyed()) return;
+  if (presenceNow().deliver !== "show") return;
+  const updates = held.drain();
+  for (const u of updates) win.webContents.send("ticket:update", u);
+  if (updates.length) log(`[presence] ${updates.length} held update${updates.length === 1 ? "" : "s"} from the desk shown now that the window is visible (D293)`);
+  refreshTray();
+}
+
+function onWindowShown() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.setAudioMuted(false);
+  void startVoice();
+  deliverHeld();
+  refreshTray();
+}
+
+function onWindowHidden() {
+  if (win && !win.isDestroyed()) win.webContents.setAudioMuted(true);
+  tts?.stop();
+  refreshTray();
+  log("[presence] window hidden to the notification area - the hub link and the ticket poll keep running; the voice is stopped and the window's audio is muted (D293)");
+}
+
+/**
+ * Closing the window (D293, D296): hide, never quit. The one-time notice says where the app went,
+ * the first time only; it is its own small window rather than a child of the one being hidden, so
+ * the window goes away as the user asked and the notice stays until they read it.
+ */
+function hideToTray() {
+  if (!win || win.isDestroyed()) return;
+  const out = closeOutcome({ noticeShown: settings.read().firstCloseNoticeShown });
+  if (out.remember) settings.write({ firstCloseNoticeShown: true });
+  win.hide();
+  if (out.notice) {
+    log("[presence] first close on this profile - the one-time notice is shown, and remembered (D296)");
+    void dialog.showMessageBox({ type: "info", title: out.notice.title, message: out.notice.message, detail: out.notice.detail, buttons: ["OK"], noLink: true });
+  }
+}
+
+let creating = null;
+/** The tray click, the second instance and macOS's dock: show the window, making one if there is none. */
+async function showWindow() {
+  if (!win || win.isDestroyed()) {
+    creating ??= createWindow().finally(() => { creating = null; });
+    await creating;
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
 async function createWindow() {
   // No default menu. On stage an accidental Alt keypress dropping the File/Edit/View menu over
   // the avatar is exactly the kind of thing that derails a demo.
   Menu.setApplicationMenu(null);
+  rendererReady = false;
   win = new BrowserWindow({
     width: 1180,
     height: 800,
@@ -78,7 +271,16 @@ async function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.on("closed", () => { win = null; });
+  // D293: the X hides. Only `before-quit` (the tray's Quit, or the OS) lets a close through.
+  win.on("close", (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    hideToTray();
+  });
+  win.on("show", onWindowShown);
+  win.on("hide", onWindowHidden);
+  win.on("closed", () => { win = null; rendererReady = false; refreshTray(); });
+  win.webContents.on("did-finish-load", () => { rendererReady = true; deliverHeld(); });
   win.once("ready-to-show", () => { if (win && !win.isDestroyed()) win.show(); });
   await win.loadFile(join(ROOT, "src/renderer/index.html"));
 }
@@ -102,7 +304,16 @@ function loadEnvFile() {
   }
 }
 
+// A second launch while this one runs: show the window (D293). Not when the second launch is the
+// logon autostart itself - that asked for presence, not a window.
+app.on("second-instance", (_e, argv) => {
+  if (Array.isArray(argv) && argv.includes("--background")) { log("[presence] a second launch at logon found this one already running - nothing to do"); return; }
+  log("[presence] a second launch asked for the window - showing this one (D293)");
+  void showWindow();
+});
+
 app.whenReady().then(async () => {
+  if (!isPrimary) return;
   const keySource = loadEnvFile();
   const config = JSON.parse(await readFile(join(ROOT, "config.json"), "utf8"));
 
@@ -143,11 +354,15 @@ app.whenReady().then(async () => {
     const hubTimeoutMs = Number(process.env.MATIC_HUB_TIMEOUT_MS || config.hubTimeoutMs || 300000);
     // The connectivity monitor (D49/D51, D233): a shape-checked GET /v1/health on a jittered
     // cadence, plus every real request's outcome reported by HubClient. It pushes each transition
-    // to the renderer, which shows it in the status pill and says so in the transcript.
+    // to the renderer, which shows it in the status pill and says so in the transcript - and to
+    // the tray, which shows unreachable as its own icon (D293).
     hubLink = new HubLink({
       hubUrl,
       onLog: log,
-      onChange: (_prev, _next, status) => { if (win && !win.isDestroyed()) win.webContents.send("hub:link", status); },
+      onChange: (_prev, _next, status) => {
+        if (win && !win.isDestroyed()) win.webContents.send("hub:link", status);
+        refreshTray();
+      },
     });
     cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), timeoutMs: hubTimeoutMs, onLog: log, link: hubLink });
     hubUrlForTickets = hubUrl;
@@ -177,13 +392,24 @@ app.whenReady().then(async () => {
     // every entry from the desk the hub has not seen acknowledged to the renderer ONCE, as
     // `ticket:update`. Shown, not spoken: Charles chose show-only on 2026-09-12. Nothing here
     // writes to a ticket except the ack of what the renderer says it showed.
+    //
+    // SINCE D293 THE POLL OUTLIVES THE WINDOW, and that changes what "shown" has to mean. A hidden
+    // window's renderer is alive and would show and ack an update nobody saw - and the ack is what
+    // the console reports as "seen" (D287) and what starts D290's auto-close clock. So an update
+    // is forwarded only while a window is visible and listening; otherwise it is HELD, the tray
+    // turns to needsYou, and it is shown the moment the window is.
     ticketWatch = new TicketWatch({
       client: hubClient,
       dir: app.getPath("userData"),
       intervalMs: Number(process.env.MATIC_TICKET_POLL_MS || config.ticketPollMs || POLL_DEFAULT_MS),
       onLog: log,
       onUpdate: (update) => {
-        if (!win || win.isDestroyed()) return;
+        if (!rendererReady || !win || win.isDestroyed() || presenceNow().deliver !== "show") {
+          held.hold(update);
+          log(`[presence] ${update.entries.length} entr${update.entries.length === 1 ? "y" : "ies"} from the desk on ${update.reference} held - no visible window to show them; the tray says so (D293)`);
+          refreshTray();
+          return;
+        }
         win.webContents.send("ticket:update", update);
         // The taskbar button flashes when the window is not the one in front - the OS's own "look
         // here" for a window that is not focused, and nothing else: no toast, no sound, no
@@ -259,6 +485,21 @@ app.whenReady().then(async () => {
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });
 
+  // ---- the process's own preferences and the tray (D293–D296) ----
+  //
+  // Built BEFORE the window, because with Start with Windows there may never be one this run:
+  // the tray is the app's presence, and the window is something it can show on request.
+  settings = new SettingsStore({ dir: app.getPath("userData"), onLog: log });
+  reconcileAutostart("startup");
+  tray = new Tray(trayImage("idle"));
+  lastIcon = "idle";
+  tray.on("click", () => void showWindow());
+  tray.on("double-click", () => void showWindow());
+  // The OS is re-read when the menu is about to be used, so a change made in Task Manager since
+  // startup is what the checkbox shows (D295). Reading a registry key is cheap.
+  tray.on("right-click", () => { reconcileAutostart("tray menu"); refreshTray(); });
+  refreshTray();
+
   ipcMain.handle("hub:status", () => hubLink.status());
 
   // ---- IPC: registered BEFORE the window exists, so the renderer cannot ask for a handler
@@ -266,6 +507,13 @@ app.whenReady().then(async () => {
   ipcMain.handle("tts:status", () => ({ ready: tts.ready, error: tts.readyError, sampleRate: tts.sampleRate }));
 
   ipcMain.handle("tts:speak", async (_e, text) => {
+    // D293: nothing is spoken with no visible window. The renderer of a hidden window can still
+    // ask; the answer is the same refusal a missing voice gets, and the renderer's text-only path
+    // handles it. `presence.js` owns the rule; this is where it bites.
+    if (presenceNow().speech !== "allowed") {
+      log("[tts] speak refused: no visible window (D293) - shown, not spoken");
+      return { ok: false, error: "no visible window - nothing is spoken from the notification area (D293)" };
+    }
     const r = await tts.synthesize(String(text ?? ""));
     if (!r.ok) {
       log(`[tts] synthesis failed: ${r.error}`);
@@ -393,26 +641,40 @@ app.whenReady().then(async () => {
    */
   ipcMain.handle("broker:execute", (_e, nonce) => broker.execute(typeof nonce === "string" ? nonce : ""));
 
-  await createWindow();
+  // ---- the window, unless Windows started us at logon (D294) ----
+  //
+  // The voice starts when the window SHOWS (`onWindowShown`), after the UI has painted rather
+  // than before, so the renderer shows "voice: loading" and waits for the event as it always did.
+  if (startInBackground) {
+    log("[presence] started with Windows - to the notification area, no window (D294). Click the tray icon to open it.");
+  } else {
+    await createWindow();
+  }
 
-  // ---- hub link: probing starts once the window exists, so the first transition has somewhere
-  // to land. A standalone link's start() is a no-op. ----
+  // ---- hub link: probing starts here whether or not a window exists - the tray is somewhere for
+  // the first transition to land now. A standalone link's start() is a no-op. ----
   hubLink.start();
 
-  // ---- voice: started after the window is up so the UI paints immediately rather than waiting
-  // on a 63 MB model load. The renderer shows "voice: loading" and waits for this event. ----
-  const voiceOk = await tts.start(join(ROOT, "scripts/piper_worker.py"));
-  log(voiceOk ? "[tts] voice ready" : `[tts] voice unavailable, running text-only: ${tts.readyError}`);
-  win?.webContents.send("tts:ready", { ready: tts.ready, error: tts.readyError, sampleRate: tts.sampleRate });
-
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) void showWindow();
   });
 });
 
-app.on("window-all-closed", () => {
+// The tray's Quit, or the OS: the one path that lets a close through (D293).
+app.on("before-quit", () => {
+  isQuitting = true;
   hubLink?.stop();
   ticketWatch?.stop();
   tts?.stop();
-  if (process.platform !== "darwin") app.quit();
+  tray?.destroy();
+  tray = null;
+});
+
+// D293: closing the last window does NOT quit and does NOT stop the hub link or the ticket poll -
+// that was the whole reason a resolution could wait nine days for a person to chase it (D290's
+// backstop, register §5.60). The voice is stopped because there is no window to speak from; the
+// hub link and the ticket watch keep running until `before-quit`. test/presence.test.mjs fails if
+// `app.quit()` or a `stop()` on either of them ever returns to this handler.
+app.on("window-all-closed", () => {
+  tts?.stop();
 });

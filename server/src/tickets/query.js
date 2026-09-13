@@ -903,8 +903,8 @@ export async function confirmResolution(schema, reference, { deviceId } = {}) {
  * D276's clock STOPS — the oldest unanswered requester comment is answered. One transaction, so the
  * entry and the cleared clock cannot disagree. This is the console's second composer, the one P1
  * refused to build until something could deliver what it wrote; since D282 the endpoint polls for
- * it, and the composer's copy says exactly how far that reaches (in-app, while the app is open —
- * not email).
+ * it, and the composer's copy says exactly how far that reaches (in-app, whenever the app is running
+ * and shown when its window is open — not email; D293).
  *
  * @param {string} schema
  * @param {string} reference
