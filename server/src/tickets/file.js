@@ -36,8 +36,11 @@
  *
  * Same posture as /v1/ask, and for the same reason (D61/D132 unbuilt):
  *
- *   - **A tenant in the request body is REFUSED.** The schema is chosen server-side from
- *     `MATIC_TICKET_TENANT`. A client that can name its own tenant IS the tenancy model.
+ *   - **A tenant in the request body is REFUSED.** The schema is chosen server-side: on an
+ *     AUTHENTICATED call, from the credential's device row (D282/D284, since 2026-09-12); on an
+ *     unauthenticated loopback call, from `MATIC_TICKET_TENANT`. A client that can name its own
+ *     tenant IS the tenancy model - and a client that could name its own DEVICE would be naming
+ *     which requester may read the ticket, so `device_id` comes from the verified credential too.
  *   - **The reporter is self-asserted.** `osUsername` is what the agent read from the OS in the
  *     user's own context; the profile fields are what a person typed. `users.logon_sid` — the
  *     column that would hold an attested identity (D148) — stays NULL, because the pipe that
@@ -105,8 +108,9 @@ export function checkTicketRequest(body) {
   // being convenient.
   if (body.tenant !== undefined || body.tenantId !== undefined || body.tenantLabel !== undefined) {
     return "this hub does not accept a tenant from the client. The tenant schema is chosen "
-      + "server-side (MATIC_TICKET_TENANT) because device authentication is not built (D61, D132), "
-      + "and a client-supplied tenant would become the tenancy model by default.";
+      + "server-side: from the enrollment credential on an authenticated call (D284), from MATIC_TICKET_TENANT "
+      + "on an unauthenticated loopback call - never from the body, where a client-supplied tenant would become "
+      + "the tenancy model by default.";
   }
 
   if (!str(body.description)) return "description must be a non-empty string (the reporter's own words)";
@@ -238,14 +242,25 @@ export async function createTicket(schema, body, { deviceId = null } = {}) {
  * @param {{ tenantSchema: string|null, log?: (s: string) => void }} deps
  */
 export function ticketHandler({ tenantSchema, log = () => {} }) {
-  return async function handleTicket(req, res, send) {
-    if (!tenantSchema) {
+  /**
+   * @param {{ device?: import("../devices/enrollment.js").AuthenticatedDevice|null }} [ctx]  the
+   *   authenticated device from src/index.js's authenticate(); null on an unauthenticated call
+   */
+  return async function handleTicket(req, res, send, { device = null } = {}) {
+    // D284: an authenticated call's tenant is the CREDENTIAL's. The configured tenant serves an
+    // unauthenticated loopback call only, and a hub with neither files nothing, with a reason.
+    const schema = device?.tenantSchema ?? tenantSchema;
+    if (device && tenantSchema && device.tenantSchema !== tenantSchema) {
+      log(`[hub] ticket from device ${device.id} lands in its own tenant ${device.tenantSchema}, not the configured ${tenantSchema} (D284)`);
+    }
+    if (!schema) {
       // A 503 with a reason, not a 404. "This hub files no tickets" and "no such route" are
       // different facts for a client, and the second one sends someone reading the wrong code.
       return send(503, {
         ok: false,
-        error: "this hub has no ticket tenant configured. Set MATIC_TICKET_TENANT to a schema that "
-          + "exists in control.tenants (create one with `node bin/db.mjs create-tenant <slug>`).",
+        error: "this hub has no ticket tenant configured for an unauthenticated call. Set MATIC_TICKET_TENANT to a "
+          + "schema that exists in control.tenants (create one with `node bin/db.mjs create-tenant <slug>`), or "
+          + "present an enrollment credential, whose tenant is used instead (D284).",
       });
     }
 
@@ -255,12 +270,15 @@ export function ticketHandler({ tenantSchema, log = () => {} }) {
     if (problem) return send(400, { ok: false, error: problem });
 
     try {
-      const filed = await createTicket(tenantSchema, parsed.value);
-      log(`[hub] filed ${filed.reference} in ${tenantSchema} (category ${parsed.value.category}, owner ${parsed.value.suggestedOwner ?? "unrouted"})`);
+      const filed = await createTicket(schema, parsed.value, { deviceId: device?.id ?? null });
+      log(`[hub] filed ${filed.reference} in ${schema} (category ${parsed.value.category}, owner ${parsed.value.suggestedOwner ?? "unrouted"})${device ? ` by device ${device.id}` : " - unauthenticated"}`);
       return send(201, {
         ok: true,
         ...filed,
-        tenant: tenantSchema,
+        tenant: schema,
+        // D282/D284: whether a credential was presented, so the endpoint can say what the hub knows
+        // about who filed this - an enrollment, or nobody in particular.
+        authenticated: Boolean(device),
         // The two fields that stop a client claiming more than happened. See the header.
         notified: false,
         notifiedWhy:

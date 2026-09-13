@@ -30,13 +30,17 @@ const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 /**
  * Whether the Secure flag goes on the cookie.
  *
- * The hub speaks plaintext HTTP on loopback and nothing else (it refuses non-loopback peers), so
- * there is no TLS for `Secure` to bind to. Browsers treat 127.0.0.1 as a secure context and most
- * accept a Secure cookie over it, but "most" is not "all" and a console whose login silently fails
- * in one browser is the kind of defect this project keeps finding on screen. So: Secure when the
- * socket is TLS, or when MATIC_ADMIN_COOKIE_SECURE=1 says the operator has TLS in front. The day
- * the hub binds to anything but loopback, this must become unconditional — src/index.js's
- * loopback refusal is what makes the conditional safe, and a test pins that both still exist.
+ * On a loopback listener the hub speaks plaintext HTTP, so there is no TLS for `Secure` to bind
+ * to. Browsers treat 127.0.0.1 as a secure context and most accept a Secure cookie over it, but
+ * "most" is not "all" and a console whose login silently fails in one browser is the kind of
+ * defect this project keeps finding on screen. So: Secure when the socket is TLS, or when
+ * MATIC_ADMIN_COOKIE_SECURE=1 says the operator has TLS in front of a loopback hub.
+ *
+ * THE DAY THE HUB BOUND OFF LOOPBACK CAME ON 2026-09-12 (D283), and this became unconditional BY
+ * CONSTRUCTION rather than by flag: a LAN listener exists only over TLS — src/index.js refuses to
+ * start otherwise and refuses a plaintext non-loopback peer in the handler — so on every LAN
+ * connection `req.socket.encrypted` is true and `Secure` is set. The conditional below is the
+ * loopback case's, and the peer gate in src/index.js is still what makes it safe there.
  *
  * @param {import("node:http").IncomingMessage} req
  */

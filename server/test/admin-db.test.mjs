@@ -51,7 +51,8 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHubServer } from "../src/index.js";
+import { createHubServer, resetCredentialThrottle } from "../src/index.js";
+import { resetReadThrottle, READS_PER_MINUTE, NEEDS_CREDENTIAL } from "../src/tickets/read.js";
 import { migrate } from "../src/db/migrate.js";
 import { createTenant, dropTenantForTests } from "../src/db/tenants.js";
 import { getPool, closePool, withControl } from "../src/db/pool.js";
@@ -1451,6 +1452,112 @@ try {
     const sixthBody = await sixth.json();
     check("…and it names a retry window", typeof sixthBody.retryAfterMs === "number" && sixthBody.retryAfterMs > 0);
     resetEnrollmentThrottle();
+  }
+
+  console.log("\n=== B3-5. the credential on the wire: GET /v1/tickets is this enrollment's tickets, the tenant comes from the credential, revocation bites (D282–D284) ===");
+  {
+    resetEnrollmentThrottle(); resetReadThrottle(); resetCredentialThrottle();
+    // B3-2 turned auto-approve OFF and left it there; this block wants the endpoint's enrollment to
+    // activate on submission, as a fresh tenant's would (D80's default).
+    const before = await owner.go("/admin/agents");
+    if (/Auto-approve is <strong>off<\/strong>/.test(before.text)) {
+      const on = await owner.go("/admin/agents/auto-approve", { method: "POST", form: { _csrf: csrfOf(before.text), enabled: "1" } });
+      check("(fixture) auto-approve turned back on", on.status === 200 && /Auto-approve is now ON/.test(on.text), String(on.status));
+    }
+    const page = await owner.go("/admin/agents");
+    const fresh = await owner.go("/admin/agents/secrets/new", { method: "POST", form: { _csrf: csrfOf(page.text), ttlDays: "1" } });
+    const secret = fresh.text.match(/<div class="mono" style="margin-top:6px;font-size:15px;word-break:break-all">([^<]+)<\/div>/)?.[1];
+    const enrolled = await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "p3b-endpoint", secret }) })).json();
+    check("(fixture) the endpoint enrolls and gets its credential", enrolled.status === "active" && /^mdc_/.test(enrolled.credential ?? ""), JSON.stringify(enrolled).slice(0, 200));
+    const cred = enrolled.credential, dev = enrolled.deviceId;
+    const asDevice = (path, init = {}) => fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${cred}`, ...(init.headers ?? {}) } });
+    const json = (p) => fetch(`${base}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description: "anon", summary: "anon", category: "other", suggestedOwner: null, reporter: { osUsername: "someone" } }) });
+
+    // Without a credential: nothing, and why.
+    const anon = await fetch(`${base}/v1/tickets`);
+    const anonBody = await anon.json();
+    check("GET /v1/tickets with NO credential -> 401 with the exact sentence: names the header, names POST /v1/enroll, returns no list, x-matic-hub-auth none", anon.status === 401 && anonBody.error === NEEDS_CREDENTIAL && !("tickets" in anonBody) && anon.headers.get("x-matic-hub-auth") === "none", JSON.stringify(anonBody));
+    const wrong = await fetch(`${base}/v1/tickets`, { headers: { authorization: `Bearer mdc_${"B".repeat(43)}` } });
+    check("…with a well-formed credential nobody issued -> 401 'not one this hub issued', nothing returned", wrong.status === 401 && /not one this hub issued/.test((await wrong.json()).error));
+    const malformed = await fetch(`${base}/v1/tickets`, { headers: { authorization: "Bearer hello" } });
+    check("…with a malformed one -> 401 saying credentials begin mdc_", malformed.status === 401 && /begin mdc_/.test((await malformed.json()).error));
+
+    // With it: empty, honestly.
+    const empty = await asDevice("/v1/tickets");
+    const emptyBody = await empty.json();
+    check("with the credential -> 200, an empty list, and the response is stamped x-matic-hub-auth: device-credential", empty.status === 200 && emptyBody.ok === true && Array.isArray(emptyBody.tickets) && emptyBody.count === 0 && empty.headers.get("x-matic-hub-auth") === "device-credential", JSON.stringify(emptyBody).slice(0, 300));
+    check("…and carries the honesty field: what the credential proves (a per-OS-user enrollment) and does not (who is at the keyboard; the profile is self-asserted)", emptyBody.identity?.kind === "enrollment-credential" && emptyBody.identity.deviceId === dev && emptyBody.identity.tenant === slug && /per-OS-user enrollment/.test(emptyBody.identity.proves) && /self-asserted/.test(emptyBody.identity.doesNotProve), JSON.stringify(emptyBody.identity));
+
+    // File a ticket WITH the credential: device_id lands and the tenant is the credential's.
+    const filed = await asDevice("/v1/ticket", { method: "POST", body: JSON.stringify({ description: "p3b: my badge reader is dead", summary: "P3B-SENTINEL badge reader unresponsive", category: "hardware", suggestedOwner: "desktop_support", machineName: "LAPTOP-P3B", reporter: { osUsername: "p3b.user", firstName: "Sam", lastName: "P3b", location: "Floor 9", contactId: "sam@example.test" } }) });
+    const filedBody = await filed.json();
+    check("POST /v1/ticket with the credential -> 201 in the credential's tenant, marked authenticated, x-matic-hub-auth device-credential", filed.status === 201 && filedBody.ok === true && filedBody.tenant === schema && filedBody.authenticated === true && filed.headers.get("x-matic-hub-auth") === "device-credential", JSON.stringify(filedBody).slice(0, 300));
+    check("…and the row carries the enrollment: getTicket().deviceId is the device from the credential", (await getTicket(schema, filedBody.reference)).deviceId === dev);
+    const anonFiled = await json("/v1/ticket");
+    const anonFiledBody = await anonFiled.json();
+    check("POST /v1/ticket with NO credential on this LOOPBACK listener still files — the credential is optional here — unauthenticated, device_id NULL", anonFiled.status === 201 && anonFiledBody.authenticated === false && (await getTicket(schema, anonFiledBody.reference)).deviceId === null, JSON.stringify(anonFiledBody).slice(0, 200));
+
+    // Read back: own ticket only, allow-list shape, public entries only.
+    const desk = { kind: "console_user", adminUserId: made.owner.id, label: made.owner.email };
+    await setTicketState(schema, filedBody.reference, "open", { from: "new", note: "P3B-INTERNAL-SENTINEL", author: desk });
+    await addEntry(schema, filedBody.reference, { kind: "work_note", body: "P3B-WORKNOTE-SENTINEL", author: desk });
+    const list = await (await asDevice("/v1/tickets")).json();
+    check("GET /v1/tickets -> exactly the ticket this enrollment filed, in the allow-list shape, no sentinel on the wire", list.count === 1 && list.tickets[0].reference === filedBody.reference && Object.keys(list.tickets[0]).sort().join(",") === "category,closedAt,closedBy,createdAt,machineName,reference,resolutionCode,resolutionNotes,resolvedAt,state,updatedAt" && !JSON.stringify(list).includes("SENTINEL"), JSON.stringify(list).slice(0, 400));
+    const one = await asDevice(`/v1/tickets/${filedBody.reference}`);
+    const oneBody = await one.json();
+    check("GET /v1/tickets/<ref> -> the ticket and its PUBLIC entries only: the state change, not the work note, no sentinel", one.status === 200 && oneBody.ticket?.reference === filedBody.reference && oneBody.entries?.length === 1 && oneBody.entries[0].kind === "state_change" && !JSON.stringify(oneBody).includes("SENTINEL"), JSON.stringify(oneBody).slice(0, 400));
+    const notMine = await asDevice(`/v1/tickets/${anonFiledBody.reference}`);
+    check("GET /v1/tickets/<a ticket filed without a credential> -> 404 'readable by this enrollment', the same as a reference that does not exist", notMine.status === 404 && /readable by this enrollment/.test((await notMine.json()).error) && (await asDevice("/v1/tickets/MD-999999")).status === 404);
+    check("…and a path that is not a reference -> 404 too, not a 500", (await asDevice("/v1/tickets/..%2Fadmin")).status === 404);
+    check("POST /v1/tickets -> 405 GET only", (await asDevice("/v1/tickets", { method: "POST", body: "{}" })).status === 405);
+
+    // The tenant comes from the credential, not the environment: a hub with NO ticket tenant configured.
+    const noTenant = createHubServer({ provider: stubProvider, log: () => {}, kb: false, ticketTenant: null, embedder: stubEmbedder, admin: false });
+    await new Promise((r) => noTenant.listen(0, "127.0.0.1", r));
+    const ntBase = `http://127.0.0.1:${noTenant.address().port}`;
+    try {
+      const nt503 = await fetch(`${ntBase}/v1/ticket`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description: "x", summary: "x", category: "other", suggestedOwner: null, reporter: { osUsername: "u" } }) });
+      check("a hub with NO MATIC_TICKET_TENANT: an unauthenticated POST /v1/ticket -> 503 as before, and the sentence now names the credential as the other way in", nt503.status === 503 && /credential/.test((await nt503.json()).error));
+      const ntOk = await fetch(`${ntBase}/v1/ticket`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${cred}` }, body: JSON.stringify({ description: "p3b: filed on a hub that knows no tenant", summary: "tenant from the credential", category: "other", suggestedOwner: null, reporter: { osUsername: "p3b.user" } }) });
+      const ntBody = await ntOk.json();
+      check("…and the SAME POST with the credential -> 201 into the credential's tenant: the tenant came from the device row, not from the environment (D284)", ntOk.status === 201 && ntBody.tenant === schema && (await getTicket(schema, ntBody.reference))?.deviceId === dev, JSON.stringify(ntBody).slice(0, 200));
+      const ntList = await (await fetch(`${ntBase}/v1/tickets`, { headers: { authorization: `Bearer ${cred}` } })).json();
+      check("…and GET /v1/tickets on that hub lists both of this enrollment's tickets — scoped by the credential's tenant and device, on a hub configured with neither", ntList.count === 2, JSON.stringify(ntList).slice(0, 200));
+      const ntSession = await fetch(`${ntBase}/v1/session`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${cred}` }, body: JSON.stringify({ event: "begin", sessionId: randomUUID() }) });
+      check("POST /v1/session with the credential on that hub -> 201: sessions take their tenant from the credential too", ntSession.status === 201, String(ntSession.status));
+      const ntSessionAnon = await fetch(`${ntBase}/v1/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "begin", sessionId: randomUUID() }) });
+      check("…and without one -> 503, as before", ntSessionAnon.status === 503);
+    } finally { await new Promise((r) => noTenant.close(r)); }
+
+    // last_seen_at moves on an authenticated call.
+    const { rows: [s0] } = await getPool().query("SELECT last_seen_at FROM control.devices WHERE id = $1", [dev]);
+    await new Promise((r) => setTimeout(r, 25));
+    await asDevice("/v1/health");
+    const { rows: [s1] } = await getPool().query("SELECT last_seen_at FROM control.devices WHERE id = $1", [dev]);
+    check("an authenticated GET /v1/health moved last_seen_at (G2): the column is written by the request now, not by enrollment alone", s1.last_seen_at > s0.last_seen_at, `${s0.last_seen_at?.toISOString()} -> ${s1.last_seen_at?.toISOString()}`);
+
+    // The poll floor's server half.
+    resetReadThrottle();
+    let last = 200;
+    for (let i = 0; i < READS_PER_MINUTE; i++) last = (await asDevice("/v1/tickets")).status;
+    const over = await asDevice("/v1/tickets");
+    const overBody = await over.json();
+    check(`read ${READS_PER_MINUTE} in a minute is still 200; read ${READS_PER_MINUTE + 1} is 429 with retryAfterMs and the floor in words`, last === 200 && over.status === 429 && typeof overBody.retryAfterMs === "number" && overBody.retryAfterMs > 0 && /Poll no faster/.test(overBody.error), `${last} then ${over.status}: ${JSON.stringify(overBody)}`);
+    resetReadThrottle();
+
+    // Revocation bites on the next request.
+    const agents = await owner.go("/admin/agents");
+    const revoke = await owner.go("/admin/agents/revoke", { method: "POST", form: { _csrf: csrfOf(agents.text), [`device_${dev}`]: "1" } });
+    check("(fixture) the console revokes the endpoint", revoke.status === 200 && /Revoked 1 device/.test(revoke.text));
+    const afterRevoke = await asDevice("/v1/tickets");
+    check("the revoked endpoint's NEXT request -> 401 REVOKED, x-matic-hub-auth none, nothing returned", afterRevoke.status === 401 && /REVOKED by an administrator/.test((await afterRevoke.json()).error) && afterRevoke.headers.get("x-matic-hub-auth") === "none");
+    check("…and its POST /v1/ticket is refused too — a presented credential is checked everywhere, even on a loopback listener where none is required", (await asDevice("/v1/ticket", { method: "POST", body: JSON.stringify({ description: "x", summary: "x", category: "other", suggestedOwner: null, reporter: { osUsername: "u" } }) })).status === 401);
+    resetCredentialThrottle();
+    let st = 401;
+    for (let i = 0; i < 20; i++) st = (await asDevice("/v1/tickets")).status;
+    const throttled = await asDevice("/v1/tickets");
+    check("twenty refused credentials from one peer in a minute -> the 21st is 429 with retryAfterMs (a speed bump against a misconfigured endpoint's tight loop)", st === 401 && throttled.status === 429 && typeof (await throttled.json()).retryAfterMs === "number");
+    resetCredentialThrottle();
   }
 
   console.log("\n=== 2. a read-only role cannot reach a page its role forbids ===");

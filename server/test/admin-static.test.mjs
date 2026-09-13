@@ -61,6 +61,18 @@ check("…and BEFORE the API routes", index.indexOf("await handleAdmin(req, res)
 check("src/index.js still imports nothing from src/db (B0 stays stateless; db-static §6 also checks this)", !/db\/|withTenant/.test(index));
 check("createHubServer can be built with admin: false (tests of the API alone)", /admin = true/.test(index) && /admin \? adminHandler/.test(index));
 
+// D282/D283/D284 — the credential on the wire, the LAN listener over TLS, the requester route.
+check("the peer gate (admitPeer) runs BEFORE the credential check, so a refused peer costs no database lookup", index.indexOf("admitPeer({") > 0 && index.indexOf("admitPeer({") < index.indexOf("const auth = await authenticate(req)"));
+check("a presented credential is CHECKED before the console and before any API route, on every listener", index.indexOf("const auth = await authenticate(req)") > 0 && index.indexOf("const auth = await authenticate(req)") < index.indexOf("await handleAdmin(req, res)"));
+check("whether a credential is REQUIRED is the listener's decision (credentialRequired), consulted after authenticate() and before the routes", index.indexOf('if (auth.mode === "none" && credentialRequired({ bound, pathname }))') > index.indexOf("const auth = await authenticate(req)") && index.indexOf('if (auth.mode === "none" && credentialRequired({ bound, pathname }))') < index.indexOf('pathname === "/v1/tickets"'));
+check("x-matic-hub-auth is stamped from THIS request's authentication, never a constant", /"x-matic-hub-auth": authMode/.test(index) && !/"x-matic-hub-auth": "none"/.test(index));
+check("GET /v1/tickets is dispatched to src/tickets/read.js with the authenticated device, and POST /v1/ticket and /v1/session receive it too (the tenant comes from it, D284)", /handleTicketsRead\(req, res, send, \{ device: auth\.principal \}\)/.test(index) && /handleTicket\(req, res, send, \{ device: auth\.principal \}\)/.test(index) && /handleSession\(req, res, send, \{ device: auth\.principal \}\)/.test(index));
+check("the read route holds no SQL — it composes the requester readers (D224) — and refuses without a device with the exported sentence", !/SELECT|UPDATE|INSERT/.test(jsCode(read("src/tickets/read.js"))) && /listTicketsForRequester|getTicketForRequester|listEntriesForRequester/.test(read("src/tickets/read.js")) && /if \(!device\) return send\(401, \{ ok: false, error: NEEDS_CREDENTIAL \}\)/.test(jsCode(read("src/tickets/read.js"))));
+check("a LAN listener is TLS or nothing: listenPlanFromEnv refuses a non-loopback bind without a certificate, the handler refuses a plaintext non-loopback peer, and the server is https when tls is given", /is not loopback, and no TLS certificate is configured/.test(index) && /serves the network over TLS only \(D283\)/.test(index) && /https\.createServer\(\{ cert: tls\.cert, key: tls\.key \}, handler\)/.test(index));
+check("the entry point computes the plan FIRST and refuses to start on a refusal — nothing is built, nothing listens", index.indexOf("const plan = listenPlanFromEnv()") < index.indexOf('createHubServer({ provider, hubProvider: "local", embedder') && /if \(plan\.refusal\)/.test(index) && /THIS HUB DID NOT START/.test(index) && /server\.listen\(port, plan\.bind/.test(index));
+check("GET /'s route list and the 404's both name the requester route", /path: "\/v1\/tickets"/.test(index) && /"GET \/v1\/tickets"/.test(index));
+check("the console reads where it is reachable from the bound SOCKET (reachNow), and the login page and footer render it", /const reachNow = \(req\) =>/.test(read("src/admin/router.js")) && /listener: reach/.test(read("src/admin/router.js")) && /reach: reach\.line/.test(read("src/admin/router.js")) && /listener\?\.lan/.test(read("src/admin/pages/login.js")) && /\$\{esc\(reach\)\} Server-rendered/.test(read("src/admin/html.js")));
+
 console.log("\n=== 2. roles carry permissions; users never do (D152) ===");
 const c003 = readMigrations("control").find((m) => /admin-console/.test(m.version));
 check("control/003 exists and creates admin_role_permissions", Boolean(c003) && /CREATE TABLE IF NOT EXISTS control\.admin_role_permissions/.test(c003.sql));
@@ -320,11 +332,11 @@ console.log("\n=== 5f. the requester-safe read shape: an allow-list, not whateve
   const file = jsCode(read("src/tickets/file.js"));
   check("createTicket() writes device_id from its options argument, never from the body", /export async function createTicket\(schema, body, \{ deviceId = null \} = \{\}\)/.test(file) && /device_id\)/.test(file) && !/body\.deviceId|body\.device_id/.test(file));
 
-  // CALLED BY NOTHING, ON PURPOSE — P3a's line. The route is P3b's and P3b was gated on D271.
-  // D271 was answered 2026-09-12 (LAN); GET /v1/tickets arrives in the commit after this one and
-  // RETIRES this assertion in favour of the live route test (admin-db B3-5).
+  // P3a's "called by nothing" line is RETIRED here, as its label said: the route exists
+  // (src/tickets/read.js, D284) and the live route test is admin-db B3-5. What stays is the
+  // narrower property: ONE caller, the route. A second one is a second requester surface to review.
   const callers = allSrc.filter((f) => rel(f) !== "src/tickets/query.js" && /getTicketForRequester|listTicketsForRequester|listEntriesForRequester/.test(jsCode(readFileSync(f, "utf8"))));
-  check("nothing calls the requester readers yet — the route is the next commit's, and this line goes with it", callers.length === 0, `callers: ${callers.map(rel).join(", ")}`);
+  check("the requester readers are called by exactly ONE file — src/tickets/read.js, the route — and by nothing else", callers.length === 1 && rel(callers[0]) === "src/tickets/read.js", `callers: ${callers.map(rel).join(", ")}`);
 }
 
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");

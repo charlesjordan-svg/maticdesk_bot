@@ -636,7 +636,7 @@ td.mono { font-variant-numeric: tabular-nums }
  * reader on every authenticated page while retrieval is degraded, and it renders ABOVE `notice`
  * because a flash about the last action is less important than the state every action is made in.
  */
-export function page({ title, body, nav = [], current = "", who = null, csrf = null, notice = null, warning = null, bare = false, insecure = null }) {
+export function page({ title, body, nav = [], current = "", who = null, csrf = null, notice = null, warning = null, bare = false, insecure = null, reach = "Loopback only." }) {
   const navHtml = nav.map((d) => html`<a href="${d.path}" class="${d.path === current ? "current" : ""}">${d.label}${
     d.count === null || d.count === undefined ? "" : html`<span class="badge ${d.count === 0 ? "zero" : ""}">${d.count}</span>`
   }</a>`);
@@ -657,7 +657,7 @@ ${bare ? body : `<header class="top"><div class="brand">Matic Desk<small>admin c
 ${warning ? `<div class="notice warn">${esc(warning)}</div>` : ""}
 ${notice ? `<div class="notice">${esc(notice)}</div>` : ""}
 <main>${body}</main>
-<footer class="foot">Loopback only. Server-rendered; every form works without JavaScript.</footer>`}
+<footer class="foot">${esc(reach)} Server-rendered; every form works without JavaScript.</footer>`}
 </body></html>`;
 }
 

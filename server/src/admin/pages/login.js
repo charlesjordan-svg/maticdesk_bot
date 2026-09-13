@@ -21,14 +21,16 @@ import { html } from "../html.js";
  *
  * @param {{ error?: string|null, email?: string, bypass?: import("../dev-bypass.js").BypassStatus|null }} p
  */
-export function loginPage({ error = null, email = "", bypass = null }) {
+export function loginPage({ error = null, email = "", bypass = null, listener = null }) {
   const bypassOn = Boolean(bypass?.on);
   return html`
 <div class="signin">
   <div class="signin-field">
     <div class="brand">Matic Desk<small>Admin console</small></div>
     <div class="note">
-      <p><strong>Loopback only.</strong> The hub refuses any connection that is not from this machine, and this console inherits that. It stays so until the sign-in and session code has had a security review.</p>
+      ${listener?.lan
+        ? html`<p><strong>Reachable from the network.</strong> This hub is bound to <span class="mono">${listener.bound}</span>${listener.tls ? " over TLS" : ""} (D283), so this console is reachable from every desk that can route to it. The sign-in and session code has not had a security review; that review is owed before a customer's network sees this page.</p>`
+        : html`<p><strong>Loopback only.</strong> This hub is bound to loopback, so this console is reachable from this machine only. A LAN listener (MATIC_HUB_BIND with a TLS certificate, D283) reaches the network; the sign-in and session code has not had a security review either way.</p>`}
       <hr>
       <p>Accounts are local (email, password, authenticator). There is no single sign-on yet (D159).</p>
       <p>An account is created with <span class="mono">node bin/admin.mjs create-user</span>, not here.</p>

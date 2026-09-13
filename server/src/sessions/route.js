@@ -27,9 +27,11 @@
  * TENANCY AND IDENTITY: SAME POSTURE AS /v1/ticket, SAME REASON
  * ===============================================================================================
  *
- *   - A tenant in the body is REFUSED. The schema is the hub's endpoint tenant, resolved server-side
- *     exactly as /v1/ticket resolves it (`resolveTicketTenant`), so a session and the ticket it
- *     produces land in the same schema without either side being able to say which.
+ *   - A tenant in the body is REFUSED. The schema is resolved server-side exactly as /v1/ticket
+ *     resolves it: from the credential's device row on an authenticated call (D284, since
+ *     2026-09-12), from the hub's endpoint tenant (`resolveTicketTenant`) on an unauthenticated
+ *     loopback call - so a session and the ticket it produces land in the same schema without
+ *     either side being able to say which.
  *   - The session id is the endpoint's own uuid and is taken at its word (no device auth, D61). A
  *     forged id is a user-context process lying about itself; the store's header says what that is
  *     worth and `ON CONFLICT DO NOTHING` means a stranger's id cannot overwrite an existing row.
@@ -59,8 +61,8 @@ export function checkSessionRequest(body) {
   if (!body || typeof body !== "object") return "body must be a JSON object";
   if (body.tenant !== undefined || body.tenantId !== undefined || body.tenantLabel !== undefined) {
     return "this hub does not accept a tenant from the client. The tenant schema is chosen "
-      + "server-side because device authentication is not built (D61, D132), and a client-supplied "
-      + "tenant would become the tenancy model by default.";
+      + "server-side: from the enrollment credential on an authenticated call (D284), from MATIC_TICKET_TENANT "
+      + "otherwise - never from the body, where a client-supplied tenant would become the tenancy model by default.";
   }
   if (typeof body.sessionId !== "string" || !UUID_SHAPE.test(body.sessionId)) return "sessionId must be a uuid";
   if (!SESSION_EVENTS.includes(body.event)) {
@@ -88,12 +90,16 @@ export function checkSessionRequest(body) {
  * @param {{ tenantSchema: string|null, log?: (s: string) => void }} deps
  */
 export function sessionHandler({ tenantSchema, log = () => {} }) {
-  return async function handleSession(req, res, send) {
-    if (!tenantSchema) {
+  /** @param {{ device?: import("../devices/enrollment.js").AuthenticatedDevice|null }} [ctx] */
+  return async function handleSession(req, res, send, { device = null } = {}) {
+    // D284: the credential's tenant when there is one; the configured tenant for a loopback call.
+    const schema = device?.tenantSchema ?? tenantSchema;
+    if (!schema) {
       return send(503, {
         ok: false,
-        error: "this hub has no endpoint tenant configured, so it records no sessions. Set MATIC_TICKET_TENANT "
-          + "to a schema that exists in control.tenants (create one with `node bin/db.mjs create-tenant <slug>`).",
+        error: "this hub has no endpoint tenant configured for an unauthenticated call, so it records no sessions. Set "
+          + "MATIC_TICKET_TENANT to a schema that exists in control.tenants (create one with `node bin/db.mjs create-tenant "
+          + "<slug>`), or present an enrollment credential, whose tenant is used instead (D284).",
       });
     }
     const parsed = await readJson(req);
@@ -110,22 +116,22 @@ export function sessionHandler({ tenantSchema, log = () => {} }) {
 
     try {
       if (b.event === "begin") {
-        const r = await beginSession(tenantSchema, s);
+        const r = await beginSession(schema, s);
         log(`[session] ${r.created ? "began" : "already known"} ${s.id}${s.machineName ? ` on ${s.machineName}` : ""} (unresolved until something happens)`);
         return send(r.created ? 201 : 200, { ok: true, event: "begin", sessionId: s.id, created: r.created, outcome: "unresolved" });
       }
       if (b.event === "resolved") {
-        const r = await resolveSession(tenantSchema, s);
+        const r = await resolveSession(schema, s);
         log(`[session] ${s.id} ${r.changed ? "RESOLVED - the user confirmed the fix" : `stays ${r.outcome} (a confirmation arrived, and it does not move an ${r.outcome} session)`}${s.category ? ` [${s.category}]` : ""}`);
         return send(200, { ok: true, event: "resolved", sessionId: s.id, outcome: r.outcome, changed: r.changed });
       }
       if (b.event === "not_fixed") {
-        await noteNotFixed(tenantSchema, s);
+        await noteNotFixed(schema, s);
         log(`[session] ${s.id} the user said the fix did NOT work - stays unresolved, and the "no" is recorded`);
         return send(200, { ok: true, event: "not_fixed", sessionId: s.id, outcome: "unresolved" });
       }
       // end
-      const r = await endSession(tenantSchema, s);
+      const r = await endSession(schema, s);
       log(`[session] ${s.id} ended${r.ended ? "" : " (already ended)"}`);
       return send(200, { ok: true, event: "end", sessionId: s.id, ended: r.ended });
     } catch (err) {

@@ -28,10 +28,12 @@
  *     unknown-route 404 does not name it (exit criterion 7). The hub's API stays unauthenticated
  *     and loud about it; adding this console did not add authentication to /v1/* (CLAUDE.md:
  *     "do not add authentication to the B0 hub piecemeal").
- *   - Not exposed. src/index.js refuses non-loopback peers before this handler runs, so the
- *     console is loopback-only by the same mechanism as the API, and the login page says so
- *     (exit criterion 8). Auth here is real; it has not been REVIEWED, and the binding is what
- *     stands in for the review until one happens.
+ *   - Exposed exactly as far as the hub is (D283, 2026-09-12). On a loopback listener src/index.js
+ *     refuses non-loopback peers before this handler runs, so the console is loopback-only by the
+ *     same mechanism as the API. On a LAN listener - TLS only - the founder chose to open the
+ *     console too, so it is reachable from every desk that can route to the hub; the login page and
+ *     every page's footer say which of the two applies, read from the bound socket. Auth here is
+ *     real; it has not been REVIEWED, and that review is owed before a customer's LAN sees sign-in.
  *   - Not a transcript reader. There is no route under /admin that reaches session content,
  *     because there is no session content (B1-CONTROL-PLANE.md §11) — and src/admin/tiers.js is
  *     what the first such route will have to call. test/admin-db.test.mjs tries /admin/sessions/*
@@ -182,6 +184,9 @@ async function navFor(ctx) {
  *
  * @param {{ log?: (s: string) => void, embedder?: any|null, retrievalHealth?: (() => Promise<{ degraded: boolean, mode: string, why: string|null }>)|null }} [deps]
  */
+/** The addresses the hub's own LOOPBACK set names (src/index.js). Repeated here rather than imported: index.js imports this file. */
+const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
 export function adminHandler({ log = () => {}, embedder = null, retrievalHealth = null, getBoundAddress = () => null } = {}) {
   /**
    * The bypass verdict, read FRESH on every use (D267). `getBoundAddress` is a getter rather than a
@@ -189,6 +194,16 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
    * before that. Read per request, so nothing caches a permissive answer from start-up.
    */
   const bypassNow = () => bypassStatus({ boundAddress: getBoundAddress() });
+  /**
+   * Where this console is reachable from (D283), for the login page's premise and every page's
+   * footer - read from the SOCKET the hub is bound to, like the bypass verdict, never assumed.
+   */
+  const reachNow = (req) => {
+    const bound = getBoundAddress();
+    const lan = bound !== null && bound !== undefined && !LOOPBACK_ADDRESSES.has(String(bound).toLowerCase());
+    const tls = Boolean(req.socket?.encrypted);
+    return { lan, bound, tls, line: lan ? `Reachable from the network on ${bound}${tls ? " over TLS" : ""} (D283).` : "Loopback only." };
+  };
 
   /**
    * The banner text, or null. Best-effort: a health reader that throws must not take the console
@@ -212,6 +227,7 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
     if (url.pathname !== ADMIN_PREFIX && !url.pathname.startsWith(ADMIN_PREFIX + "/")) return false;
     const method = (req.method ?? "GET").toUpperCase();
     const secure = cookieSecure(req);
+    const reach = reachNow(req);
 
     // Static assets (the three font files) need no session — the sign-in page uses them — and
     // touch no database. Answered from an allow-list before anything else (src/admin/assets.js).
@@ -263,7 +279,7 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
         writeHtml(status, page({
           title, body, nav, current,
           who: user ? { email: user.email, roles, tenant: tenant?.displayName ?? tenant?.slug ?? "no tenant" } : null,
-          csrf: ctx.csrf, notice, warning,
+          csrf: ctx.csrf, notice, warning, reach: reach.line,
           // Guard 5 (D267). EVERY page, not only sign-in: a reader who lands on Tickets from a
           // bookmark must not be able to mistake a bypassed console for a normal one.
           insecure: bypassBannerLine(bypassNow()),
@@ -272,7 +288,7 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
       renderPublic: async (status, body, { title = "Matic Desk", notice = null } = {}) => {
         // Public pages (sign-in) are their own composition: no header, nav or footer — but the
         // insecure banner is drawn on them too, which is why `page()` renders it outside `bare`.
-        writeHtml(status, page({ title, body, notice, bare: true, insecure: bypassBannerLine(bypassNow()) }), false);
+        writeHtml(status, page({ title, body, notice, bare: true, reach: reach.line, insecure: bypassBannerLine(bypassNow()) }), false);
       },
       redirect: (path) => { res.writeHead(303, { location: path, "cache-control": "no-store", "x-matic-hub-auth": session ? "admin-session" : "none" }); res.end(); },
       audit: (action, { subject = null, detail = null } = {}) => audit({ adminUserId: user?.id ?? null, tenantId: tenant?.id ?? user?.tenantId ?? null, action, subject, detail }),
@@ -283,16 +299,16 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
       if (url.pathname === `${ADMIN_PREFIX}/login`) {
         if (method === "GET") {
           if (session) return void ctx.redirect(ADMIN_PREFIX), true;
-          return void (await ctx.renderPublic(200, loginPage({ bypass: bypassNow() }), { title: "Sign in" })), true;
+          return void (await ctx.renderPublic(200, loginPage({ bypass: bypassNow(), listener: reach }), { title: "Sign in" })), true;
         }
         if (method === "POST") {
           const parsed = await readForm(req);
-          if (parsed.error) return void (await ctx.renderPublic(400, loginPage({ error: parsed.error, bypass: bypassNow() }), { title: "Sign in" })), true;
+          if (parsed.error) return void (await ctx.renderPublic(400, loginPage({ error: parsed.error, bypass: bypassNow(), listener: reach }), { title: "Sign in" })), true;
           const { email = "", password = "", code = "" } = parsed.value;
           const result = await attemptLogin({ email, password, code, log, bypass: bypassNow() });
           if (!result.ok) {
             await audit({ tenantId: result.tenantId ?? null, adminUserId: result.userId ?? null, action: "login.failed", subject: email.slice(0, 200), detail: { why: result.why } });
-            return void (await ctx.renderPublic(401, loginPage({ error: result.message, email, bypass: bypassNow() }), { title: "Sign in" })), true;
+            return void (await ctx.renderPublic(401, loginPage({ error: result.message, email, bypass: bypassNow(), listener: reach }), { title: "Sign in" })), true;
           }
           // `totpVerified` is D157's step-up clock and it must tell the truth: under the bypass no
           // authenticator code was verified, so nothing may later treat this session as having
@@ -312,7 +328,7 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
           res.end();
           return true;
         }
-        return void (await ctx.renderPublic(405, loginPage({ error: "GET or POST", bypass: bypassNow() }), { title: "Sign in" })), true;
+        return void (await ctx.renderPublic(405, loginPage({ error: "GET or POST", bypass: bypassNow(), listener: reach }), { title: "Sign in" })), true;
       }
 
       if (url.pathname === `${ADMIN_PREFIX}/logout`) {
@@ -332,7 +348,7 @@ export function adminHandler({ log = () => {}, embedder = null, retrievalHealth 
       // ---- everything else needs a session --------------------------------------------------------
       if (!session || !user) {
         if (method === "GET") return void ctx.redirect(`${ADMIN_PREFIX}/login`), true;
-        return void (await ctx.renderPublic(401, loginPage({ error: "Your session has ended. Sign in again.", bypass: bypassNow() }), { title: "Sign in" })), true;
+        return void (await ctx.renderPublic(401, loginPage({ error: "Your session has ended. Sign in again.", bypass: bypassNow(), listener: reach }), { title: "Sign in" })), true;
       }
 
       // Every tenant-scoped page needs a tenant. A session whose tenant row vanished is a broken

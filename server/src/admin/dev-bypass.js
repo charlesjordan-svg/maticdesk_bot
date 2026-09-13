@@ -28,9 +28,10 @@
  * bind is — so it is correct by construction instead of by assumption, and it starts protecting the
  * day someone adds a host option without that person having to remember this file exists. A test
  * binds a server to 0.0.0.0 and proves the refusal fires, which is the part that was untestable
- * before. What is still true, and is the honest limit: in the shipped configuration the guard
- * cannot fire, because nothing can bind off loopback. It is the other five guards that are load
- * bearing today.
+ * before. UNTIL 2026-09-12 the honest limit was that in the shipped configuration the guard could
+ * not fire, because nothing could bind off loopback. D271 was answered that day and D283 added
+ * `MATIC_HUB_BIND`: a LAN listener is now the production shape, so guard 2 is load-bearing - on a
+ * LAN listener the bypass is REFUSED, and the 0.0.0.0 test is the proof it was written for.
  */
 
 /** The variable's name is a guard in itself: nobody sets this by accident or explains it in review. */

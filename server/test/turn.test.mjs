@@ -146,19 +146,20 @@ await withServer(stubProvider({ body: toolCallBody("flush_dns", {}) }), async (b
       && notFound.routes.includes("POST /v1/ask")
       && notFound.routes.includes("POST /v1/ticket"));
   const health = await (await fetch(`${base}/v1/health`)).json();
-  check("health says what it is and that auth is none", health.phase?.includes("B0") && health.auth === "none");
+  check("health says what it is, that credentials are OPTIONAL on this loopback listener, describes the listener, and says what a credential proves",
+    health.phase?.includes("B0") && /^optional/.test(health.auth ?? "") && health.listener?.loopback === true && health.listener?.tls === false && /per-OS-user enrollment/.test(health.enrollment?.identity ?? ""), JSON.stringify({ auth: health.auth, listener: health.listener }));
 
   // GET / — added because the founder opened the hub in a browser and got a bare "no such route".
   // A person who opens a port is diagnosing; the index has to answer what/what-can-it-do/healthy.
   const index = await fetch(`${base}/`);
   const idx = await index.json();
   check("GET / is 200, not a 404", index.status === 200);
-  check("the index warns that there is no authentication and no tenancy, in words",
-    /NO AUTHENTICATION/.test(idx.warning ?? "") && /NO TENANCY/.test(idx.warning ?? ""));
+  check("the index says this is a LOOPBACK LISTENER where credentials are optional, in words",
+    /LOOPBACK LISTENER/.test(idx.warning ?? "") && /OPTIONAL/.test(idx.warning ?? "") && /^optional/.test(idx.auth ?? ""));
   check("the index says do not expose it", /do not expose/i.test(idx.warning ?? ""));
   check("the index lists every route, including itself",
     Array.isArray(idx.routes)
-    && ["/", "/v1/health", "/v1/ask", "/v1/turn"].every((p) => idx.routes.some((r) => r.path === p)));
+    && ["/", "/v1/health", "/v1/ask", "/v1/turn", "/v1/tickets", "/v1/tickets/:reference"].every((p) => idx.routes.some((r) => r.path === p)));
   check("the index carries the no-reranker caveat, so a browser reader meets it too",
     idx.rerankerPresent === false && /FLOOR/.test(idx.note ?? ""));
   check("the index still stamps x-matic-hub-auth: none like every other response",
@@ -229,8 +230,12 @@ check("buildProviderInput with no repair has exactly two messages", buildProvide
 console.log("=== 7. loopback only, and the auth hook authenticates nobody and says so ===");
 check("127.0.0.1 is loopback", isLoopback("127.0.0.1") && isLoopback("::1") && isLoopback("::ffff:127.0.0.1"));
 check("a LAN peer is not", !isLoopback("192.168.1.10") && !isLoopback(undefined));
-const auth = authenticate({});
-check("authenticate() returns mode none with no principal - the slot for D61/D132, not a start on it", auth.ok === true && auth.mode === "none" && auth.principal === null);
+const auth = await authenticate({});
+check("authenticate() with NO header returns mode none and no principal - the caller decides whether that is allowed on this listener (D283)", auth.ok === true && auth.mode === "none" && auth.principal === null);
+const basic = await authenticate({ headers: { authorization: "Basic dXNlcjpwYXNz" }, socket: { remoteAddress: "127.0.0.1" } });
+check("…a non-Bearer Authorization is refused, 401, and says only Bearer is understood", basic.ok === false && basic.status === 401 && /Bearer/.test(basic.error));
+const malformed = await authenticate({ headers: { authorization: "Bearer hello" }, socket: { remoteAddress: "127.0.0.1" } });
+check("…a Bearer that is not a credential is refused 401 with 'begin mdc_' - and without a database round trip, which is why this file can assert it", malformed.ok === false && malformed.status === 401 && /begin mdc_/.test(malformed.error));
 
 console.log("=== 8. the hub holds no catalog ===");
 function walk(dir) { return readdirSync(dir).flatMap((f) => { const p = join(dir, f); return statSync(p).isDirectory() ? walk(p) : [p]; }); }
