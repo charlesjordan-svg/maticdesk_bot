@@ -640,25 +640,45 @@ check("the no-service sentence is the app's alone, because the sheet draws one s
   !delivery.includes("There's no company guidance"), "if the delivery gains it, pin it too");
 
 // ==============================================================================================
-console.log("\n=== 7. the tickets band says what it is, and what it is not (D242, RATIFIED 2026-09-11) ===");
+console.log("\n=== 7. the tickets band says what it is, and what it is not (D242, RATIFIED 2026-09-11; REVISED by D288, PROPOSED 2026-09-12) ===");
 //
 // D242 was built REVERSIBLY and waited for Charles: if the answer had been no, the trigger and
 // markup came out of `index.html`. The answer is yes, so the band is permanent — and these
 // assertions are what ratification buys. Three of D242's clauses were true only by inspection
 // before; they are mechanical now.
+//
+// D288 (P4, 2026-09-12) REVISES THREE OF D242's CLAUSES, AND THE PINS BELOW SAY WHICH. D242 said
+// the band cannot become a status view because a hub-side lookup "needs a route and a user identity
+// that do not exist". Both exist now: GET /v1/tickets (D284) keyed by the enrollment credential
+// (D282), the identity D54/D68 asked for - NOT the self-asserted osUsername D242 refused. So the
+// rows carry the hub's state and the desk's last write WHEN THE LAST POLL SAW THE HUB, and fall back
+// to D242's words when it did not. What D242 protected is kept and pinned: a row shows a status ONLY
+// when the hub actually said it, "no lookup" is said in the pre-P4 words whenever it is true, the
+// band and the spoken answer share one vocabulary (now a module, not a shared clause), and the
+// renderer gates nothing on `canQueryHub`. Charles has not ratified D288; these pins are what he is
+// ratifying or reverting.
 check("the band exists", indexHtml.includes("band-tickets"));
-check("the band is fed by a local read, not a hub lookup", /ticketsFiled\(\)/.test(rendererJs));
+check("the band is fed by the local read; the hub's view rides on the same payload as `hub` (D288), not a second channel", /ticketsFiled\(\)/.test(rendererJs) && /const hub = status\?\.hub \?\? null;/.test(rendererCode));
+check("a status is shown ONLY when the poll's own verdict is ok: `known` is null otherwise, and the row branches on the ROW, never on canQueryHub", /const known = hub && hub\.basis === "ok" && hub\.tickets \? hub\.tickets : null;/.test(rendererCode) && /const h = known\?\.\[t\.reference\] \?\? null;\s*if \(h\) \{/.test(rendererCode));
 check("an empty band says why it is empty rather than showing nothing",
   /I haven't filed any tickets from this machine/.test(rendererJs));
 check("a build that cannot file says so instead of showing an empty list",
   /isn't connected to a service desk/.test(rendererJs));
 
-// (1) EVERY ROW CARRIES BOTH PHRASES, which is what stops the band reading as a status view. They
-// are drawn as a matched pair — the delivery's own note says neither can be dropped without the row
-// looking broken — so both are pinned rather than just the one.
-check("every row says \"Filed from here\"", /el\("b", "", "Filed from here"\)/.test(rendererCode));
+// (1) EVERY ROW WITHOUT A HUB VIEW CARRIES BOTH PHRASES, which is what stops the band reading as a
+// status view when it is not one. They are drawn as a matched pair — the delivery's own note says
+// neither can be dropped without the row looking broken — so both are pinned rather than just the
+// one. D288: the pair is the ELSE branch of "did the hub say something about this ticket"; the IF
+// branch draws the hub's words from the shared module, in the delivery's own `.tstat b` classes.
+check("every row without a hub view says \"Filed from here\"", /el\("b", "", "Filed from here"\)/.test(rendererCode));
 check("…and \"Progress not visible\" beside it", /el\("span", "", "Progress not visible"\)/.test(rendererCode));
-check("…as one matched pair in the same element", /stat\.append\(el\("b", "", "Filed from here"\), el\("span", "", "Progress not visible"\)\)/.test(rendererCode));
+check("…as one matched pair in the same element, in the else branch", /\} else \{\s*stat\.append\(el\("b", "", "Filed from here"\), el\("span", "", "Progress not visible"\)\);/.test(rendererCode));
+check("a row WITH a hub view draws stateWords/stateClass/stateDetail from src/ticket/state-words.js and nothing inline (D288)",
+  /el\("b", stateClass\(h\.state\), stateWords\(h\.state\)\)/.test(rendererCode) && /el\("span", "", stateDetail\(h\)\)/.test(rendererCode)
+  && /import \{ stateWords, stateClass, stateDetail, updateWords \} from "\.\.\/ticket\/state-words\.js";/.test(rendererJs));
+check("…and the spoken answer imports its state words from the SAME module, so the band and the voice cannot describe one ticket two ways",
+  /import \{ stateSpoken, agoWords \} from "\.\.\/ticket\/state-words\.js";/.test(readFileSync(join(RENDERER, "..", "router", "social.js"), "utf8")));
+check("…the renderer never glosses a hub state by name itself", !/"resolved"\s*\?|=== "resolved"|=== "closed"|case "open"/.test(rendererCode.slice(rendererCode.indexOf("function renderTickets"), rendererCode.indexOf("function applyTicketUpdate"))));
 
 // (2) THE PAIRING WITH THE SPOKEN ANSWER, MADE MECHANICAL. D242 requires the band's note to say the
 // limit "in the same words `persona.tickets.some` speaks", so the band and the spoken answer cannot
@@ -677,19 +697,33 @@ check("…as one matched pair in the same element", /stat\.append\(el\("b", "", 
     (rendererJs.match(/can't see how they're getting on/g) ?? []).length === 1);
 }
 
-// (3) NO CHANNEL THAT COULD BECOME A HUB LOOKUP. `canQueryHub` is carried so the inspector can show
-// it, and a lookup keyed on the self-asserted `osUsername` would be D54's user identity through the
-// back door. So it may appear in an inspector payload and must never appear in a CONDITION.
-check("`canQueryHub` is disclosed, not acted on: it never gates anything",
+// (3) THE LOOKUP EXISTS NOW (D284/D288) AND IS KEYED ON THE CREDENTIAL, NOT THE OS USERNAME. What
+// D242 protected here was the back door - a lookup keyed on the self-asserted `osUsername` - and
+// that stays shut: the renderer sends no identity at all (the poll is main's, the credential is
+// HubClient's). `canQueryHub` is still disclosed, not acted on: the renderer branches on the hub
+// row it was handed, never on the flag, and main derives the flag from the watch's last poll rather
+// than writing a literal.
+check("`canQueryHub` is disclosed, not acted on: it never gates anything in the renderer",
   !/if\s*\([^)]*canQueryHub|canQueryHub\s*(?:\?|&&|\|\|)|!canQueryHub/.test(rendererCode),
   "the moment it gates a branch, the band has a status view behind a flag");
-check("…and the main process hard-codes it false rather than deriving it",
-  /canQueryHub: false/.test(readFileSync(join(RENDERER, "..", "main", "main.js"), "utf8")));
-check("the preload exposes no ticket-status lookup channel", (() => {
+check("…and the main process DERIVES it from the watch's last poll - never a literal true (D288)",
+  /canQueryHub: ticketWatch\?\.canQuery \?\? false/.test(readFileSync(join(RENDERER, "..", "main", "main.js"), "utf8"))
+  && !/canQueryHub: true/.test(readFileSync(join(RENDERER, "..", "main", "main.js"), "utf8")));
+check("the renderer sends the hub NO identity: no osUsername, no user name, leaves the renderer on a ticket channel",
+  !/ticketsFiled\([^)]+\)|ackTicketEntries\([^)]*(osUsername|user)/.test(rendererCode));
+check("the preload's ticket channels are file, filed and ack - and ack carries entry ids, which stamp a time on the hub, never words (D287)", (() => {
   const pre = readFileSync(join(RENDERER, "..", "main", "preload.cjs"), "utf8");
-  const ticketChannels = [...pre.matchAll(/invoke\("(ticket:[^"]+)"\)/g)].map((m) => m[1]);
-  return ticketChannels.every((c) => c === "ticket:file" || c === "ticket:filed");
-})(), "a third ticket channel is how a status lookup arrives");
+  const ticketChannels = [...pre.matchAll(/invoke\("(ticket:[^"]+)"/g)].map((m) => m[1]);
+  return ticketChannels.every((c) => c === "ticket:file" || c === "ticket:filed" || c === "ticket:ack") && /ackTicketEntries: \(entryIds\)/.test(pre);
+})(), "a channel that carries the requester's WORDS to the hub is the composer, and that is Claude Design's view, not this build");
+// D288's own rule: the update is SHOWN, never spoken (Charles, 2026-09-12), and the line does not
+// offer an action this window cannot take.
+{
+  const fn = rendererCode.slice(rendererCode.indexOf("async function applyTicketUpdate"), rendererCode.indexOf("window.matic.onTicketUpdate"));
+  check("applyTicketUpdate() exists and is registered on the push", fn.length > 50 && /window\.matic\.onTicketUpdate\(applyTicketUpdate\);/.test(rendererCode));
+  check("…it shows (note) and never speaks (no say/setState) - show only", /note\(updateWords\(e, u\.reference, u\.state\), \{ label: "Just now", ref: u\.reference \}\)/.test(fn) && !/\bsay\(|setState\(/.test(fn));
+  check("…and it acknowledges exactly the entries it showed, then redraws the band", /ackTicketEntries\(u\.entries\.map\(\(e\) => e\.id\)\)/.test(fn) && (fn.match(/renderTickets\(await window\.matic\.ticketsFiled\(\)\)/g) ?? []).length === 2);
+}
 
 // (4) ALL THREE NOTE BRANCHES EXIST AND SAY DIFFERENT THINGS. "no news" where the truth is "no
 // lookup" is the worse outcome D242 names by a distance, so the empty case and the cannot-file case
@@ -697,13 +731,17 @@ check("the preload exposes no ticket-status lookup channel", (() => {
 {
   const note = rendererCode.match(/ticketsNote\.textContent =[\s\S]*?;/)?.[0] ?? "";
   const branches = [...note.matchAll(/"([^"]{30,})"/g)].map((m) => m[1]);
-  check(`the note has three distinct branches (${branches.length} found)`, branches.length === 3);
+  check(`the note has four distinct branches (${branches.length} found) - D288 added the one for when the hub's view is known`, branches.length === 4);
   check("…and none of them is a duplicate", new Set(branches).size === branches.length);
   check("…the cannot-file one says there is nothing to look up",
     branches.some((b) => /nothing to look up/.test(b)));
   check("…the empty one says a ticket raised elsewhere will not show",
     branches.some((b) => /won't show here/.test(b)));
-  check("…and none of the three implies a status is known",
+  check("…the known one says when it was checked, how often, and that nothing is emailed (D86)",
+    branches.some((b) => /when I last checked/.test(b) && /every minute or so while I'm on screen/.test(b) && /nothing is sent to you by email/.test(b)));
+  check("…the known one is chosen by `known`, the not-known one by its absence",
+    /: known\s*\? "This is what I sent from this machine, with what the service desk showed/.test(note));
+  check("…and none of the four claims a status the hub did not say",
     !branches.some((b) => /\b(in progress|being worked|assigned|open|closed|resolved)\b/i.test(b)), branches.join(" | "));
 }
 

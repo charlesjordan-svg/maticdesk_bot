@@ -154,7 +154,33 @@ try {
     const withCred = new HubClient({ hubUrl: HUB, capabilities: catalog.capabilities, fetchImpl: hub.fetchImpl, onLog: quiet, credential: CRED });
     check("the constructor takes a credential too, and setCredential(null) clears it", withCred.credential === CRED && (withCred.setCredential(null), withCred.credential === null));
     const source = readFileSync(join(ROOT, "src/agent/hub-client.js"), "utf8");
-    check("every fetch in HubClient goes through #headers() — no request can forget the credential", !/headers: \{ "content-type": "application\/json" \}/.test(jsCode(source)) && (jsCode(source).match(/headers: this\.#headers\(\)/g) ?? []).length >= 4);
+    check("every fetch in HubClient goes through #headers() — no request can forget the credential", !/headers: \{ "content-type": "application\/json" \}/.test(jsCode(source)) && (jsCode(source).match(/headers: this\.#headers\(\)/g) ?? []).length >= 5);
+
+    // ---- D286/D287 (P4): the four writes ----
+    const writes = new HubClient({ hubUrl: HUB, capabilities: catalog.capabilities, fetchImpl: hub.fetchImpl, onLog: quiet });
+    const before = hub.sent.length;
+    const noCred = [await writes.comment("MD-1", "hi"), await writes.reopen("MD-1", "still broken"), await writes.confirm("MD-1"), await writes.ack(["e1"])];
+    check("comment/reopen/confirm/ack with no credential make NO request and say why (D286)", noCred.every((r) => r.ok === false && r.reason === "no-credential" && /no request was made/.test(r.detail)) && hub.sent.length === before);
+    byUrl["/v1/ticket/MD-1/comment"] = { status: 200, body: { ok: true, reference: "MD-1", from: "open", state: "open", reopened: false, entryId: "e-9", identity: {}, note: "…" } };
+    byUrl["/v1/ticket/MD-1/reopen"] = { status: 409, body: { ok: false, error: "MD-1 is open, not resolved: there is nothing to reopen", state: "open" } };
+    byUrl["/v1/ticket/MD-1/confirm"] = { status: 409, body: { ok: false, error: "MD-1 is open; only a resolved ticket can be confirmed", state: "open" } };
+    byUrl["/v1/tickets/ack"] = { status: 200, body: { ok: true, acknowledged: 2, identity: {}, note: "…" } };
+    hub.sent.length = 0;
+    const fetchBodies = [];
+    const rec = hub.fetchImpl;
+    hub.fetchImpl = async (url, init) => { fetchBodies.push({ url: url.replace(HUB, ""), method: init?.method, body: init?.body ? JSON.parse(init.body) : null }); return rec(url, init); };
+    const writer = new HubClient({ hubUrl: HUB, capabilities: catalog.capabilities, fetchImpl: hub.fetchImpl, onLog: quiet, credential: CRED });
+    const c = await writer.comment("MD-1", "Still happening after the restart.");
+    const ro = await writer.reopen("MD-1", "it came back");
+    const cf = await writer.confirm("MD-1");
+    const ak = await writer.ack(["e1", "e2"]);
+    check("comment -> POST /v1/ticket/MD-1/comment { body } with the credential; the hub's transition result comes back as is", fetchBodies[0]?.url === "/v1/ticket/MD-1/comment" && fetchBodies[0].method === "POST" && fetchBodies[0].body.body === "Still happening after the restart." && c.ok === true && c.entryId === "e-9" && c.reopened === false && hub.sent[0].headers.authorization === `Bearer ${CRED}`);
+    check("reopen -> POST …/reopen { reason }; the hub's 409 is `refused` WITH its sentence and the state it found", fetchBodies[1]?.url === "/v1/ticket/MD-1/reopen" && fetchBodies[1].body.reason === "it came back" && ro.ok === false && ro.reason === "refused" && ro.status === 409 && ro.state === "open" && /nothing to reopen/.test(ro.error));
+    check("confirm -> POST …/confirm {} and the same refusal shape", fetchBodies[2]?.url === "/v1/ticket/MD-1/confirm" && Object.keys(fetchBodies[2].body).length === 0 && cf.reason === "refused" && /only a resolved ticket/.test(cf.error));
+    check("ack -> POST /v1/tickets/ack { entryIds } and the hub's count", fetchBodies[3]?.url === "/v1/tickets/ack" && fetchBodies[3].body.entryIds.join(",") === "e1,e2" && ak.ok === true && ak.acknowledged === 2);
+    check("a non-array ack sends an empty list rather than throwing", (await writer.ack("e1")).ok === true && fetchBodies[4].body.entryIds.length === 0);
+    check("a transport failure is `unreachable`, never a throw", await (async () => { const down = new HubClient({ hubUrl: HUB, capabilities: [], fetchImpl: async () => { throw new Error("fetch failed"); }, onLog: quiet, credential: CRED }); const r = await down.comment("MD-1", "x"); return r.ok === false && r.reason === "unreachable" && /fetch failed/.test(r.detail); })());
+    check("the four writes share one transport (#act) and none is called from HubClient itself", (jsCode(source).match(/return this\.#act\(/g) ?? []).length === 4 && !/this\.(comment|reopen|confirm|ack)\(/.test(jsCode(source)));
   }
 
   console.log("\n=== 6. main.js wires it; config.json carries an EMPTY secret; the client now calls /v1/enroll (D274's premise ends) ===");

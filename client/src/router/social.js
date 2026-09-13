@@ -1,5 +1,6 @@
 // @ts-check
 import persona from "./persona.json" with { type: "json" };
+import { stateSpoken, agoWords } from "../ticket/state-words.js";
 /**
  * The social layer. D165, amended by D198. Built 2026-09-04. Persona-driven since 2026-09-10 (D234):
  * every fixed sentence below is read from persona.json, rotated so a repeated greeting gets a
@@ -134,16 +135,28 @@ export function capabilityReply({ capabilities = [] } = {}) {
  *   build cannot file tickets at all (no hub provider), [] when it can but has filed none
  * @param {{ now?: Date }} [opts]
  */
-export function ticketStatusReply(filed, { now = new Date() } = {}) {
+export function ticketStatusReply(filed, { now = new Date(), hub = null } = {}) {
   const T = persona.tickets;
   if (filed === null) return T.unavailable;
   if (filed.length === 0) return T.none;
-  const items = filed.slice(0, 3).map((f) => T.item
-    .replace("{reference}", f.reference)
-    .replace("{when}", whenSpoken(f.filedAt, now))
-    .replace("{description}", spokenDescription(f.description)));
+  // D288: the hub's view, when the last poll had one. A snapshot whose basis is anything but "ok"
+  // is the pre-P4 answer - the words that say status is not visible are still the true ones then.
+  const known = hub && hub.basis === "ok" && hub.tickets ? hub.tickets : null;
+  const items = filed.slice(0, 3).map((f) => {
+    const row = known?.[f.reference];
+    const base = (row ? T.itemKnown : T.item)
+      .replace("{reference}", f.reference)
+      .replace("{when}", whenSpoken(f.filedAt, now))
+      .replace("{description}", spokenDescription(f.description));
+    return row ? base.replace("{status}", stateSpoken(row.state)) : base;
+  });
   const more = filed.length > 3 ? ` and ${filed.length - 3} more before that` : "";
-  return T.some.replace("{list}", andList(items) + more);
+  if (!known) return T.some.replace("{list}", andList(items) + more);
+  const unseen = Object.values(known).reduce((n, r) => n + (r.unseen ?? 0), 0);
+  return T.someKnown
+    .replace("{list}", andList(items) + more)
+    .replace("{checked}", agoWords(hub.checkedAt, now) || "just now")
+    .replace("{unseen}", unseen ? T.unseen.replace("{n}", unseen === 1 ? "one update" : `${unseen} updates`) : "");
 }
 
 /** "today at 9:14", "yesterday at 16:02", "on Saturday 6 September" - spoken, not ISO. */

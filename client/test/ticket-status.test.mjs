@@ -118,5 +118,39 @@ function agentWith(deps) {
   check("still no provider call", cloud.calls.length === 0);
 }
 
+// ==============================================================================================
+console.log("\n=== 5. D288: with the watch's snapshot the reply says what the desk showed; without one it says what it always said ===");
+{
+  const hubOk = {
+    basis: "ok", checkedAt: "2026-09-09T14:58:00.000Z", attemptedAt: "2026-09-09T14:58:00.000Z", detail: null, intervalMs: 60000,
+    tickets: {
+      "MD-1042": { reference: "MD-1042", state: "open", updatedAt: "x", lastUpdateAt: "2026-09-09T14:00:00.000Z", lastUpdateKind: "comment", unseen: 1, resolutionNotes: null },
+      "MD-1006": { reference: "MD-1006", state: "resolved", updatedAt: "x", lastUpdateAt: "2026-09-08T10:00:00.000Z", lastUpdateKind: "resolution", unseen: 0, resolutionNotes: "Screen replaced" },
+    },
+  };
+  const known = ticketStatusReply(filed, { now, hub: hubOk });
+  check("the known reply names both references with the desk's view of each, in state-words.js's words", /MD-1042[^.]*the service desk is looking at it/.test(known) && /MD-1006[^.]*the service desk says it's fixed and is waiting to hear whether you agree/.test(known), known);
+  check("…says when the desk was checked, coarsely, and how often", /when I checked 2 minutes ago/.test(known) && /every minute or so while this window is open/.test(known), known);
+  check("…and names the one unseen update and where it is", /There's one update from the desk you haven't seen yet/.test(known) && /tickets list at the top of this window/.test(known));
+  check("…does NOT say lookup is not built, and never says notified or email", !/isn't something I can do in this build|can't see how they're getting on/.test(known) && !/notified|email/i.test(known));
+  check("…no state name reaches the sentence as itself, and no placeholder is left", !/\b(resolved|closed)\b/.test(known.replace(/it's closed/g, "")) && !/\{(list|reference|when|description|status|checked|unseen|n)\}/.test(known));
+  hubOk.tickets["MD-1042"].unseen = 0;
+  check("with nothing unseen the unseen clause is simply absent", !/haven't seen yet/.test(ticketStatusReply(filed, { now, hub: hubOk })));
+  for (const basis of ["no-credential", "unreachable", "never", "refused"]) {
+    check(`basis ${basis} -> the pre-P4 reply, word for word`, ticketStatusReply(filed, { now, hub: { ...hubOk, basis } }) === ticketStatusReply(filed, { now }));
+  }
+  check("a ticket the hub does not list (filed before enrollment, no device_id) keeps the plain item while the others carry a status",
+    (() => { const r = ticketStatusReply(filed, { now, hub: { ...hubOk, tickets: { "MD-1042": hubOk.tickets["MD-1042"] } } }); return /MD-1042[^.]*looking at it/.test(r) && /MD-1006, [^—]*screen is cracked(?! —)/.test(r); })());
+
+  // The agent hands the snapshot over and reports canQueryHub as the poll's truth.
+  const watch = { status: () => hubOk };
+  const res = await agentWith({ egress, ticketWatch: watch }).propose("what is the status of my open tickets?");
+  check("the agent's ticketStatus carries the snapshot and canQueryHub TRUE when the basis is ok", res.ticketStatus.hub === hubOk && res.ticketStatus.canQueryHub === true && /looking at it/.test(res.reply));
+  const down = await agentWith({ egress, ticketWatch: { status: () => ({ ...hubOk, basis: "unreachable" }) } }).propose("where is my ticket");
+  check("…and FALSE with the pre-P4 reply when it is not", down.ticketStatus.canQueryHub === false && /can't see how they're getting on/.test(down.reply));
+  check("no watch at all (a build with no hub): canQueryHub false, hub null, the old reply", (await agentWith({ egress }).propose("my ticket")).ticketStatus.canQueryHub === false && (await agentWith({ egress }).propose("my ticket")).ticketStatus.hub === null);
+  check("still no provider call across all of it", cloud.calls.length === 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

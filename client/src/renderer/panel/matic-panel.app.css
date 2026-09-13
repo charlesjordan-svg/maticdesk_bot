@@ -153,3 +153,7 @@ matic-avatar { display: block; }
   --matic-ui-live-wash: rgba(63, 127, 196, 0.20);
   --matic-ui-live-edge: rgba(92, 154, 217, 0.45);
 }
+
+/* D288 (P4): a ticket row with an entry from the desk this window has not shown yet - the
+   delivery's attention colour on the detail line, the same token its `.tstat b.you` uses. */
+.trow.has-unseen .tstat span { color:var(--matic-ui-attn); }

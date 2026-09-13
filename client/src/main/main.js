@@ -16,6 +16,7 @@ import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
 import { HubClient } from "../agent/hub-client.js";
 import { HubLink } from "../agent/hub-link.js";
 import { EnrollmentStore, ensureEnrolled, ENROLL_RETRY_MS } from "../agent/enrollment.js";
+import { TicketWatch, POLL_DEFAULT_MS } from "../agent/ticket-watch.js";
 import { Agent } from "../agent/agent.js";
 import { marksIn } from "../agent/machine-band.js";
 import { ProfileStore } from "../profile/profile.js";
@@ -43,6 +44,9 @@ let hubLink = null;
 // D282 (P3b). The enrollment record - device key, device id, credential - in per-user userData
 // beside the profile. null on a build with no hub provider.
 let enrollment = null;
+// D288 (P4). The poll of this enrollment's own tickets on the hub, and the one source of "an update
+// arrived". null on a build with no hub provider; it starts polling only once a credential lands.
+let ticketWatch = null;
 
 const log = (line) => {
   console.log(line);
@@ -166,9 +170,33 @@ app.whenReady().then(async () => {
       secret: process.env.MATIC_ENROLLMENT_SECRET || config.enrollment?.secret || null,
     };
     const hubClient = cloud;
+    // ---- the ticket watch (D288; P4, 2026-09-12) ----
+    //
+    // Polls GET /v1/tickets on a timer (config `ticketPollMs`, default 60 s, floor 30 s), reads a
+    // changed ticket's public timeline - which is the hand-off the hub stamps (D287) - and pushes
+    // every entry from the desk the hub has not seen acknowledged to the renderer ONCE, as
+    // `ticket:update`. Shown, not spoken: Charles chose show-only on 2026-09-12. Nothing here
+    // writes to a ticket except the ack of what the renderer says it showed.
+    ticketWatch = new TicketWatch({
+      client: hubClient,
+      dir: app.getPath("userData"),
+      intervalMs: Number(process.env.MATIC_TICKET_POLL_MS || config.ticketPollMs || POLL_DEFAULT_MS),
+      onLog: log,
+      onUpdate: (update) => {
+        if (!win || win.isDestroyed()) return;
+        win.webContents.send("ticket:update", update);
+        // The taskbar button flashes when the window is not the one in front - the OS's own "look
+        // here" for a window that is not focused, and nothing else: no toast, no sound, no
+        // speech. Focus clears it. When the window IS focused the transcript line is enough.
+        if (!win.isFocused()) {
+          win.flashFrame(true);
+          win.once("focus", () => { if (win && !win.isDestroyed()) win.flashFrame(false); });
+        }
+      },
+    });
     const enroll = async () => {
       const r = await ensureEnrolled({ store: enrollment, hubUrl, tenant: enrollCfg.tenant, secret: enrollCfg.secret, onLog: log });
-      if (r.credential) hubClient.setCredential(r.credential);
+      if (r.credential) { hubClient.setCredential(r.credential); ticketWatch?.start(); }
       log(`[enroll] ${r.state}${r.deviceId ? ` (device ${r.deviceId})` : ""}${r.why ? ` - ${r.why}` : ""}`);
       if (r.retry) setTimeout(enroll, ENROLL_RETRY_MS).unref();
     };
@@ -226,7 +254,7 @@ app.whenReady().then(async () => {
   // `restartPolicy` is config data because every threshold in it is an unvalidated proposal rather
   // than a measured benchmark - see `config.json`'s `_restartPolicyNote`. Absent, the defaults in
   // `src/agent/restart-signal.js` apply.
-  agent = new Agent({ broker, cloud, intake, egress, restartPolicy: config.restartPolicy ?? null, diskPolicy: config.diskPolicy ?? null, onLog: log });
+  agent = new Agent({ broker, cloud, intake, egress, ticketWatch, restartPolicy: config.restartPolicy ?? null, diskPolicy: config.diskPolicy ?? null, onLog: log });
   hubLink ??= new HubLink({ onLog: log }); // standalone: no URL, never probes
 
   tts = new TtsService(config, { onLog: log, rootDir: ROOT });
@@ -294,17 +322,21 @@ app.whenReady().then(async () => {
 
   // ---- the tickets band (D242) ----
   //
-  // THE SAME READ THE D235 TURN MAKES, AVAILABLE WITHOUT A TURN. The band shows what this machine
-  // filed and got a reference for; it is NOT a status view and cannot become one here - a hub-side
-  // lookup needs a route and a user identity that do not exist (D54, D68/D69), and keying one on
-  // the self-asserted `osUsername` is that identity through the back door (D235). `canFile` is the
-  // same duck-type the escalation offer uses, so a build that cannot file says so in the band
-  // instead of showing an empty list that reads as "no news".
+  // THE SAME READ THE D235 TURN MAKES, AVAILABLE WITHOUT A TURN. The band's ROWS are still what
+  // this machine filed and got a reference for, from the egress record; since P4 (D288) each row
+  // also carries what the hub last said about that ticket, from the watch's snapshot, keyed by
+  // the ENROLLMENT CREDENTIAL (D282/D284) - the identity D242 said did not exist, and now does.
+  // `canQueryHub` is the truth of the last poll, not a flag: false with no credential, false while
+  // the hub is unreachable, and the band says which. `canFile` is the same duck-type the
+  // escalation offer uses, so a build that cannot file says so instead of showing an empty list.
   ipcMain.handle("ticket:filed", () => ({
     filed: egress ? egress.filedFromThisMachine() : [],
     canFile: typeof cloud?.fileTicket === "function",
-    canQueryHub: false,
+    canQueryHub: ticketWatch?.canQuery ?? false,
+    hub: ticketWatch ? ticketWatch.status() : null,
   }));
+  // The renderer SHOWED these entries (D287). The watch tells the hub, which stamps its own clock.
+  ipcMain.handle("ticket:ack", (_e, entryIds) => ticketWatch ? ticketWatch.acknowledge(Array.isArray(entryIds) ? entryIds : []) : { ok: false, reason: "no-hub", detail: "no ticket watch on this build" });
 
   ipcMain.handle("broker:listCapabilities", () => broker.listCapabilities());
   ipcMain.handle("agent:diagnose", () => {
@@ -380,6 +412,7 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   hubLink?.stop();
+  ticketWatch?.stop();
   tts?.stop();
   if (process.platform !== "darwin") app.quit();
 });

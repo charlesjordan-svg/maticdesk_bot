@@ -32,12 +32,16 @@ export class Agent {
    * escalate. With no intake the escalation branch behaves as it did before D216: it says what it
    * cannot fix and offers nothing it cannot deliver.
    */
-  constructor({ broker, cloud, intake = null, egress = null, restartPolicy = null, diskPolicy = null, onLog = () => {} }) {
+  constructor({ broker, cloud, intake = null, egress = null, ticketWatch = null, restartPolicy = null, diskPolicy = null, onLog = () => {} }) {
     this.broker = broker;
     this.cloud = cloud;
     this.intake = intake;
     // The egress log, READ here for "where's my ticket?" (D235). Null on a build that cannot file.
     this.egress = egress;
+    // The ticket watch's snapshot (D288), READ here for the same question: what the hub last said
+    // about each ticket this machine filed. Null on a build with no hub; `status()` says whether
+    // the last poll could see anything, and the reply says so too.
+    this.ticketWatch = ticketWatch;
     this.onLog = onLog;
     /**
      * The restart recommendation's thresholds, and the memory of having raised it.
@@ -260,16 +264,19 @@ export class Agent {
     // Not the knowledge base (it declined "what is the status of my open tickets?" as a gap in
     // company guidance, 2026-09-10) and not the model (nothing to propose). The endpoint knows
     // exactly one thing about tickets: which ones IT filed and got a reference back for. It says
-    // that, and says plainly that the hub's ticket table is not something it can see - a status
-    // lookup needs a route and a user identity (D54, D68/D69) that are not built. `egress` is null
-    // on a build that cannot file at all, and the reply is different for that case.
+    // that - and, since P4 (D288), what the hub last said about each of them, from the ticket
+    // watch's snapshot, keyed by the enrollment credential (D284). When the last poll could not see
+    // the hub (no credential, unreachable) the reply says it cannot see how they are getting on,
+    // in the pre-P4 words. `egress` is null on a build that cannot file at all, and the reply is
+    // different for that case. Still no provider call: nothing here needs a model.
     if (kind.kind === "tickets") {
       const filed = this.egress ? this.egress.filedFromThisMachine() : null;
-      const reply = ticketStatusReply(filed);
-      this.onLog(`[router] ${kind.why} - ${filed === null ? "no ticket store on this build" : `${filed.length} filed from this machine`}; no provider call, NO PROPOSAL`);
+      const hub = this.ticketWatch ? this.ticketWatch.status() : null;
+      const reply = ticketStatusReply(filed, { hub });
+      this.onLog(`[router] ${kind.why} - ${filed === null ? "no ticket store on this build" : `${filed.length} filed from this machine`}; hub view ${hub?.basis ?? "none"}; no provider call, NO PROPOSAL`);
       return {
         ok: true,
-        ticketStatus: { filed: filed ?? [], canFile: filed !== null, canQueryHub: false },
+        ticketStatus: { filed: filed ?? [], canFile: filed !== null, canQueryHub: hub?.basis === "ok", hub },
         facts: panel,
         reply,
       };

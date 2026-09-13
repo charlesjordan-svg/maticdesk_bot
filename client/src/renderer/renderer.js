@@ -35,6 +35,9 @@ import { proseSegments, plainProse } from "./model-prose.js";
 // service state is said would drift, and the drift is two surfaces describing one service
 // differently. `greeting.js` below crosses the same boundary for the same reason.
 import { serviceWords } from "../agent/machine-band.js";
+// D288: the words for what the hub says about a ticket - shared with the spoken answer in
+// src/router/social.js, so the band and the voice cannot describe one ticket two ways.
+import { stateWords, stateClass, stateDetail, updateWords } from "../ticket/state-words.js";
 // D262. WHICH boot line, out of which set. Pure and separate for the reason spoken-form.js is:
 // renderer.js touches `document` at module scope, so nothing in it can be reached by a headless
 // test, and the state-precedence rule is exactly the part that needs one.
@@ -330,20 +333,27 @@ function whenFiled(iso) {
 }
 
 /**
- * THE TICKETS BAND (D242, answering the design handover's §4).
+ * THE TICKETS BAND (D242, answering the design handover's §4; extended by D288, P4, 2026-09-12).
  *
- * It ships, and what it shows is the only thing the endpoint honestly knows: the tickets THIS
- * machine filed and got a reference for, read back from the egress record (D235). It is NOT a
- * status view. The hub's ticket table is not visible from here - that needs a route and a user
- * identity (D54, D68/D69) - so every row says "Filed from this machine" where a status would go,
- * and the band's note says the rest in the same words `persona.tickets.some` speaks.
+ * Its ROWS are still the only thing the endpoint knows on its own: the tickets THIS machine filed
+ * and got a reference for, read back from the egress record (D235). Since P4 each row ALSO carries
+ * what the hub last said about that ticket - the state, and when the desk last wrote - from the
+ * ticket watch's poll, keyed by the enrollment credential (D282/D284): the user identity D242 said
+ * did not exist. When the last poll could not see the hub (no credential, unreachable, never
+ * polled) the row falls back to what it said before P4 - "Filed from here / Progress not visible" -
+ * and the band's note says why, in the same words `persona.tickets.some` speaks. The two
+ * vocabularies are chosen by the poll's outcome and never mixed on one row.
  *
- * A band that looked like a status view and happened to be empty would be the worse outcome by
- * far: the user would read "no news" where the truth is "no lookup".
+ * A band that looked like a status view and happened to be empty would still be the worse outcome
+ * by far: the user would read "no news" where the truth is "no lookup". So "no lookup" is said,
+ * and a status is shown ONLY when the hub actually said it.
  */
 function renderTickets(status) {
   const filed = status?.filed ?? [];
   const canFile = status?.canFile === true;
+  const hub = status?.hub ?? null;
+  // The hub's view, or null when the last poll had none. `basis` is the poll's own verdict.
+  const known = hub && hub.basis === "ok" && hub.tickets ? hub.tickets : null;
 
   ticketCount.textContent = filed.length ? String(filed.length) : "";
   ticketRows.replaceChildren();
@@ -363,7 +373,15 @@ function renderTickets(status) {
         : "Stored for the service desk to pick up. No email went out, so nobody was alerted automatically."),
     );
     const stat = el("div", "tstat");
-    stat.append(el("b", "", "Filed from here"), el("span", "", "Progress not visible"));
+    const h = known?.[t.reference] ?? null;
+    if (h) {
+      // The hub said something about this ticket: its words (D288), in the delivery's own cell.
+      const label = el("b", stateClass(h.state), stateWords(h.state));
+      stat.append(label, el("span", "", stateDetail(h)));
+      if ((h.unseen ?? 0) > 0) row.classList.add("has-unseen");
+    } else {
+      stat.append(el("b", "", "Filed from here"), el("span", "", "Progress not visible"));
+    }
     row.append(ref, body, stat);
     ticketRows.append(row);
   }
@@ -372,8 +390,41 @@ function renderTickets(status) {
     ? "This machine isn't connected to a service desk, so there is nothing to file from here and nothing to look up."
     : filed.length === 0
       ? "I haven't filed any tickets from this machine. Tickets raised anywhere else won't show here - looking those up isn't built yet."
-      : "This is what I sent from this machine. I can't see how they're getting on - checking a ticket's progress with the service desk isn't something I can do in this build - so quote the reference if you follow one up.";
+      : known
+        ? "This is what I sent from this machine, with what the service desk showed when I last checked. I check every minute or so while I'm on screen, and nothing is sent to you by email. Quote the reference if you follow one up."
+        : "This is what I sent from this machine. I can't see how they're getting on - checking a ticket's progress with the service desk isn't something I can do in this build - so quote the reference if you follow one up.";
 }
+
+/**
+ * AN UPDATE FROM THE DESK ARRIVED (D288). The ticket watch in main found public entries the hub has
+ * not seen acknowledged and pushed them once. This SHOWS them - a transcript line per entry, the
+ * desk's words quoted in full, the reference in mono - and then tells the hub they were shown, so
+ * the console's "seen by the requester" is true exactly when they were on this screen (D287).
+ *
+ * NOT SPOKEN. Charles chose show-only on 2026-09-12: a voice cutting in with the desk's reply while
+ * the user is mid-sentence is a worse surprise than a line in the transcript. The taskbar flash for
+ * an unfocused window is main's, and the face does not change: this is news, not an error.
+ *
+ * The transcript line does not invite an action this window cannot yet take - reply, confirm,
+ * reopen - because a sentence that offers a button that is not there is this project's signature
+ * defect from the other side. It says how to follow up: quote the reference.
+ */
+async function applyTicketUpdate(u) {
+  if (!u || !Array.isArray(u.entries) || !u.entries.length) return;
+  for (const e of u.entries) {
+    note(updateWords(e, u.reference, u.state), { label: "Just now", ref: u.reference });
+  }
+  devlog(`[tickets] ${u.reference}: ${u.entries.length} entr${u.entries.length === 1 ? "y" : "ies"} from the desk shown (${u.entries.map((e) => e.kind).join(", ")}) - acknowledging to the hub`);
+  try {
+    renderTickets(await window.matic.ticketsFiled());
+    const ack = await window.matic.ackTicketEntries(u.entries.map((e) => e.id));
+    if (!ack?.ok) devlog(`[tickets] ack did not land: ${ack?.detail ?? ack?.reason ?? "?"}`);
+    renderTickets(await window.matic.ticketsFiled());
+  } catch (err) {
+    devlog(`[tickets] after an update, refreshing the band failed: ${err.message}`);
+  }
+}
+window.matic.onTicketUpdate(applyTicketUpdate);
 
 /**
  * The band triggers. Opening the machine band re-reads the probe, because a band headed "Checked
@@ -1256,7 +1307,10 @@ async function handleTurn(text) {
       ticketStatus: res.ticketStatus.filed.map((f) => ({ reference: f.reference, filedAt: f.filedAt, notified: f.notified })),
       canFile: res.ticketStatus.canFile,
       canQueryHub: res.ticketStatus.canQueryHub,
-      note: "from audit/egress.jsonl - what THIS machine filed and got a reference for. Current status is NOT known: a hub-side lookup is not built (D54, D68/D69).",
+      hub: res.ticketStatus.hub ? { basis: res.ticketStatus.hub.basis, checkedAt: res.ticketStatus.hub.checkedAt, tickets: res.ticketStatus.hub.tickets } : null,
+      note: res.ticketStatus.hub?.basis === "ok"
+        ? "from audit/egress.jsonl (what THIS machine filed and got a reference for) and the ticket watch's last poll of the hub (what the desk says about each, keyed by the enrollment credential - D284/D288)."
+        : `from audit/egress.jsonl - what THIS machine filed and got a reference for. The hub's view of them is not available right now (${res.ticketStatus.hub?.basis ?? "no hub on this build"}), so no status is claimed.`,
     });
     checked("Not applicable — nothing was proposed.", "not applicable");
     done("Nothing has been changed, and nothing was sent. This answer came from a local record.", { executed: false, sent: false });

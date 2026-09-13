@@ -22,9 +22,16 @@ contextBridge.exposeInMainWorld("matic", {
   // It is only ever reached from the review card, after the user has pressed submit on a card
   // showing exactly the draft being passed here.
   fileTicket: (draft) => ipcRenderer.invoke("ticket:file", draft),
-  // Read-only, and local: what THIS machine filed, from its own egress record (D235/D242). It is
-  // not a status lookup and there is no channel here that could become one.
+  // What THIS machine filed, from its own egress record (D235/D242) - and, since P4 (D288), what
+  // the hub last said about each of those tickets, from the ticket watch's snapshot. Still read-only
+  // from the renderer's side: the poll is main's, on its own timer.
   ticketsFiled: () => ipcRenderer.invoke("ticket:filed"),
+  // An update from the desk on one of this machine's tickets, pushed when the watch finds one.
+  // SHOWN, never spoken (D288). The renderer shows it and then acknowledges the entries it showed:
+  // the hub stamps them "seen by the requester" with its own clock (D287). That is the only write
+  // this channel can cause, and it writes a timestamp, not words.
+  onTicketUpdate: (cb) => ipcRenderer.on("ticket:update", (_e, update) => cb(update)),
+  ackTicketEntries: (entryIds) => ipcRenderer.invoke("ticket:ack", entryIds),
   getProfile: () => ipcRenderer.invoke("profile:get"),
   saveProfile: (patch) => ipcRenderer.invoke("profile:save", patch),
 

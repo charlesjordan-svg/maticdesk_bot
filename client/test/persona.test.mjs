@@ -93,10 +93,15 @@ const socialLines = [
   // D246: the filing failures are spoken by the avatar, so they are subject to both rules below
   // like every other spoken line. `$comment` is documentation and is not one of them.
   ...Object.entries(persona.filing).filter(([k]) => k !== "$comment").map(([, v]) => v),
-  persona.tickets.some, persona.tickets.none, persona.tickets.unavailable,
+  persona.tickets.some, persona.tickets.none, persona.tickets.unavailable, persona.tickets.someKnown, persona.tickets.unseen,
 ];
 check("tickets.some/none/unavailable/item exist (D235)", ["some", "none", "unavailable", "item"].every((k) => typeof persona.tickets[k] === "string"));
-check("every tickets line says status lookup is not built, in some words", [persona.tickets.some, persona.tickets.none, persona.tickets.unavailable].every((l) => /isn't built|isn't something I can do|can't check|can't look up|can't see/.test(l)));
+check("every NOT-KNOWN tickets line says status lookup is not built, in some words (they are still the lines for no credential / hub unreachable)", [persona.tickets.some, persona.tickets.none, persona.tickets.unavailable].every((l) => /isn't built|isn't something I can do|can't check|can't look up|can't see/.test(l)));
+// D288 (P4). The KNOWN lines exist beside them, chosen by the poll's outcome, never mixed.
+check("tickets.someKnown/itemKnown/unseen exist (D288)", ["someKnown", "itemKnown", "unseen"].every((k) => typeof persona.tickets[k] === "string"));
+check("someKnown does NOT say status is unavailable; it says when the desk was checked and how often", !/isn't built|isn't something I can do|can't see/.test(persona.tickets.someKnown) && /\{checked\}/.test(persona.tickets.someKnown) && /every minute or so/.test(persona.tickets.someKnown) && /\{unseen\}/.test(persona.tickets.someKnown));
+check("itemKnown carries {status}, filled from src/ticket/state-words.js and never a state name", /\{status\}/.test(persona.tickets.itemKnown) && !/\b(resolved|closed|open)\b/.test(persona.tickets.itemKnown));
+check("unseen names the count and says where to look; none of the known lines says notified or email", /\{n\}/.test(persona.tickets.unseen) && /tickets list/.test(persona.tickets.unseen) && [persona.tickets.someKnown, persona.tickets.itemKnown, persona.tickets.unseen].every((l) => !/notified|email/i.test(l)));
 for (const line of socialLines) {
   const hit = [...capWords].find((w) => new RegExp(`\\b${w}\\b`, "i").test(line));
   check(`no capability word in: "${line.slice(0, 60)}…"`, !hit, `names "${hit}"`);

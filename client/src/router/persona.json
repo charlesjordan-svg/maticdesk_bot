@@ -117,9 +117,12 @@
   },
 
   "tickets": {
-    "$comment": "D235. Answers 'where is my ticket?' from THIS MACHINE'S egress record. {list} is filled with one `item` per filed ticket, joined with 'and'. Status lookup is NOT built and every line says so - a reader must never come away thinking the assistant checked with the service desk.",
+    "$comment": "D235, extended by D288 (P4, 2026-09-12). Answers 'where is my ticket?' from THIS MACHINE'S egress record, and - when the ticket watch's last poll could see the hub - from what the service desk says about each one. TWO VOCABULARIES ON PURPOSE, chosen by the poll's outcome and never mixed: `some`/`item` are the pre-P4 lines for when status is NOT visible (no credential, hub unreachable) and they still say so; `someKnown`/`itemKnown` are for when it IS, and {status} is filled by src/ticket/state-words.js stateSpoken() - the same words the band shows, so the voice and the panel cannot describe one ticket two ways. {checked} is how long ago the hub was asked; {unseen} is `unseen` filled in, or empty. Nothing here says the desk was notified of anything.",
     "item": "{reference}, {when}, about {description}",
+    "itemKnown": "{reference}, {when}, about {description} — {status}",
     "some": "From this machine I've filed {list}. I can't see how they're getting on yet — checking a ticket's progress with the service desk isn't something I can do in this build — so please quote the reference if you follow it up. If it's still a problem, tell me and I'll take another look.",
+    "someKnown": "From this machine I've filed {list}. That's what the service desk showed when I checked {checked}; I check every minute or so while this window is open.{unseen} Quote the reference if you follow one up.",
+    "unseen": " There's {n} from the desk you haven't seen yet — it's in the tickets list at the top of this window.",
     "none": "I haven't filed any tickets from this machine, and I can't look up tickets raised elsewhere yet — that part isn't built. If something's still broken, tell me what's happening and I can open one for you.",
     "unavailable": "I can't check on tickets from here — this machine isn't connected to a service desk. If something's still broken, tell me what's happening and I'll see what I can do on the machine itself."
   },

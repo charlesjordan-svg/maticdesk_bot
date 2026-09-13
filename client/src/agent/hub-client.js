@@ -398,9 +398,9 @@ export class HubClient {
    * proves and does not. Without a credential NO request is made: the hub would answer 401 and the
    * reason is already known here. Never throws; the shape says what happened.
    *
-   * NOT WIRED TO A SURFACE IN THIS BUILD. The tickets band (D242) still answers from the egress
-   * record and says status lookup is not built; the panel view and its polling interval are P4's.
-   * This method exists so P4 wires a call, not a request.
+   * CALLED BY `TicketWatch` (src/agent/ticket-watch.js) on its timer since P4 (D288): the band's
+   * per-ticket state and the transcript's "an update arrived" line come from here. The panel view
+   * that shows a whole timeline is Claude Design's (see the P4 handover).
    *
    * @returns {Promise<{ ok: true, tickets: object[], identity: object, note?: string } | { ok: false, reason: "no-credential"|"no-hub"|"refused"|"unreachable", status?: number, detail: string }>}
    */
@@ -415,6 +415,56 @@ export class HubClient {
    */
   async ticket(reference) {
     return this.#read(`/v1/tickets/${encodeURIComponent(String(reference))}`, (body) => ({ ok: true, ticket: body.ticket, entries: body.entries ?? [], identity: body.identity ?? null, note: body.note }));
+  }
+
+  /**
+   * THE REQUESTER'S FOUR WRITES (D286, D287; P4). Each is a POST that needs the credential on
+   * every listener: without one NO request is made, for the same reason as the reads. None is
+   * called by anything that speaks or acts without the user - `comment`, `reopen` and `confirm`
+   * wait for the panel view (Claude Design's; P4 handover) and for an intent path; `ack` is called
+   * by `TicketWatch.acknowledge()` after the renderer has SHOWN an entry, and by nothing else.
+   *
+   * A 409 is the hub refusing the transition (a comment on a closed ticket, a confirm on a live
+   * one) and comes back as `refused` WITH the hub's sentence and the state it found, so the caller
+   * can say why rather than that.
+   */
+
+  /** A public comment on one of this enrollment's tickets; on a resolved one it REOPENS (D286). */
+  async comment(reference, body) {
+    return this.#act(`/v1/ticket/${encodeURIComponent(String(reference))}/comment`, { body });
+  }
+
+  /** The same transition, requiring the ticket to be resolved and a reason (recorded as the comment). */
+  async reopen(reference, reason) {
+    return this.#act(`/v1/ticket/${encodeURIComponent(String(reference))}/reopen`, { reason });
+  }
+
+  /** resolved -> closed, closed by the requester (D278's resolution stays on the record). */
+  async confirm(reference) {
+    return this.#act(`/v1/ticket/${encodeURIComponent(String(reference))}/confirm`, {});
+  }
+
+  /** These entries were SHOWN to the requester; the hub stamps read_by_requester_at with its clock (D287). */
+  async ack(entryIds) {
+    return this.#act("/v1/tickets/ack", { entryIds: Array.isArray(entryIds) ? entryIds : [] });
+  }
+
+  /** The four writes share one transport, and it is the reads' transport with a body. */
+  async #act(path, payload) {
+    if (!this.available) return { ok: false, reason: "no-hub", detail: "no hub URL is configured on this build" };
+    if (!this.credential) return { ok: false, reason: "no-credential", detail: "this endpoint holds no enrollment credential, so the hub would refuse to act: no request was made (D286). See [enroll] in the log" };
+    try {
+      const res = await this.fetch(`${this.hubUrl}${path}`, { method: "POST", headers: this.#headers(), body: JSON.stringify(payload), signal: AbortSignal.timeout(this.timeoutMs) });
+      this.link?.noteSuccess();
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 200 && body?.ok) return { ...body };
+      const detail = `POST ${this.hubUrl}${path} -> HTTP ${res.status}: ${body?.error ?? "no reason given"}`;
+      this.onLog(`[hub] ${detail}`);
+      return { ok: false, reason: "refused", status: res.status, error: body?.error ?? null, state: body?.state ?? null, retryAfterMs: body?.retryAfterMs ?? null, detail };
+    } catch (err) {
+      this.link?.noteFailure(`POST ${path}: ${err.name}`);
+      return { ok: false, reason: "unreachable", detail: `POST ${this.hubUrl}${path} failed: ${err.message}` };
+    }
   }
 
   /** The two requester reads share one transport. */
