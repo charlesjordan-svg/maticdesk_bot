@@ -109,7 +109,11 @@ if (!tenant) {
           console.log(`  location        ${t.location ?? "-"}`);
           console.log(`  contact         ${t.contactId ?? "-"}`);
           // The one caveat that has to travel with a reporter's name on this build.
-          console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — NOT AUTHENTICATED. No device auth (D61/D132), no attested logon SID (D148).`);
+          if (t.deviceId) {
+            console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — filed with an enrollment credential: device ${t.deviceId} (D282, a per-OS-user enrollment of the software, not a person). No attested logon SID (D148).`);
+          } else {
+            console.log(`  identity        ${t.osUsername ?? "-"} (${t.profileSource}) — NOT AUTHENTICATED: filed with no enrollment credential (a loopback hub, or before tenant/008). No attested logon SID (D148).`);
+          }
           console.log("");
           console.log("  what the user said:");
           console.log(`    ${t.description}`);

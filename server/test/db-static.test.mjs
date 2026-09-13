@@ -146,6 +146,20 @@ console.log("\n=== 2c. tenant/007 — resolution: the six codes, four closers, a
   check("it says what a reopen does to the columns (cleared) and where the history lives (the timeline)", /WHAT THE COLUMNS MEAN ACROSS A REOPEN/.test(sql) && /resolution.{0,3} entry/.test(sql));
 }
 
+console.log("\n=== 2d. tenant/008 — tickets.device_id: the requester's scope is the enrollment, as a bare uuid (D284) ===");
+{
+  const m008 = tenant.find((m) => /008-ticket-device/.test(m.version));
+  check("tenant/008-ticket-device.sql exists", Boolean(m008));
+  const sql = m008?.sql ?? "", code = sqlCode(sql);
+  check("it carries decision provenance with the status held when written (register §5.7b) — D271 DECIDED, D284/D281 PROPOSED, D269 RATIFIED",
+    /DECISION PROVENANCE/.test(sql) && /D271 \(DECIDED 2026-09-12, founder\)/.test(sql) && /D284 \(PROPOSED 2026-09-12\)/.test(sql) && /D281 \(PROPOSED 2026-09-12; REKEYED by this\)/.test(sql) && /D269 \(RATIFIED 2026-09-12\)/.test(sql));
+  check("it adds device_id as a uuid, IF NOT EXISTS, and a partial index for the requester's list read", /ADD COLUMN IF NOT EXISTS device_id uuid/.test(code) && /CREATE INDEX IF NOT EXISTS tickets_device ON tickets \(device_id, created_at DESC\) WHERE device_id IS NOT NULL/.test(code));
+  check("device_id carries NO REFERENCES — a tenant schema must not hold a reference the control plane can follow back, and the header says so", !/REFERENCES/.test(code) && /WHY A BARE UUID AND NOT A FOREIGN KEY/.test(sql));
+  check("it says what NULL means — filed with no credential, readable by no requester route — and why not the OS username", /WHAT NULL MEANS/.test(sql) && /no credential/.test(sql) && /self-asserted/.test(sql));
+  const controlM008 = control.find((m) => /008-device-credential/.test(m.version));
+  check("control/008 (the credential, D282) exists beside it and names D271 as decided", Boolean(controlM008) && /D271 \(DECIDED 2026-09-12, founder\)/.test(controlM008?.sql ?? "") && /D282 \(PROPOSED 2026-09-12\)/.test(controlM008?.sql ?? ""));
+}
+
 console.log("\n=== 3. the extension is installed once, database-wide ===");
 const c001 = control.find((m) => /control-plane/.test(m.version)).sql;
 check("control/001 creates the shared `extensions` schema", /CREATE SCHEMA IF NOT EXISTS extensions/i.test(c001));

@@ -47,6 +47,7 @@
  * so it can never introduce the second model whose absence it is also asserting.
  */
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -626,16 +627,16 @@ try {
     }
   }
 
-  console.log("\n=== 5e. the requester-safe read shape, live: every column classified, the requester's own ticket only, no internal row (D281; D269's condition) ===");
+  console.log("\n=== 5e. the requester-safe read shape, live: every column classified, this ENROLLMENT's tickets only, no internal row (D281/D284; D269's condition) ===");
   {
     // THE COLUMN CLASSIFICATION IS THE FEATURE. Every column information_schema lists for
     // `tickets` must be on exactly one of these two lists. A column added later and put on
     // neither FAILS here — the allow-list fails closed where a denylist of names would have
-    // admitted it silently. The FIELD half (what getTicketForRequester() returns, by name, with a
-    // reason per field) is admin-static §5f and runs headless; this half is what the migrations
-    // actually produced, joined to what the function actually returned, on a ticket that has every
+    // admitted it silently. The FIELD half (what the readers return, by name, with a reason per
+    // field) is admin-static §5f and runs headless; this half is what the migrations actually
+    // produced, joined to what the functions actually returned, on a ticket that has every
     // internal field POPULATED — not one where they happen to be null.
-    /** column -> the field getTicketForRequester() returns it as. Reasons are in admin-static §5f. */
+    /** column -> the field the requester readers return it as. Reasons are in admin-static §5f. */
     const REQUESTER_VISIBLE = {
       reference: "reference", state: "state", category: "category", machine_name: "machineName",
       created_at: "createdAt", updated_at: "updatedAt",
@@ -647,6 +648,7 @@ try {
       id: "the join key; the requester holds `reference` (D213)",
       user_id: "the reporter's row id — the requester IS the reporter; echoing their profile back is P4's decision, not this shape's",
       session_id: "D75's link to a session the endpoint does not have yet",
+      device_id: "the enrollment that filed it — the SCOPE KEY the credential supplies (D284), not a fact for the requester",
       description: "the requester's own words — theirs already; the P3a handover's draft omits it, and P4's view decides whether to show what they typed",
       summary: "THE CASE NOTE — written for the assignee, never shown to the user (003-tickets.sql; D214: read aloud to one on 2026-09-04)",
       what_was_checked: "the model's checks, written for the assignee (D214)",
@@ -667,8 +669,8 @@ try {
 
     // Imported here rather than at the top so a missing export fails THESE checks and not the file.
     const q = await import("../src/tickets/query.js");
-    const exists = typeof q.getTicketForRequester === "function" && typeof q.listEntriesForRequester === "function";
-    check("getTicketForRequester() and listEntriesForRequester() exist in src/tickets/query.js", exists);
+    const exists = typeof q.getTicketForRequester === "function" && typeof q.listTicketsForRequester === "function" && typeof q.listEntriesForRequester === "function";
+    check("getTicketForRequester(), listTicketsForRequester() and listEntriesForRequester() exist in src/tickets/query.js", exists);
     if (exists) {
       // The sentinel words appear nowhere else in this suite, so a wire-level search is decisive.
       const SUMMARY = "CASE-NOTE-SENTINEL the user reports a dock that flickers";
@@ -677,42 +679,64 @@ try {
       const WNOTE = "WORK-NOTE-SENTINEL rang the user, no answer";
       const RES = "Your dock has been replaced. Please try it again and tell us if it still flickers.";
       const desk = { kind: "console_user", adminUserId: made.owner.id, label: made.owner.email };
+      // Two enrollments (D284): the one that files, and a stranger.
+      const MINE = randomUUID(), THEIRS = randomUUID();
       const { reference: rref } = await createTicket(schema, {
         description: "my dock keeps flickering", summary: SUMMARY, whatWasChecked: CHECKED, machineName: "LAPTOP-P3A",
         category: "hardware", suggestedOwner: "desktop_support",
         reporter: { osUsername: "p3a.requester", firstName: "Pat", lastName: "Requester", location: "Floor 3", contactId: "pat@example.test" },
-      });
+      }, { deviceId: MINE });
       await setTicketState(schema, rref, "open", { from: "new", note: INOTE, author: desk });
       await addEntry(schema, rref, { kind: "work_note", body: WNOTE, author: desk });
       await resolveTicket(schema, rref, { code: "fixed", notes: RES, from: "open", author: desk });
       const full = await getTicket(schema, rref);
-      check("(fixture) the console's getTicket() carries summary, whatWasChecked and the internal note, ALL POPULATED, and the resolution",
-        Boolean(full) && full.summary === SUMMARY && full.whatWasChecked === CHECKED && full.internalResolutionNote === INOTE && full.resolutionCode === "fixed" && full.suggestedOwner === "desktop_support");
+      check("(fixture) the console's getTicket() carries summary, whatWasChecked and the internal note, ALL POPULATED, the resolution — and the enrollment that filed it",
+        Boolean(full) && full.summary === SUMMARY && full.whatWasChecked === CHECKED && full.internalResolutionNote === INOTE && full.resolutionCode === "fixed" && full.suggestedOwner === "desktop_support" && full.deviceId === MINE);
 
-      const mine = await q.getTicketForRequester(schema, rref, { osUsername: "p3a.requester" });
-      check("the requester's own ticket comes back: reference, state, the code, the notes written for them, their machine",
+      const mine = await q.getTicketForRequester(schema, rref, { deviceId: MINE });
+      check("the enrollment's own ticket comes back: reference, state, the code, the notes written for them, their machine",
         Boolean(mine) && mine.reference === rref && mine.state === "resolved" && mine.resolutionCode === "fixed" && mine.resolutionNotes === RES && mine.machineName === "LAPTOP-P3A" && mine.resolvedAt instanceof Date, JSON.stringify(mine));
       check("its keys are EXACTLY the requester-visible list's fields — nothing more, nothing less",
         Boolean(mine) && Object.keys(mine).sort().join(",") === Object.values(REQUESTER_VISIBLE).sort().join(","), mine ? Object.keys(mine).join(",") : "null");
       const wire = JSON.stringify(mine);
       check("ON THE WIRE (JSON): not the case note, not the checks, not the internal note — for a ticket that HAS all three", Boolean(mine) && !wire.includes("SENTINEL"), wire);
-      check("…nor the reporter's profile echoed back, nor the routing, nor the session or the uuid", Boolean(mine) && !/Pat|Requester|Floor 3|pat@example|desktop_support|p3a\.requester/.test(wire) && !("suggestedOwner" in mine) && !("sessionId" in mine) && !("id" in mine), wire);
-      check("another OS user's reference returns null — the same null as no such ticket (this layer is not an existence oracle)", (await q.getTicketForRequester(schema, rref, { osUsername: "somebody.else" })) === null);
-      check("an unknown reference returns null", (await q.getTicketForRequester(schema, "MD-0", { osUsername: "p3a.requester" })) === null);
-      check("no identity THROWS — there is no default requester, as there is no default visibility", await q.getTicketForRequester(schema, rref, {}).then(() => false, (e) => /osUsername/.test(e.message)));
-      check("…and so does a blank one", await q.getTicketForRequester(schema, rref, { osUsername: "  " }).then(() => false, (e) => /osUsername/.test(e.message)));
+      check("…nor the reporter's profile echoed back, nor the routing, nor the session, the uuid or the device id", Boolean(mine) && !/Pat|Requester|Floor 3|pat@example|desktop_support|p3a\.requester/.test(wire) && !wire.includes(MINE) && !("suggestedOwner" in mine) && !("sessionId" in mine) && !("id" in mine) && !("deviceId" in mine), wire);
+      check("ANOTHER enrollment's read of the same reference returns null — the same null as no such ticket (this layer is not an existence oracle)", (await q.getTicketForRequester(schema, rref, { deviceId: THEIRS })) === null);
+      check("an unknown reference returns null", (await q.getTicketForRequester(schema, "MD-0", { deviceId: MINE })) === null);
+      check("no identity THROWS — there is no default requester, as there is no default visibility", await q.getTicketForRequester(schema, rref, {}).then(() => false, (e) => /deviceId/.test(e.message)));
+      check("…and so does an identity that is not a uuid (the credential lookup hands us one; anything else is a programming error, not a miss)", await q.getTicketForRequester(schema, rref, { deviceId: "p3a.requester" }).then(() => false, (e) => /deviceId/.test(e.message)));
+
+      // The list read (GET /v1/tickets's body): this enrollment's tickets, newest first, and nobody else's.
+      const { reference: rref2 } = await createTicket(schema, {
+        description: "second one from the same enrollment", summary: SUMMARY, category: "other", suggestedOwner: null,
+        reporter: { osUsername: "p3a.requester" },
+      }, { deviceId: MINE });
+      const list = await q.listTicketsForRequester(schema, { deviceId: MINE });
+      check("listTicketsForRequester(): both tickets this enrollment filed, newest first, each in the allow-list shape and none carrying a sentinel",
+        list.length === 2 && list[0].reference === rref2 && list[1].reference === rref && list.every((t) => Object.keys(t).sort().join(",") === Object.values(REQUESTER_VISIBLE).sort().join(",")) && !JSON.stringify(list).includes("SENTINEL"), JSON.stringify(list.map((t) => t.reference)));
+      check("…another enrollment lists [] — and so would any enrollment for the tickets §5 filed with NO credential (device_id NULL is nobody's)", (await q.listTicketsForRequester(schema, { deviceId: THEIRS })).length === 0 && (await listTickets(schema)).some((t) => t.reference !== rref && t.reference !== rref2));
+      check("…and it takes the identity the same way: no identity throws", await q.listTicketsForRequester(schema, {}).then(() => false, (e) => /deviceId/.test(e.message)));
 
       const all = await listEntries(schema, rref, { visibility: "all" });
       check("(fixture) the ticket has an INTERNAL entry — the work note — among four", all.length === 4 && all.some((e) => e.visibility === "internal" && e.body === WNOTE));
-      const theirs = await q.listEntriesForRequester(schema, rref, { osUsername: "p3a.requester" });
+      const theirs = await q.listEntriesForRequester(schema, rref, { deviceId: MINE });
       check("listEntriesForRequester() CANNOT return the internal row: three public entries (two state changes, the resolution), no work note, no sentinel on the wire",
         theirs.length === 3 && theirs.every((e) => e.visibility === "public") && !theirs.some((e) => e.kind === "work_note") && !JSON.stringify(theirs).includes("SENTINEL"), JSON.stringify(theirs));
       check("…the resolution entry carries the notes written for them", theirs.some((e) => e.kind === "resolution" && e.body === RES));
-      check("…another OS user gets [] for the same reference — public rows included; 'public' means the ticket's requester, not every requester", (await q.listEntriesForRequester(schema, rref, { osUsername: "somebody.else" })).length === 0);
-      check("…and it has no visibility argument: passing one changes nothing", (await q.listEntriesForRequester(schema, rref, { osUsername: "p3a.requester", visibility: "all" })).length === 3);
-      check("…and no identity throws here too", await q.listEntriesForRequester(schema, rref, {}).then(() => false, (e) => /osUsername/.test(e.message)));
+      check("…another enrollment gets [] for the same reference — public rows included; 'public' means the ticket's requester, not every requester", (await q.listEntriesForRequester(schema, rref, { deviceId: THEIRS })).length === 0);
+      check("…and it has no visibility argument: passing one changes nothing", (await q.listEntriesForRequester(schema, rref, { deviceId: MINE, visibility: "all" })).length === 3);
+      check("…and no identity throws here too", await q.listEntriesForRequester(schema, rref, {}).then(() => false, (e) => /deviceId/.test(e.message)));
+
+      // The console says which enrollment filed a ticket, and that the older ones had none.
+      const detailMine = await owner.go(`/admin/tickets/${rref}`);
+      check("the detail page says the ticket was filed WITH an enrollment credential, names the device, and keeps the profile fields self-asserted", /filed with an enrollment credential/.test(detailMine.text) && detailMine.text.includes(MINE) && /self_asserted/.test(detailMine.text));
+      const older = (await listTickets(schema)).find((t) => t.reference !== rref && t.reference !== rref2);
+      const detailOlder = await owner.go(`/admin/tickets/${older.reference}`);
+      check("…and for a ticket filed with NO credential it says so — not authenticated, no enrollment", /not authenticated/.test(detailOlder.text) && /no enrollment credential/.test(detailOlder.text));
+      const cliMine = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", rref], { encoding: "utf8", env: { ...process.env, MATIC_TICKET_TENANT: schema } });
+      check("bin/tickets.mjs show prints the same fact through the same getTicket()", cliMine.status === 0 && /filed with an enrollment credential/.test(cliMine.stdout) && cliMine.stdout.includes(MINE), cliMine.stdout.slice(0, 400));
     } else {
-      check("the live checks ran against the requester shape", false, "getTicketForRequester()/listEntriesForRequester() do not exist yet — D269's condition: this is the red run");
+      check("the live checks ran against the requester shape", false, "the requester readers do not exist");
     }
   }
 

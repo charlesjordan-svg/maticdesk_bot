@@ -308,7 +308,9 @@ ${timelinePanel(ctx, t, entries)}
       <dt>Location</dt><dd>${t.location ?? "-"}</dd>
       <dt>Contact</dt><dd>${t.contactId ?? "-"}</dd>
       <dt>OS user</dt><dd class="mono">${t.osUsername ?? "-"}</dd>
-      <dt>Identity</dt><dd><strong>${t.profileSource ?? "unknown"}</strong> — not authenticated. No device auth (D61/D132), no attested logon SID (D148).</dd>
+      <dt>Identity</dt><dd>${t.deviceId
+        ? html`<strong>filed with an enrollment credential</strong> — device <span class="mono">${t.deviceId}</span>. That is a per-OS-user enrollment of the software (D282), not a person: the profile fields above are still <strong>${t.profileSource ?? "unknown"}</strong>. No attested logon SID (D148).`
+        : html`<strong>${t.profileSource ?? "unknown"}</strong> — not authenticated: filed with no enrollment credential (a loopback hub, or before tenant/008). No attested logon SID (D148).`}</dd>
     </dl>
   </div>
 </div>

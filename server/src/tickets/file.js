@@ -147,11 +147,18 @@ export function checkTicketRequest(body) {
  * profile in the directory for a report that does not exist. `withTenant` already wraps the
  * callback in BEGIN/COMMIT, so this is a property of using it rather than something added here.
  *
+ * `deviceId` (D284, tenant/008) is the ENROLLMENT that filed the ticket — the control.devices.id
+ * the route took from a verified credential (D282). It is an OPTION, never read from the body: a
+ * client that could name its own device would be naming which requester may read the ticket. null
+ * means filed with no credential (a loopback listener, where the credential is optional), and such
+ * a ticket is readable by no requester route.
+ *
  * @param {string} schema
  * @param {object} body
+ * @param {{ deviceId?: string|null }} [opts]
  * @returns {Promise<{reference: string, ticketId: string, userId: string, createdAt: string}>}
  */
-export async function createTicket(schema, body) {
+export async function createTicket(schema, body, { deviceId = null } = {}) {
   const r = body.reporter;
   const displayName = [str(r.firstName), str(r.lastName)].filter(Boolean).join(" ") || null;
 
@@ -199,9 +206,9 @@ export async function createTicket(schema, body) {
     // must never be reused, and a gap in MD-#### is meaningless to everyone who reads one.
     const ticketSql = `
       INSERT INTO tickets
-        (reference, user_id, session_id, description, summary, what_was_checked, machine_name, category, suggested_owner)
+        (reference, user_id, session_id, description, summary, what_was_checked, machine_name, category, suggested_owner, device_id)
       VALUES
-        ('MD-' || nextval('ticket_reference_seq'), $1, $2, $3, $4, $5, $6, $7, $8)
+        ('MD-' || nextval('ticket_reference_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id, reference, created_at`;
     const t = await client.query(ticketSql, [
       userId,
@@ -212,6 +219,7 @@ export async function createTicket(schema, body) {
       str(body.machineName),
       body.category,
       body.suggestedOwner ?? null,
+      deviceId,
     ]);
 
     return {

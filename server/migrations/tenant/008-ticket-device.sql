@@ -1,0 +1,43 @@
+-- Tenant 008 — tickets.device_id: WHICH ENROLLMENT filed the ticket, so a requester's read can be
+-- scoped to the enrollment that presented a credential rather than to a name the client typed.
+--
+-- DECISION PROVENANCE (register §5.7b). Status is the status held WHEN THIS MIGRATION WAS WRITTEN.
+--   D271 (DECIDED 2026-09-12, founder) — development on one machine; production on the customer's
+--     LAN/WAN. The answer that made P3b's credential real (control/008, D282) and so gave a ticket
+--     something worth recording about who filed it.
+--   D284 (PROPOSED 2026-09-12) — the requester's scope key is the ENROLLMENT, not the OS username.
+--     A ticket filed on a request that presented an enrollment credential carries that device's
+--     control.devices.id here; `getTicketForRequester()` and `listTicketsForRequester()` read
+--     `WHERE device_id = <the credential's device>` and nothing else. Why not the name: the OS
+--     username is self-asserted at enrollment and at filing (D215), so anyone holding the tenant's
+--     enrollment secret could enroll under any name and read that name's tickets; the enrollment id
+--     is something only the credential-holder can present. Two costs, both accepted in plan v3
+--     §6.2: a reinstall or a cleared userData is a NEW enrollment and sees no earlier tickets; and
+--     a ticket with device_id NULL — filed with no credential, on a loopback development hub or
+--     before this file — is readable by NO requester route.
+--   D281 (PROPOSED 2026-09-12; REKEYED by this) — P3a built the requester-safe shape keyed on
+--     `u.os_username` because no device column existed, and said in its header that the column and
+--     the clause would arrive together when P3b gave a ticket a device to match. This is that.
+--   D75 (proposed) — `session_id` stays the nullable link to a session the endpoint does not yet
+--     create. `device_id` is a different fact: the credential-holder, not the conversation.
+--   D269 (RATIFIED 2026-09-12) — every column has code naming it: written by `createTicket()`
+--     (src/tickets/file.js) from the authenticated device, read by `getTicket()` and both requester
+--     readers (src/tickets/query.js), rendered by the console's detail page and `bin/tickets.mjs
+--     show`, both of which now say whether the ticket was filed with a credential.
+--
+-- WHY A BARE UUID AND NOT A FOREIGN KEY. The same reason tenant/001's `sessions.device_id` is bare:
+-- a per-tenant schema must not hold a reference the control plane can follow back, and a
+-- cross-schema FK would make dropping a tenant depend on control-plane state. Integrity is the
+-- application's: the value is written only from a credential the hub has just verified.
+--
+-- WHAT NULL MEANS. Filed with no credential. On a loopback listener the credential is optional
+-- (development, tests, the demo box), and every ticket that existed before this file has NULL. Such
+-- a ticket is the desk's to work and no requester's to read — the plan's accepted limitation
+-- applied to history rather than a guess about which enrollment it "probably" belongs to.
+--
+-- IDEMPOTENT: ADD COLUMN IF NOT EXISTS; CREATE INDEX IF NOT EXISTS. test/db.test.mjs §4 runs this
+-- file a second time against a migrated tenant and asserts the catalog did not move.
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS device_id uuid;
+-- The requester's list read: this enrollment's tickets, newest first. Partial, because a NULL is
+-- nobody's and is never looked up this way.
+CREATE INDEX IF NOT EXISTS tickets_device ON tickets (device_id, created_at DESC) WHERE device_id IS NOT NULL;

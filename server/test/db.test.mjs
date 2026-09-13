@@ -250,6 +250,20 @@ async function main() {
     /tickets_resolution_code_known/.test(await refused(minimal + "('MD-B1-2', 'x', 'x', 'other', 'resolved', 'sorted', 'notes')")));
   check("...and accepts a resolved row carrying both", (await refused(minimal + "('MD-B1-3', 'x', 'x', 'other', 'resolved', 'fixed', 'notes')")) === "");
 
+  // D284: tenant/008 is all IF NOT EXISTS. Re-run against a migrated tenant, the tickets catalog —
+  // columns AND indexes — must not move; and device_id is a bare uuid, no foreign key.
+  const m008t = readMigrations("tenant").find((m) => /008-ticket-device/.test(m.version));
+  const deviceCatalog = () => withTenant(SC, async (c) => JSON.stringify({
+    cols: (await c.query("SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'tickets' ORDER BY 1")).rows,
+    idx: (await c.query("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'tickets' ORDER BY 1")).rows.map((r) => r.indexname),
+    fks: (await c.query("SELECT conname FROM pg_constraint WHERE conrelid = (current_schema() || '.tickets')::regclass AND contype = 'f' ORDER BY 1")).rows.map((r) => r.conname),
+  }));
+  const snap008t = await deviceCatalog();
+  check("tenant/008 gave the fresh tenant tickets.device_id (uuid) and the partial index tickets_device, with NO foreign key on it (a tenant schema must not reference the control plane)",
+    Boolean(m008t) && /"column_name":"device_id","data_type":"uuid"/.test(snap008t) && /tickets_device/.test(snap008t) && !/device/.test(JSON.parse(snap008t).fks.join(",")), snap008t);
+  await withTenant(SC, (c) => c.query(m008t.sql));
+  check("running tenant/008's SQL a SECOND time changes nothing in the catalog", (await deviceCatalog()) === snap008t);
+
   // =============================================================================================
   console.log("\n=== 5. a job for tenant B is picked up by a worker that sees only B's data ===");
   const bSessionId = await withTenant(SB, async (c) =>

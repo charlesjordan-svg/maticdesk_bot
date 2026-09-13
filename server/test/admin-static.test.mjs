@@ -240,22 +240,26 @@ console.log("\n=== 5e. resolution means something: refused without code and note
   check("the CLI has resolve (--code, --resolution), refuses through the same function, and says the requester has not been told", /cmd === "resolve"/.test(cliCode) && /flag\("code"\), notes = flag\("resolution"\)/.test(cliCode) && /THE REQUESTER HAS NOT BEEN TOLD/.test(cli) && /"refused" in moved\) die/.test(cliCode));
 }
 
-console.log("\n=== 5f. the requester-safe read shape: an allow-list, not whatever getTicket() returns (D281; D269's condition) ===");
+console.log("\n=== 5f. the requester-safe read shape: an allow-list, not whatever getTicket() returns (D281, rekeyed D284; D269's condition) ===");
 {
   // WHY THIS EXISTS. getTicket() does SELECT t.* — the console's reader, and the right shape for
   // it. Any requester-facing route built on that shape ships `summary` (the model's case note,
   // written for the assignee; 003-tickets.sql says "never shown to the user", and D214 exists
   // because on 2026-09-04 the avatar read it aloud to one), `what_was_checked`, and the internal
   // resolution note (D269). That hazard does not depend on who may call the route or on where the
-  // hub runs (D271), so the safe shape and this test are built BEFORE the gate opens. D269's
-  // ratified condition: this test is written first and seen failing before any requester route
-  // exists — its first run failed on the missing export (the commit message has the output).
+  // hub runs (D271), so the safe shape and this test were built BEFORE the gate opened (P3a).
+  // D269's ratified condition: this test was written first and seen failing before any requester
+  // route existed — its first run (756ad74) failed on the missing export.
   //
   // ALLOW-LIST, NOT DENYLIST. A denylist of field names silently admits every column added after
   // it is written; an allow-list fails closed. Same shape as §5c's RESERVED_FIELDS and admin-db
   // §5c's RESERVED_COLUMNS: one line, one reason. The live half — every COLUMN of `tickets` is on
   // this list or on admin-db §5e's HIDDEN list, from information_schema — is what makes a column
   // added tomorrow fail rather than slip through.
+  //
+  // REKEYED IN P3b (D284). P3a scoped the read by `u.os_username` because tickets carried no device
+  // column. tenant/008 added `device_id` and the clause together, as P3a's header said it would,
+  // and this block moved with it: the identity is the enrollment's control.devices.id.
   const REQUESTER_VISIBLE = {
     reference: "the key the requester was told and quotes back (D213)",
     state: "where their ticket is — the one fact a requester view exists to show",
@@ -272,49 +276,55 @@ console.log("\n=== 5f. the requester-safe read shape: an allow-list, not whateve
   const q = read("src/tickets/query.js"), qCode = jsCode(q);
   const mod = await import("../src/tickets/query.js");
   check("getTicketForRequester() is exported from the one query layer (D224)", typeof mod.getTicketForRequester === "function");
-  check("listEntriesForRequester() is exported beside it", typeof mod.listEntriesForRequester === "function");
+  check("listTicketsForRequester() and listEntriesForRequester() are exported beside it", typeof mod.listTicketsForRequester === "function" && typeof mod.listEntriesForRequester === "function");
 
-  const fnStart = qCode.indexOf("export async function getTicketForRequester");
-  const fn = fnStart < 0 ? "" : qCode.slice(fnStart, qCode.indexOf("\n}\n", fnStart));
-  const retStart = fn.indexOf("return {");
-  const returned = retStart < 0 ? "" : fn.slice(retStart, fn.indexOf("};", retStart));
+  // ONE shape, ONE column list, used by both readers.
+  const shapeStart = qCode.indexOf("const shapeRequesterRow = (t) => ({");
+  const returned = shapeStart < 0 ? "" : qCode.slice(shapeStart, qCode.indexOf("});", shapeStart));
   const fields = [...returned.matchAll(/^\s+([a-zA-Z]+):/gm)].map((m) => m[1]);
   check("the extraction found the requester shape (a broken extraction must fail, not pass vacuously)", fields.length >= 8, fields.join(","));
   check("the requester shape returns EXACTLY the allow-list — every field named here with a reason, and nothing else",
     fields.length > 0 && fields.slice().sort().join(",") === Object.keys(REQUESTER_VISIBLE).sort().join(","), `returns: ${fields.join(",")}`);
-  check("the returned object never names summary, whatWasChecked, internalResolutionNote, suggestedOwner, sessionId, description, or the reporter's profile",
-    returned.length > 0 && !/summary|what_was_checked|whatWasChecked|internal_resolution_note|internalResolutionNote|suggested_owner|suggestedOwner|session_id|sessionId|reporter|first_name|last_name|location|contact_id|contactId|os_username|osUsername|profile_source|profileSource|description|user_id|\bid\b/.test(returned), returned);
-  check("its SELECT names columns — never `t.*`, and never a spread of a row (…shapeRow(t), …t)", fn.length > 0 && !/\bt\.\*/.test(fn) && !/\.\.\.\s*(shapeRow|t\b|rows)/.test(fn));
-  check("the SELECT carries no column that is not on the allow-list (the SQL and the object agree)", fn.length > 0 && (() => {
-    const sel = fn.slice(fn.indexOf("SELECT"), fn.indexOf("FROM"));
-    const cols = [...sel.matchAll(/\bt\.([a-z_]+)/g)].map((m) => m[1]);
-    const camel = (c) => c.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
-    return cols.length === Object.keys(REQUESTER_VISIBLE).length && cols.every((c) => camel(c) in REQUESTER_VISIBLE);
-  })());
-  check("the read is scoped to the requester IN SQL — WHERE t.reference = $1 AND u.os_username = $2 — so another user's reference is the same null as no ticket", /WHERE t\.reference = \$1 AND u\.os_username = \$2/.test(fn));
-  check("it takes the identity explicitly and throws without one — no default requester, as listEntries() has no default visibility", /export async function getTicketForRequester\(schema, reference, \{ osUsername \}/.test(qCode) && /if \(typeof osUsername !== "string" \|\| !osUsername\.trim\(\)\) throw new Error\("getTicketForRequester needs identity\.osUsername/.test(qCode));
-  const header = fnStart < 0 ? "" : q.slice(q.lastIndexOf("/**", q.indexOf("export async function getTicketForRequester")), q.indexOf("export async function getTicketForRequester"));
-  check("it takes NO device argument — tickets carry no device column to match, and a parameter that matches nothing is the shape D267's guard 2 was found in; the header says so", fn.length > 0 && !/device/i.test(fn) && /deviceKeyId/.test(header));
+  check("the shape never names summary, whatWasChecked, internalResolutionNote, suggestedOwner, sessionId, deviceId, description, or the reporter's profile",
+    returned.length > 0 && !/summary|what_was_checked|whatWasChecked|internal_resolution_note|internalResolutionNote|suggested_owner|suggestedOwner|session_id|sessionId|device_id|deviceId|reporter|first_name|last_name|location|contact_id|contactId|os_username|osUsername|profile_source|profileSource|description|user_id|\bid\b/.test(returned), returned);
+  const colsStart = qCode.indexOf("const REQUESTER_COLUMNS = `");
+  const colsSrc = colsStart < 0 ? "" : qCode.slice(colsStart, qCode.indexOf("`;", colsStart));
+  const cols = [...colsSrc.matchAll(/\bt\.([a-z_]+)/g)].map((m) => m[1]);
+  const camel = (c) => c.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
+  check("the column list names exactly the allow-list's columns — never `t.*` (the SQL and the object agree)", cols.length === Object.keys(REQUESTER_VISIBLE).length && cols.every((c) => camel(c) in REQUESTER_VISIBLE) && !/\*/.test(colsSrc), cols.join(","));
 
-  const leStart = qCode.indexOf("export async function listEntriesForRequester");
-  const le = leStart < 0 ? "" : qCode.slice(leStart, qCode.indexOf("\n}\n", leStart));
+  const fnOf = (name) => { const s = qCode.indexOf(`export async function ${name}`); return s < 0 ? "" : qCode.slice(s, qCode.indexOf("\n}\n", s)); };
+  const one = fnOf("getTicketForRequester"), many = fnOf("listTicketsForRequester"), le = fnOf("listEntriesForRequester");
+  check("both readers SELECT the shared column list and return through the shared shape — no t.*, no spread, no second list",
+    [one, many].every((fn) => fn.length > 0 && /SELECT \$\{REQUESTER_COLUMNS\}/.test(fn) && /shapeRequesterRow/.test(fn) && !/\bt\.\*/.test(fn) && !/\.\.\.\s*(shapeRow|t\b|rows)/.test(fn)));
+  check("the one-ticket read is scoped to the ENROLLMENT in SQL — WHERE t.reference = $1 AND t.device_id = $2::uuid — so another enrollment's reference is the same null as no ticket", /WHERE t\.reference = \$1 AND t\.device_id = \$2::uuid/.test(one));
+  check("the list read is scoped the same way, newest first, with a LIMIT", /WHERE t\.device_id = \$1::uuid\s+ORDER BY t\.created_at DESC LIMIT \$2/.test(many));
+  check("neither reader joins users or names os_username — the key is the credential's device, not a name the client typed (D284)", [one, many].every((fn) => !/users|os_username|osUsername/.test(fn)));
+  check("the identity is REQUIRED with no default: both readers go through requesterDeviceId(), which throws naming deviceId", /function requesterDeviceId\(fn, \{ deviceId \} = \{\}\)/.test(qCode) && /needs identity\.deviceId/.test(qCode) && /requesterDeviceId\("getTicketForRequester", identity\)/.test(one) && /requesterDeviceId\("listTicketsForRequester", identity\)/.test(many));
+  const header = q.slice(q.lastIndexOf("/**", q.indexOf("export async function getTicketForRequester")), q.indexOf("export async function getTicketForRequester"));
+  check("the header says why the key moved from the OS username to the enrollment, and names both accepted costs (plan v3 §6.2)", /KEYED BY THE ENROLLMENT, NOT THE OS USERNAME/.test(header) && /self-asserted/.test(header) && /reinstall/.test(header) && /NULL/.test(header));
+
   check("listEntriesForRequester() takes NO visibility parameter — a requester path with one is a requester path that can be called wrong", le.length > 0 && !/^export async function listEntriesForRequester\([^)]*visibility/.test(le));
   check("…and calls listEntries() with the argument FIXED to \"public\" — never passed through", /listEntries\(schema, reference, \{ visibility: "public" \}\)/.test(le) && !/visibility: visibility|\{ visibility \}\)/.test(le));
-  check("…and only after getTicketForRequester() says the ticket is theirs — someone else's public rows are not this requester's", /await getTicketForRequester\(schema, reference, identity\)/.test(le));
+  check("…and only after getTicketForRequester() says the ticket is theirs — another enrollment's public rows are not this requester's", /await getTicketForRequester\(schema, reference, identity\)/.test(le));
 
   // getTicket() keeps SELECT t.* — the console is entitled to every column. The fix is a SECOND
   // function, not a narrower one, and getTicket() says where the requester's is.
   const gtStart = q.indexOf("export async function getTicket(");
   const gt = q.slice(gtStart, q.indexOf("\n}\n", gtStart));
   check("getTicket() still does SELECT t.* for the console, and points at getTicketForRequester() in words", /SELECT t\.\*/.test(gt) && /getTicketForRequester/.test(gt) && /D281/.test(gt));
+  check("getTicket() returns deviceId — the console sees which enrollment filed a ticket, or that none did", /deviceId: t\.device_id \?\? null/.test(gt));
 
-  // CALLED BY NOTHING, ON PURPOSE. The route is P3b's and P3b is gated on D271 (deployment
-  // topology, the founder's). When D271 opens and GET /v1/tickets is built on this reader, this
-  // assertion is retired IN THE SAME COMMIT and P3a's exit criterion — the allow-list still holds
-  // against the live route — takes its place. Until then a caller here is a route built before
-  // the decision it depends on.
-  const callers = allSrc.filter((f) => rel(f) !== "src/tickets/query.js" && /getTicketForRequester|listEntriesForRequester/.test(jsCode(readFileSync(f, "utf8"))));
-  check("nothing calls either function yet — the route is P3b's and P3b waits on D271 (retire this line in the commit that adds the route)", callers.length === 0, `callers: ${callers.map(rel).join(", ")}`);
+  // D284: the writer. createTicket() takes the device from the caller — the route, which took it
+  // from a verified credential — and never from the request body.
+  const file = jsCode(read("src/tickets/file.js"));
+  check("createTicket() writes device_id from its options argument, never from the body", /export async function createTicket\(schema, body, \{ deviceId = null \} = \{\}\)/.test(file) && /device_id\)/.test(file) && !/body\.deviceId|body\.device_id/.test(file));
+
+  // CALLED BY NOTHING, ON PURPOSE — P3a's line. The route is P3b's and P3b was gated on D271.
+  // D271 was answered 2026-09-12 (LAN); GET /v1/tickets arrives in the commit after this one and
+  // RETIRES this assertion in favour of the live route test (admin-db B3-5).
+  const callers = allSrc.filter((f) => rel(f) !== "src/tickets/query.js" && /getTicketForRequester|listTicketsForRequester|listEntriesForRequester/.test(jsCode(readFileSync(f, "utf8"))));
+  check("nothing calls the requester readers yet — the route is the next commit's, and this line goes with it", callers.length === 0, `callers: ${callers.map(rel).join(", ")}`);
 }
 
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");
