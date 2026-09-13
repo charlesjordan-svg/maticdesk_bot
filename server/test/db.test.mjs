@@ -219,6 +219,25 @@ async function main() {
   check("...and an internal row from a requester (ticket_entries_requester_public)",
     /ticket_entries_requester_public/.test(await refused("INSERT INTO ticket_entries (ticket_id, kind, visibility, body, author_kind) VALUES (gen_random_uuid(), 'comment', 'internal', 'x', 'requester')")));
 
+  // D278: tenant/007's columns and constraints, re-run as a no-op, and the CHECKs refusing what
+  // resolveTicket() refuses in code - a resolved row with no code or notes, and a code outside the six.
+  const m007 = readMigrations("tenant").find((m) => /007-resolution/.test(m.version));
+  const ticketsCatalog = () => withTenant(SC, async (c) => JSON.stringify({
+    cols: (await c.query("SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'tickets' ORDER BY 1")).rows.map((r) => r.column_name),
+    cons: (await c.query("SELECT conname, convalidated FROM pg_constraint WHERE conrelid = (current_schema() || '.tickets')::regclass ORDER BY 1")).rows,
+  }));
+  const snap007 = await ticketsCatalog();
+  check("tenant/007 gave the fresh tenant the five resolution columns and three constraints, the D278 one NOT VALID",
+    Boolean(m007) && /resolution_code/.test(snap007) && /closed_by/.test(snap007) && /tickets_resolution_code_known/.test(snap007) && /tickets_closed_by_known/.test(snap007) && /"conname":"tickets_resolved_has_resolution","convalidated":false/.test(snap007), snap007);
+  await withTenant(SC, (c) => c.query(m007.sql));
+  check("running tenant/007's SQL a SECOND time changes nothing in the catalog", (await ticketsCatalog()) === snap007);
+  const minimal = "INSERT INTO tickets (reference, description, summary, category, state, resolution_code, resolution_notes) VALUES ";
+  check("the DATABASE refuses a resolved ticket with no code and no notes (tickets_resolved_has_resolution binds new rows though NOT VALID)",
+    /tickets_resolved_has_resolution/.test(await refused(minimal + "('MD-B1-1', 'x', 'x', 'other', 'resolved', NULL, NULL)")));
+  check("...and a resolution code outside the six (tickets_resolution_code_known)",
+    /tickets_resolution_code_known/.test(await refused(minimal + "('MD-B1-2', 'x', 'x', 'other', 'resolved', 'sorted', 'notes')")));
+  check("...and accepts a resolved row carrying both", (await refused(minimal + "('MD-B1-3', 'x', 'x', 'other', 'resolved', 'fixed', 'notes')")) === "");
+
   // =============================================================================================
   console.log("\n=== 5. a job for tenant B is picked up by a worker that sees only B's data ===");
   const bSessionId = await withTenant(SB, async (c) =>

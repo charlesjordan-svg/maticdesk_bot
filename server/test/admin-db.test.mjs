@@ -55,7 +55,7 @@ import { migrate } from "../src/db/migrate.js";
 import { createTenant, dropTenantForTests } from "../src/db/tenants.js";
 import { getPool, closePool, withControl } from "../src/db/pool.js";
 import { createTicket } from "../src/tickets/file.js";
-import { listTickets, getTicket, listEntries, addEntry } from "../src/tickets/query.js";
+import { listTickets, getTicket, listEntries, addEntry, setTicketState, resolveTicket } from "../src/tickets/query.js";
 import { createAdminUser, resetAdminCredentials, setAdminStatus } from "../src/admin/users.js";
 import { corpusStatus } from "../src/kb/ingest.js";
 import { gapFeed } from "../src/admin/queries.js";
@@ -397,9 +397,11 @@ try {
     check("POST marked cross-site by the browser -> 403 even with a valid token", crossSite.status === 403);
     check("the ticket is still new", (await getTicket(schema, ref)).state === "new");
 
-    const bad = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "new", _csrf: csrf } });
+    // Since D280 every state form carries the state the operator SAW as `from`; the guard in the
+    // UPDATE compares against it and the NEXT_STATES consult is on it too.
+    const bad = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "new", from: "new", _csrf: csrf } });
     check("a transition the console does not offer (new -> new) -> 400 and audited", bad.status === 400 && (await auditRows()).some((r) => r.action === "ticket.state.refused"));
-    const moved = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "open", _csrf: csrf } });
+    const moved = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "open", from: "new", _csrf: csrf } });
     check("POST with the token -> 303 back to the ticket", moved.status === 303 && moved.location === `/admin/tickets/${ref}?changed=1`, `${moved.status} ${moved.location}`);
     check("the row changed", (await getTicket(schema, ref)).state === "open");
     const row = (await auditRows()).find((r) => r.action === "ticket.state");
@@ -407,22 +409,24 @@ try {
     const cliShow = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: { ...process.env, MATIC_TICKET_TENANT: schema } });
     check("the CLI sees the change through the same query layer", cliShow.status === 0 && new RegExp(`${ref}\\s+open`).test(cliShow.stdout));
 
-    // D269: the internal resolution note, written from the console's state form, read back on the
-    // detail page and by the CLI — the round trip tenant/004's comment claimed and nothing did.
+    // D269: the internal resolution note, written from the console — since P2 through the RESOLVE
+    // form (D278), where the internal note rides beside the requester-visible one — read back on
+    // the detail page and by the CLI: the round trip tenant/004's comment claimed and nothing did.
     const NOTE = "swapped the <dock> & re-seated the cable";
+    const RES_NOTES = "Your dock's firmware was out of date; it is updated & the cable re-seated. Please try again.";
     const cliEnv = { ...process.env, MATIC_TICKET_TENANT: schema };
-    const resolved = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "resolved", note: `  ${NOTE}\r\n`, _csrf: csrf } });
-    check("POST resolved with a note -> 303, and the redirect says a note was recorded", resolved.status === 303 && /noted=1/.test(resolved.location ?? ""), `${resolved.status} ${resolved.location}`);
+    const resolved = await owner.go(`/admin/tickets/${ref}/resolve`, { method: "POST", form: { from: "open", resolutionCode: "fixed", resolutionNotes: `  ${RES_NOTES}  `, note: `  ${NOTE}\r\n`, _csrf: csrf } });
+    check("POST resolve with a code, notes and an internal note -> 303, and the redirect says resolved and noted", resolved.status === 303 && /resolved=1/.test(resolved.location ?? "") && /noted=1/.test(resolved.location ?? ""), `${resolved.status} ${resolved.location}`);
     const afterNote = await getTicket(schema, ref);
-    check("the query layer returns the note, trimmed", afterNote.state === "resolved" && afterNote.internalResolutionNote === NOTE, JSON.stringify(afterNote.internalResolutionNote));
+    check("the query layer returns the internal note, trimmed, AND the resolution: code, notes trimmed, resolved_at", afterNote.state === "resolved" && afterNote.internalResolutionNote === NOTE && afterNote.resolutionCode === "fixed" && afterNote.resolutionNotes === RES_NOTES && afterNote.resolvedAt instanceof Date, JSON.stringify([afterNote.internalResolutionNote, afterNote.resolutionCode, afterNote.resolutionNotes]));
     const page2 = await owner.go(`/admin/tickets/${ref}`);
     check("the detail page renders it, ESCAPED, under a heading that says it is internal and that the requester never sees it",
       page2.text.includes(escapeHtml(NOTE)) && !page2.text.includes("<dock>") && /Internal resolution note/.test(page2.text) && /requester never sees it/.test(page2.text));
     const cliNote = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: cliEnv });
     check("bin/tickets.mjs show prints the same note and says it is internal", cliNote.status === 0 && cliNote.stdout.includes(NOTE) && /internal resolution note/.test(cliNote.stdout), cliNote.stderr.slice(0, 200));
-    const noteRow = (await auditRows()).find((r) => r.action === "ticket.state" && r.detail.to === "resolved");
-    check("audited with noted: true and NOT the note's text", Boolean(noteRow) && noteRow.detail.noted === true && !JSON.stringify(noteRow).includes("dock"), JSON.stringify(noteRow?.detail));
-    const closed = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "closed", note: "   ", _csrf: csrf } });
+    const noteRow = (await auditRows()).find((r) => r.action === "ticket.resolve");
+    check("audited as ticket.resolve with from, the code and noted: true — and NOT the internal note's text or the resolution notes'", Boolean(noteRow) && noteRow.detail.from === "open" && noteRow.detail.code === "fixed" && noteRow.detail.noted === true && !/dock|firmware/.test(JSON.stringify(noteRow)), JSON.stringify(noteRow?.detail));
+    const closed = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "closed", from: "resolved", note: "   ", _csrf: csrf } });
     check("a later move with a blank note -> 303 without noted=1, and the earlier note is KEPT (COALESCE)",
       closed.status === 303 && !/noted=1/.test(closed.location ?? "") && (await getTicket(schema, ref)).internalResolutionNote === NOTE, `${closed.status} ${closed.location}`);
     const blankRow = (await auditRows()).find((r) => r.action === "ticket.state" && r.detail.to === "closed");
@@ -431,6 +435,7 @@ try {
     check("bin/tickets.mjs state --note writes through the same function and says so", cliState.status === 0 && /internal note recorded/.test(cliState.stdout) && (await getTicket(schema, ref)).internalResolutionNote === "reopened: the dock failed again", cliState.stderr.slice(0, 200));
     const page3 = await owner.go(`/admin/tickets/${ref}`);
     check("…and the console shows what the CLI wrote", page3.text.includes("reopened: the dock failed again"));
+    check("the CLI's reopen (a LIVE state) cleared the current resolution and the closed stamps; the internal note stays", (({ resolutionCode, resolutionNotes, resolvedAt, closedAt, closedBy, internalResolutionNote }) => resolutionCode === null && resolutionNotes === null && resolvedAt === null && closedAt === null && closedBy === null && internalResolutionNote === "reopened: the dock failed again")(await getTicket(schema, ref)));
 
     // D275/D276: THE TIMELINE. The four moves above each wrote a public state_change entry inside
     // the move's own transaction — three attributed to the console user's email, one to
@@ -438,13 +443,14 @@ try {
     // matters: listEntries(public) cannot return the internal row, and there is no default.
     const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const before6 = await listEntries(schema, ref, { visibility: "all" });
-    check("the four state changes above each wrote a state_change entry, public, in order",
-      before6.length === 4 && before6.every((e) => e.kind === "state_change" && e.visibility === "public") && before6.map((e) => e.body).join("|") === "new → open|open → resolved|resolved → closed|closed → open",
+    check("the four state changes above each wrote a state_change entry, public, in order — and the resolve wrote a public resolution entry with the notes as its body",
+      before6.length === 5 && before6.every((e) => e.visibility === "public") && before6.filter((e) => e.kind === "state_change").map((e) => e.body).join("|") === "new → open|open → resolved|resolved → closed|closed → open"
+      && before6.filter((e) => e.kind === "resolution").length === 1 && before6.find((e) => e.kind === "resolution").body === RES_NOTES,
       before6.map((e) => `${e.kind}:${e.visibility}:${e.body}`).join("|"));
-    check("three are attributed to the console user's email (snapshot, D143) and one to bin/tickets.mjs",
-      before6.filter((e) => e.authorKind === "console_user" && e.authorLabel === made.owner.email).length === 3 && before6.filter((e) => e.authorKind === "system" && e.authorLabel === "bin/tickets.mjs").length === 1);
+    check("four are attributed to the console user's email (snapshot, D143) and one to bin/tickets.mjs",
+      before6.filter((e) => e.authorKind === "console_user" && e.authorLabel === made.owner.email).length === 4 && before6.filter((e) => e.authorKind === "system" && e.authorLabel === "bin/tickets.mjs").length === 1);
     const page4 = await owner.go(`/admin/tickets/${ref}`);
-    check("the detail page draws the timeline: 4 entries, each labelled public IN WORDS", /Timeline<span class="count">4<\/span>/.test(page4.text) && (page4.text.match(/reaches nobody in this build \(D86\)/g) ?? []).length === 4);
+    check("the detail page draws the timeline: 5 entries, each labelled public IN WORDS", /Timeline<span class="count">5<\/span>/.test(page4.text) && (page4.text.match(/reaches nobody in this build \(D86\)/g) ?? []).length === 5);
     check("D276: the indicator reads none, with the reason in words (no requester can comment in this build)", /Oldest unanswered requester comment: none\./.test(page4.text) && /No requester can comment in this build/.test(page4.text));
     check("D276: the list page carries the same indicator", /Oldest unanswered requester comment: none\./.test((await owner.go("/admin/tickets")).text));
     check("the page offers ONE composer — Add work note — and no reply-to-requester", new RegExp(`action="/admin/tickets/${ref}/worknote"`).test(page4.text) && !/[Rr]eply to requester/.test(page4.text) && !/name="visibility"/.test(page4.text));
@@ -453,16 +459,16 @@ try {
     const noCsrfWn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: NOTE_BODY } });
     check("POST worknote without the token -> 403", noCsrfWn.status === 403);
     const emptyWn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: "   ", _csrf: csrf4 } });
-    check("an empty work note -> 400 saying it needs words, and nothing was added", emptyWn.status === 400 && /needs words/.test(emptyWn.text) && (await listEntries(schema, ref, { visibility: "all" })).length === 4);
+    check("an empty work note -> 400 saying it needs words, and nothing was added", emptyWn.status === 400 && /needs words/.test(emptyWn.text) && (await listEntries(schema, ref, { visibility: "all" })).length === 5);
     const wn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: `  ${NOTE_BODY}\r\n`, _csrf: csrf4 } });
     check("POST worknote with the token -> 303 back to the ticket, flagged worknote=1", wn.status === 303 && wn.location === `/admin/tickets/${ref}?worknote=1`, `${wn.status} ${wn.location}`);
     const all6 = await listEntries(schema, ref, { visibility: "all" });
     const note6 = all6.find((e) => e.kind === "work_note");
     check("listEntries(all) returns the work note: trimmed, INTERNAL, attributed to the console user's email",
-      all6.length === 5 && Boolean(note6) && note6.body === NOTE_BODY && note6.visibility === "internal" && note6.authorKind === "console_user" && note6.authorLabel === made.owner.email, JSON.stringify(note6));
+      all6.length === 6 && Boolean(note6) && note6.body === NOTE_BODY && note6.visibility === "internal" && note6.authorKind === "console_user" && note6.authorLabel === made.owner.email, JSON.stringify(note6));
     const pub6 = await listEntries(schema, ref, { visibility: "public" });
-    check("listEntries(public) CANNOT return the internal row — 4 entries, none internal, no work note (P1 exit criterion 2)",
-      pub6.length === 4 && pub6.every((e) => e.visibility === "public") && !pub6.some((e) => e.kind === "work_note"));
+    check("listEntries(public) CANNOT return the internal row — 5 entries, none internal, no work note (P1 exit criterion 2)",
+      pub6.length === 5 && pub6.every((e) => e.visibility === "public") && !pub6.some((e) => e.kind === "work_note"));
     check("listEntries() with no visibility THROWS — there is no default", await listEntries(schema, ref, {}).then(() => false, (e) => /no default/.test(e.message)));
     check("…and so does visibility: 'internal' — only 'public' and 'all' exist", await listEntries(schema, ref, { visibility: "internal" }).then(() => false, (e) => /public, all/.test(e.message)));
     check("addEntry() REFUSES a comment in this build (WRITABLE_KINDS): no requester-visible entry can be written before P4 can deliver one",
@@ -472,15 +478,104 @@ try {
       page5.text.includes(escapeHtml(NOTE_BODY)) && !page5.text.includes("<dock>") && /pill internal">internal<\/span> <span>the requester never sees this/.test(page5.text) && page5.text.indexOf(escapeHtml(NOTE_BODY)) > page5.text.lastIndexOf("closed → open"));
     check("…and the redirect target shows the flash", /Work note added — internal/.test((await owner.go(`/admin/tickets/${ref}?worknote=1`)).text));
     const cliTl = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", ref], { encoding: "utf8", env: cliEnv });
-    check("bin/tickets.mjs show prints the timeline through the SAME listEntries(): 5 entries, the work note [INTERNAL], the four moves [public] (P1 exit criterion 1)",
-      cliTl.status === 0 && /timeline \(5 entries/.test(cliTl.stdout)
+    check("bin/tickets.mjs show prints the timeline through the SAME listEntries(): 6 entries, the work note [INTERNAL], the four moves and the resolution [public] (P1 exit criterion 1)",
+      cliTl.status === 0 && /timeline \(6 entries/.test(cliTl.stdout)
       && new RegExp(`\\[INTERNAL\\]  work note\\s+${reEsc(made.owner.email)}\\s+${reEsc(NOTE_BODY)}`).test(cliTl.stdout)
       // Entry LINES only: the timeline's heading also says "[public]" while explaining the label.
-      && (cliTl.stdout.match(/^\s+\d{4}-\d\d-\d\d \d\d:\d\d  \[public\]/gm) ?? []).length === 4 && /bin\/tickets\.mjs\s+closed → open/.test(cliTl.stdout),
+      && (cliTl.stdout.match(/^\s+\d{4}-\d\d-\d\d \d\d:\d\d  \[public\]/gm) ?? []).length === 5 && /bin\/tickets\.mjs\s+closed → open/.test(cliTl.stdout),
       cliTl.stdout.slice(-700) + cliTl.stderr.slice(0, 200));
     const wnRow = (await auditRows()).find((r) => r.action === "ticket.worknote");
     check("audited as ticket.worknote with actor, subject and the entry id — and NOT the words",
       Boolean(wnRow) && wnRow.email === made.owner.email && wnRow.subject === ref && wnRow.detail.entry === note6.id && !/firmware|dock/.test(JSON.stringify(wnRow)), JSON.stringify(wnRow?.detail));
+  }
+
+  console.log("\n=== 5d. resolution means something: refused without code and notes, closed terminal, the guard in the UPDATE (D278–D280) ===");
+  {
+    const rows = await listTickets(schema);
+    const ref = rows.find((r) => r.state === "open").reference;
+    const cliEnv = { ...process.env, MATIC_TICKET_TENANT: schema };
+    const cliRun = (...args) => spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), ...args], { encoding: "utf8", env: cliEnv });
+
+    // The page for an OPEN ticket: no state form (the one move is to resolve), the Resolve form drawn.
+    const openPage = await owner.go(`/admin/tickets/${ref}`);
+    check("from open the console draws NO state form and says the one move is to resolve — closing comes after resolving (D279)", !/action="\/admin\/tickets\/[^"]+\/state"/.test(openPage.text) && /the one move this console offers is to resolve it/.test(openPage.text));
+    check("…and draws the Resolve form with the six codes glossed, a required notes field, and the delivered-to-nobody sentence", new RegExp(`action="/admin/tickets/${ref}/resolve"`).test(openPage.text) && /<option value="no_fault_found">No fault found \(no_fault_found\)<\/option>/.test(openPage.text) && /name="resolutionNotes"[^>]*required/.test(openPage.text) && /delivered to nobody in this build/.test(openPage.text));
+    check("the page says the ticket is Not resolved (the CLI's reopen cleared the current resolution)", /Not resolved\./.test(openPage.text));
+    const csrfR = csrfOf(openPage.text);
+
+    // D278 — refused without both, with a sentence naming what is missing; nothing changes.
+    const noNotes = await owner.go(`/admin/tickets/${ref}/resolve`, { method: "POST", form: { from: "open", resolutionCode: "fixed", resolutionNotes: "   ", _csrf: csrfR } });
+    check("resolve with a code and NO notes -> 400 naming the notes, and the ticket is still open", noNotes.status === 400 && /cannot be resolved without resolution notes the requester will read \(D278\)/.test(noNotes.text) && (await getTicket(schema, ref)).state === "open", String(noNotes.status));
+    const badCode = await owner.go(`/admin/tickets/${ref}/resolve`, { method: "POST", form: { from: "open", resolutionCode: "sorted", resolutionNotes: "done", _csrf: csrfR } });
+    check("resolve with a code outside the six -> 400 naming the six", badCode.status === 400 && /a resolution code \(one of fixed, workaround/.test(badCode.text) && (await getTicket(schema, ref)).state === "open");
+    const neither = await owner.go(`/admin/tickets/${ref}/resolve`, { method: "POST", form: { from: "open", _csrf: csrfR } });
+    check("resolve with neither -> 400 naming BOTH, joined with 'and'", neither.status === 400 && /a resolution code \(one of [^)]+\) and resolution notes the requester will read/.test(neither.text));
+    check("each refusal is audited as ticket.resolve.refused, with the code (or null) and whether notes were given — never text", (await auditRows()).filter((r) => r.action === "ticket.resolve.refused").length === 3 && (await auditRows()).every((r) => r.action !== "ticket.resolve.refused" || !/done|sorted/.test(JSON.stringify(r.detail))));
+
+    // D278 — resolved properly, from the console.
+    const RES2 = "Workaround: use the <left> USB-C port until the dock is replaced.";
+    const ok = await owner.go(`/admin/tickets/${ref}/resolve`, { method: "POST", form: { from: "open", resolutionCode: "workaround", resolutionNotes: RES2, _csrf: csrfR } });
+    check("resolve with code and notes -> 303 flagged resolved=1 and no noted=1 (no internal note this time)", ok.status === 303 && /resolved=1/.test(ok.location ?? "") && !/noted=1/.test(ok.location ?? ""), `${ok.status} ${ok.location}`);
+    const t2 = await getTicket(schema, ref);
+    check("the row: resolved, code workaround, notes as given, resolved_at set, the earlier internal note untouched", t2.state === "resolved" && t2.resolutionCode === "workaround" && t2.resolutionNotes === RES2 && t2.resolvedAt instanceof Date && t2.internalResolutionNote === "reopened: the dock failed again", JSON.stringify([t2.resolutionCode, t2.internalResolutionNote]));
+    const resolvedPage = await owner.go(`/admin/tickets/${ref}?changed=1&resolved=1`);
+    check("the detail page glosses the code (D244), renders the notes ESCAPED under a requester-visible-but-delivered-to-nobody caption, and the flash says the requester has NOT been told",
+      /Workaround in place <span class="muted mono">workaround<\/span>/.test(resolvedPage.text) && resolvedPage.text.includes(escapeHtml(RES2)) && !resolvedPage.text.includes("<left>") && /requester-visible, delivered to nobody yet/.test(resolvedPage.text) && /The requester has NOT been told/.test(resolvedPage.text));
+    check("…the state form now offers closed and open from resolved, with from=resolved hidden, and no Resolve form", /<option value="closed">closed<\/option>/.test(resolvedPage.text) && /<input type="hidden" name="from" value="resolved">/.test(resolvedPage.text) && !new RegExp(`action="/admin/tickets/${ref}/resolve"`).test(resolvedPage.text));
+    const cliShow2 = cliRun("show", ref);
+    check("bin/tickets.mjs show prints the resolution — code glossed, notes, and REQUESTER-VISIBLE … nobody sees it", cliShow2.status === 0 && /code      workaround — Workaround in place/.test(cliShow2.stdout) && cliShow2.stdout.includes(RES2) && /REQUESTER-VISIBLE once P4 delivers it; nobody sees it in this build/.test(cliShow2.stdout), cliShow2.stdout.slice(-500));
+    const resEntries = (await listEntries(schema, ref, { visibility: "public" })).filter((e) => e.kind === "resolution");
+    check("the timeline keeps EVERY resolution as a public entry — two now, across the reopen — while the row holds the current one", resEntries.length === 2 && resEntries[1].body === RES2 && resEntries[1].authorLabel === made.owner.email);
+    // auditRows() is newest first; the workaround resolve is the newest ticket.resolve row.
+    const okRow = (await auditRows()).find((r) => r.action === "ticket.resolve" && r.detail.code === "workaround");
+    check("audited as ticket.resolve {from: open, code: workaround, noted: false} — and no notes text", Boolean(okRow) && okRow.detail.from === "open" && okRow.detail.code === "workaround" && okRow.detail.noted === false && !/USB-C|left/.test(JSON.stringify(okRow)), JSON.stringify(okRow?.detail));
+
+    // D280 — a stale form: the operator's page said `new` (a state from which open IS offered), but the ticket is resolved now.
+    const staleMove = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "open", from: "new", _csrf: csrfR } });
+    check("a stale form (from=new, ticket is resolved) -> 409, the sentence names where it is NOW, and nothing moved", staleMove.status === 409 && new RegExp(`${ref} is resolved now, not new`).test(staleMove.text) && (await getTicket(schema, ref)).state === "resolved", String(staleMove.status));
+    check("…audited as ticket.state.refused with why: stale and now: resolved", (await auditRows()).some((r) => r.action === "ticket.state.refused" && r.detail.why === "stale" && r.detail.now === "resolved"));
+    const staleResolve = await owner.go(`/admin/tickets/${ref}/resolve`, { method: "POST", form: { from: "open", resolutionCode: "fixed", resolutionNotes: "again", _csrf: csrfR } });
+    check("a stale Resolve form (from=open) -> 409 too, and the current resolution is untouched", staleResolve.status === 409 && (await getTicket(schema, ref)).resolutionCode === "workaround");
+    const stateToResolved = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "resolved", from: "resolved", _csrf: csrfR } });
+    check("POST state next=resolved -> 400 pointing at the Resolve form (a state change cannot make a resolution)", stateToResolved.status === 400 && /Resolving takes more than a state/.test(stateToResolved.text));
+
+    // D279 — closed is terminal in the console.
+    const closeIt = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "closed", from: "resolved", _csrf: csrfR } });
+    const t3 = await getTicket(schema, ref);
+    check("resolved -> closed from the console: 303; closed_at set, closed_by console_user, the resolution KEPT", closeIt.status === 303 && t3.state === "closed" && t3.closedAt instanceof Date && t3.closedBy === "console_user" && t3.resolutionCode === "workaround" && t3.resolutionNotes === RES2);
+    const closedPage = await owner.go(`/admin/tickets/${ref}`);
+    check("the closed page draws NO form at all and says closed is terminal here, naming the CLI as the correction tool", !/action="\/admin\/tickets\/[^"]+\/(state|resolve)"/.test(closedPage.text) && /Closed is terminal in this console \(D279\)/.test(closedPage.text) && /Closed \d{4}-\d\d-\d\d \d\d:\d\d by a console user\./.test(closedPage.text));
+    const reopenTry = await owner.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "open", from: "closed", _csrf: csrfR } });
+    check("POST closed -> open from the console -> 400: not offered, closed is terminal here", reopenTry.status === 400 && /closed is terminal here \(D279\)/.test(reopenTry.text) && (await getTicket(schema, ref)).state === "closed");
+
+    // The CLI: the correction tool, except that it cannot make a resolved ticket with no resolution.
+    const cliResolvedByState = cliRun("state", ref, "resolved");
+    check("bin/tickets.mjs state <ref> resolved is REFUSED with a sentence pointing at resolve (exit 1)", cliResolvedByState.status === 1 && /cannot be moved to resolved by a state change/.test(cliResolvedByState.stderr), cliResolvedByState.stderr.slice(0, 200));
+    const cliReopen = cliRun("state", ref, "open");
+    const t4 = await getTicket(schema, ref);
+    check("bin/tickets.mjs state <ref> open reopens a CLOSED ticket (the correction tool, D279) and clears the closed stamps and the current resolution", cliReopen.status === 0 && t4.state === "open" && t4.closedAt === null && t4.closedBy === null && t4.resolutionCode === null, cliReopen.stderr.slice(0, 200));
+    const cliNoNotes = cliRun("resolve", ref, "--code", "fixed");
+    check("bin/tickets.mjs resolve without --resolution is refused through the SAME function, with the same sentence", cliNoNotes.status === 1 && /cannot be resolved without resolution notes the requester will read/.test(cliNoNotes.stderr));
+    const cliOk = cliRun("resolve", ref, "--code", "fixed", "--resolution", "Replaced the dock. Please confirm it works for you.");
+    const t5 = await getTicket(schema, ref);
+    check("bin/tickets.mjs resolve --code --resolution resolves, prints the glossed code, and says THE REQUESTER HAS NOT BEEN TOLD", cliOk.status === 0 && /-> resolved \(fixed — Fixed\)/.test(cliOk.stdout) && /THE REQUESTER HAS NOT BEEN TOLD/.test(cliOk.stdout) && t5.state === "resolved" && t5.resolutionCode === "fixed", cliOk.stdout + cliOk.stderr);
+    check("…and the timeline's third resolution entry is attributed to bin/tickets.mjs", (await listEntries(schema, ref, { visibility: "public" })).filter((e) => e.kind === "resolution").length === 3 && (await listEntries(schema, ref, { visibility: "all" })).at(-1).authorLabel === "bin/tickets.mjs");
+
+    // D280 — the race. Two moves from the same seen state, concurrently: exactly one lands.
+    const { reference: ref2 } = await createTicket(schema, {
+      description: "second ticket for the race", summary: "Two operators click at once.", category: "other", suggestedOwner: null, reporter: { osUsername: "racer" },
+    });
+    const author = { kind: "console_user", adminUserId: made.owner.id, label: made.owner.email };
+    const [a, b] = await Promise.all([
+      setTicketState(schema, ref2, "open", { from: "new", author, note: "operator A" }),
+      setTicketState(schema, ref2, "open", { from: "new", author, note: "operator B" }),
+    ]);
+    const landed = [a, b].filter((r) => r && !("refused" in r)), refusedOnes = [a, b].filter((r) => r && "refused" in r);
+    check("TWO CONCURRENT MOVES FROM THE SAME SEEN STATE: exactly one lands and exactly one is refused, naming the state now (the guard is in the UPDATE, D280)",
+      landed.length === 1 && refusedOnes.length === 1 && landed[0].from === "new" && refusedOnes[0].state === "open" && /is open now, not new/.test(refusedOnes[0].refused), JSON.stringify([a, b]));
+    check("…and the ticket has exactly ONE state_change entry — the loser wrote nothing", (await listEntries(schema, ref2, { visibility: "all" })).filter((e) => e.kind === "state_change").length === 1);
+    check("…the winner's internal note is the one kept; the loser's never landed", ["operator A", "operator B"].includes((await getTicket(schema, ref2)).internalResolutionNote) && (await getTicket(schema, ref2)).internalResolutionNote === (landed[0] === a ? "operator A" : "operator B"));
+    check("an unconditional move (from: null — the CLI's shape) still lands", ((await setTicketState(schema, ref2, "closed", { author: { kind: "system", label: "bin/tickets.mjs" } })) ?? {}).to === "closed" && (await getTicket(schema, ref2)).closedBy === "system");
   }
 
   console.log("\n=== 5c. no orphan columns: every column of the ticket store has code that names it, or a reserved-list entry (D269) ===");
@@ -1257,9 +1352,11 @@ try {
     const ref = (await listTickets(schema))[0].reference;
     const detail = await auditor.go(`/admin/tickets/${ref}`);
     check("the auditor sees the ticket but no state form", detail.status === 200 && !/name="next"/.test(detail.text) && /can read tickets but not change them/.test(detail.text));
-    const post = await auditor.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "resolved", _csrf: csrfOf(detail.text) } });
+    // Whatever state §5/§5d left it in (P2 resolves and closes tickets there), it must not move.
+    const stateBefore = (await getTicket(schema, ref)).state;
+    const post = await auditor.go(`/admin/tickets/${ref}/state`, { method: "POST", form: { next: "open", from: stateBefore, _csrf: csrfOf(detail.text) } });
     check("POST a state change as the auditor -> 403 (tickets.write), even with a valid CSRF token", post.status === 403);
-    check("the ticket did not change", (await getTicket(schema, ref)).state === "open");
+    check("the ticket did not change", (await getTicket(schema, ref)).state === stateBefore);
     const audit = await auditor.go("/admin/settings/audit");
     check("the auditor CAN read the audit log (audit.read) and sees login.ok rows", audit.status === 200 && /login\.ok/.test(audit.text));
   }
@@ -1302,8 +1399,8 @@ try {
   {
     const rows = await auditRows();
     const actions = new Set(rows.map((r) => r.action));
-    check("the run produced login.failed, login.ok, ticket.view, csrf.refused, ticket.state.refused, ticket.state, ticket.worknote, access.denied, session.logout",
-      ["login.failed", "login.ok", "ticket.view", "csrf.refused", "ticket.state.refused", "ticket.state", "ticket.worknote", "access.denied", "session.logout"].every((a) => actions.has(a)), [...actions].join(","));
+    check("the run produced login.failed, login.ok, ticket.view, csrf.refused, ticket.state.refused, ticket.state, ticket.worknote, ticket.resolve, ticket.resolve.refused, access.denied, session.logout",
+      ["login.failed", "login.ok", "ticket.view", "csrf.refused", "ticket.state.refused", "ticket.state", "ticket.worknote", "ticket.resolve", "ticket.resolve.refused", "access.denied", "session.logout"].every((a) => actions.has(a)), [...actions].join(","));
     check("every row has a timestamp and an action", rows.every((r) => r.at instanceof Date && typeof r.action === "string"));
     check("every row that is an admin's action names the actor", rows.filter((r) => !/^login\.failed|^admin\./.test(r.action)).every((r) => r.email));
   }

@@ -29,20 +29,55 @@ import { withTenant } from "../db/tenant.js";
 export const TICKET_STATES = ["new", "open", "resolved", "closed"];
 
 /**
- * The transitions the console offers. NOT enforced by the database (003-tickets.sql says the
- * state machine is "the smallest one that is not a lie") and not enforced by the CLI, which
- * takes any state so an operator can correct a mistake. The console offers the forward moves
- * and re-open, and refuses the rest, because a button is a suggestion and a suggestion should
- * be a sensible one.
+ * The transitions the console offers. A SUGGESTION, not the guard: since 2026-09-12 (D280) the
+ * guard is in the UPDATE itself — `setTicketState()` and `resolveTicket()` take the state the
+ * caller SAW (`from`) and the write matches zero rows if the ticket has moved since. The CLI passes
+ * no `from` and takes any state, so an operator can correct a mistake.
+ *
+ * SINCE P2 (D279): `closed` is TERMINAL here — the console offers nothing from it; a recurrence is
+ * a new ticket, and the CLI is the correction tool. And `closed` is offered ONLY from `resolved`,
+ * so every ticket the console closes carries a resolution code (D278): a ticket to be withdrawn is
+ * resolved as `withdrawn_by_user` or `duplicate` first. Until P2 the console offered
+ * new → closed and open → closed directly, which would have produced exactly the code-less closed
+ * ticket that the plan's §3.1 argument cut `pending_user` over.
+ *
+ * `resolved` appears here so the console knows WHEN to draw the Resolve form; the move itself
+ * goes through `resolveTicket()`, never `setTicketState()`.
  *
  * @type {Record<string, string[]>}
  */
 export const NEXT_STATES = {
-  new: ["open", "resolved", "closed"],
-  open: ["resolved", "closed"],
+  new: ["open", "resolved"],
+  open: ["resolved"],
   resolved: ["closed", "open"],
-  closed: ["open"],
+  closed: [],
 };
+
+// ---- resolution (tenant/007, D278) ------------------------------------------------------------
+
+/**
+ * The six resolution codes — a count you can group by (D186), never free text. The database's
+ * CHECK (tenant/007) is the copy no writer can skip. A first draft of the vocabulary: the plan's
+ * kill criterion says revise it if the first ten real resolutions cannot fill it honestly, and its
+ * open question 8 names the candidates (`user_educated`, `no_action_required`).
+ */
+export const RESOLUTION_CODES = Object.freeze(["fixed", "workaround", "no_fault_found", "duplicate", "withdrawn_by_user", "referred_to_vendor"]);
+
+/**
+ * The words for each code, shared by the console and the CLI so the two cannot gloss one code two
+ * ways (D224's argument, one layer up). A closed enum reaching a screen as itself is D244's defect.
+ */
+export const RESOLUTION_CODE_WORDS = Object.freeze({
+  fixed: "Fixed",
+  workaround: "Workaround in place",
+  no_fault_found: "No fault found",
+  duplicate: "Duplicate of another ticket",
+  withdrawn_by_user: "Withdrawn by the user",
+  referred_to_vendor: "Referred to a vendor",
+});
+
+/** Who closed a ticket, by author kind. `agent` has no closing path; if one appears, decide its value then. */
+const CLOSED_BY = Object.freeze({ console_user: "console_user", system: "system", requester: "requester" });
 
 // ---- the timeline (tenant/006, D275) ------------------------------------------------------------
 
@@ -66,10 +101,11 @@ export const KIND_VISIBILITY = Object.freeze({
 /**
  * THE KINDS THIS BUILD WRITES. `comment` is refused until P4 ships the delivery path — a
  * requester-visible entry that reaches nobody is this project's signature defect (plan v3 §0
- * finding 8) and this list is what stops it being built by accident. `resolution` is P2's, with
- * the resolution code. test/admin-static.test.mjs §5d pins this list.
+ * finding 8) and this list is what stops it being built by accident. `resolution` joined in P2
+ * (D278): `resolveTicket()` writes one, public, with the requester-visible notes as its body.
+ * test/admin-static.test.mjs §5d pins this list.
  */
-export const WRITABLE_KINDS = Object.freeze(["work_note", "state_change"]);
+export const WRITABLE_KINDS = Object.freeze(["work_note", "state_change", "resolution"]);
 
 export const ENTRY_AUTHOR_KINDS = ["requester", "console_user", "agent", "system"];
 
@@ -293,7 +329,7 @@ export async function countTicketsByCategory(schema) {
  *
  * @param {string} schema
  * @param {string} reference  e.g. MD-1000
- * @returns {Promise<(TicketRow & { id: string, description: string, summary: string, whatWasChecked: string|null, profileSource: string|null, sessionId: string|null, internalResolutionNote: string|null })|null>}
+ * @returns {Promise<(TicketRow & { id: string, description: string, summary: string, whatWasChecked: string|null, profileSource: string|null, sessionId: string|null, internalResolutionNote: string|null, resolutionCode: string|null, resolutionNotes: string|null, resolvedAt: Date|null, closedAt: Date|null, closedBy: string|null })|null>}
  */
 export async function getTicket(schema, reference) {
   return withTenant(schema, async (c) => {
@@ -315,6 +351,13 @@ export async function getTicket(schema, reference) {
       // INTERNAL. Both readers label it so; a requester-facing route must never SELECT t.* —
       // it would ship this, `summary` (D214) and `what_was_checked` to the requester.
       internalResolutionNote: t.internal_resolution_note ?? null,
+      // The CURRENT resolution (tenant/007, D278). PUBLIC: `resolutionNotes` is what the requester
+      // is told, once P4 can deliver it; both readers label it so and say nobody sees it yet.
+      resolutionCode: t.resolution_code ?? null,
+      resolutionNotes: t.resolution_notes ?? null,
+      resolvedAt: t.resolved_at ?? null,
+      closedAt: t.closed_at ?? null,
+      closedBy: t.closed_by ?? null,
     };
   });
 }
@@ -344,11 +387,51 @@ export async function ticketCountsBySession(client, sessionIds) {
 }
 
 /**
- * Move a ticket to a state. Returns the previous state, or null when no such ticket.
+ * When a move did not happen and the row still exists. `refused` is a sentence for the operator;
+ * `state` is the row's state NOW — or null when nothing was read (a refusal before the write).
  *
- * The caller decides whether the move is allowed (the console consults NEXT_STATES; the CLI
- * allows anything). This function only refuses a state that the database would refuse anyway,
- * so the error is a sentence rather than a constraint violation.
+ * @typedef {object} RefusedMove
+ * @property {string} refused
+ * @property {string|null} state
+ */
+
+/**
+ * The row's state when a guarded write matched nothing: null when no such ticket, otherwise the
+ * refusal that says who moved it (D280 — the guard is in the UPDATE, so this is the only way an
+ * operator learns their page was stale).
+ *
+ * @returns {Promise<RefusedMove|null>}
+ */
+async function staleOrMissing(client, reference, from) {
+  const { rows } = await client.query("SELECT state FROM tickets WHERE reference = $1", [reference]);
+  if (!rows.length) return null;
+  return {
+    refused: `${reference} is ${rows[0].state} now, not ${from}: someone moved it after that state was read. Nothing was changed — look again and decide from where it actually is.`,
+    state: rows[0].state,
+  };
+}
+
+/**
+ * Move a ticket to a state other than `resolved`. Returns the previous state, a refusal, or null
+ * when no such ticket.
+ *
+ * THE GUARD IS IN THE UPDATE (D280, 2026-09-12). `from` is the state the caller SAW; the write is
+ * `… WHERE reference = $1 AND state = $from`, so two operators racing from the same page can both
+ * click and only one moves the ticket — the other gets `{ refused, state }` naming where it is
+ * now. Before this the console checked NEXT_STATES against a separate read and then wrote: the
+ * classic check-then-act, and a resolution written over a ticket somebody had just reopened. The
+ * CLI passes no `from` (null): unconditional, the correction tool.
+ *
+ * `resolved` IS REFUSED HERE (D278). Reaching it takes a resolution code and requester-visible
+ * notes, and `resolveTicket()` is the one function that writes them — so the CLI's any-state
+ * correction cannot produce a resolved ticket with no resolution either. The refusal is a sentence
+ * pointing there, not a constraint violation (tenant/007's CHECK is the copy behind it).
+ *
+ * What the move does to the resolution columns: a move to a LIVE state (`new`, `open`) clears
+ * `resolution_code`, `resolution_notes` and `resolved_at` — an open ticket must not carry a
+ * resolution for a problem the desk just agreed is not resolved; the timeline's `resolution`
+ * entry keeps the history. A move to `closed` keeps them (a closed ticket's code is the point)
+ * and stamps `closed_at`/`closed_by`; a move out of `closed` clears those two.
  *
  * `note` is the INTERNAL resolution note — `internal_resolution_note`, added by tenant/004 as
  * `close_note` and renamed by tenant/005 (D269), D239's "somewhere for the second-phase result to
@@ -369,24 +452,89 @@ export async function ticketCountsBySession(client, sessionIds) {
  * @param {string} schema
  * @param {string} reference
  * @param {string} next
- * @param {{ note?: string|null, author?: EntryAuthor }} [opts]  `author` defaults to the system
- * @returns {Promise<{ from: string, to: string, noted: boolean }|null>}  `noted` — a note was written by THIS call
+ * @param {{ note?: string|null, author?: EntryAuthor, from?: string|null }} [opts]  `author` defaults to the system; `from` null = unconditional
+ * @returns {Promise<{ from: string, to: string, noted: boolean }|RefusedMove|null>}  `noted` — a note was written by THIS call
  */
-export async function setTicketState(schema, reference, next, { note = null, author = SYSTEM_AUTHOR } = {}) {
+export async function setTicketState(schema, reference, next, { note = null, author = SYSTEM_AUTHOR, from = null } = {}) {
   if (!TICKET_STATES.includes(next)) throw new Error(`state must be one of: ${TICKET_STATES.join(", ")}`);
+  if (from !== null && !TICKET_STATES.includes(from)) throw new Error(`from must be null or one of: ${TICKET_STATES.join(", ")}`);
+  if (next === "resolved") {
+    return {
+      refused: `${reference} cannot be moved to resolved by a state change: resolved needs a resolution code and notes the requester will read (D278). Use the console's Resolve form, or bin/tickets.mjs resolve <ref> --code <code> --resolution "…". Nothing was changed.`,
+      state: null,
+    };
+  }
+  if (next === "closed" && !(author.kind in CLOSED_BY)) throw new Error(`no closing path exists for author kind ${JSON.stringify(author.kind)}`);
   const trimmed = typeof note === "string" && note.trim() ? note.trim().slice(0, 4000) : null;
   return withTenant(schema, async (c) => {
     const { rows } = await c.query(
-      `UPDATE tickets t SET state = $2, updated_at = now(), internal_resolution_note = COALESCE($3, t.internal_resolution_note)
+      `UPDATE tickets t
+          SET state = $2, updated_at = now(),
+              internal_resolution_note = COALESCE($3, t.internal_resolution_note),
+              resolution_code  = CASE WHEN $2 IN ('new', 'open') THEN NULL ELSE t.resolution_code END,
+              resolution_notes = CASE WHEN $2 IN ('new', 'open') THEN NULL ELSE t.resolution_notes END,
+              resolved_at      = CASE WHEN $2 IN ('new', 'open') THEN NULL ELSE t.resolved_at END,
+              closed_at = CASE WHEN $2 = 'closed' THEN now() ELSE NULL END,
+              closed_by = CASE WHEN $2 = 'closed' THEN $5::text ELSE NULL END
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
-        WHERE t.id = prev.id
+        WHERE t.id = prev.id AND ($4::text IS NULL OR t.state = $4::text)
         RETURNING t.id, prev.was`,
-      [reference, next, trimmed],
+      [reference, next, trimmed, from, next === "closed" ? CLOSED_BY[author.kind] : null],
     );
-    if (!rows.length) return null;
-    const from = rows[0].was;
-    if (from !== next) await insertEntry(c, rows[0].id, { kind: "state_change", body: `${from} → ${next}`, author });
-    return { from, to: next, noted: trimmed !== null };
+    if (!rows.length) return staleOrMissing(c, reference, from);
+    const was = rows[0].was;
+    if (was !== next) await insertEntry(c, rows[0].id, { kind: "state_change", body: `${was} → ${next}`, author });
+    return { from: was, to: next, noted: trimmed !== null };
+  });
+}
+
+/**
+ * Resolve a ticket: the ONE way to reach `resolved` (D278). Refused, with a sentence naming what
+ * is missing, unless BOTH a resolution code (one of RESOLUTION_CODES) and requester-visible
+ * resolution notes are given. The optional internal note travels too, as on any move.
+ *
+ * Writes, in one transaction: the row (state, code, notes, `resolved_at`, the internal note by
+ * COALESCE, `closed_at`/`closed_by` cleared), a public `state_change` entry when the state
+ * actually changed, and a public `resolution` entry whose body is the notes — so the timeline
+ * keeps every resolution across a reopen while the columns hold the current one. The `from`
+ * guard is the same as `setTicketState()`'s (D280).
+ *
+ * The notes are PUBLIC and reach NOBODY in this build: nothing delivers them until P4. Both
+ * readers say so beside them. They are written FOR the requester anyway, because the day delivery
+ * exists the notes already written must be the kind a requester can read.
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ code: string, notes: string, note?: string|null, author?: EntryAuthor, from?: string|null }} r
+ * @returns {Promise<{ from: string, to: "resolved", code: string, noted: boolean }|RefusedMove|null>}
+ */
+export async function resolveTicket(schema, reference, { code, notes, note = null, author = SYSTEM_AUTHOR, from = null }) {
+  if (from !== null && !TICKET_STATES.includes(from)) throw new Error(`from must be null or one of: ${TICKET_STATES.join(", ")}`);
+  const missing = [];
+  if (!RESOLUTION_CODES.includes(code)) missing.push(`a resolution code (one of ${RESOLUTION_CODES.join(", ")})`);
+  const text = typeof notes === "string" ? notes.trim().slice(0, 4000) : "";
+  if (!text) missing.push("resolution notes the requester will read");
+  if (missing.length) {
+    return { refused: `${reference} cannot be resolved without ${missing.join(" and ")} (D278). Nothing was changed.`, state: null };
+  }
+  const trimmed = typeof note === "string" && note.trim() ? note.trim().slice(0, 4000) : null;
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      `UPDATE tickets t
+          SET state = 'resolved', updated_at = now(),
+              resolution_code = $2, resolution_notes = $3, resolved_at = now(),
+              internal_resolution_note = COALESCE($4, t.internal_resolution_note),
+              closed_at = NULL, closed_by = NULL
+         FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
+        WHERE t.id = prev.id AND ($5::text IS NULL OR t.state = $5::text)
+        RETURNING t.id, prev.was`,
+      [reference, code, text, trimmed, from],
+    );
+    if (!rows.length) return staleOrMissing(c, reference, from);
+    const was = rows[0].was;
+    if (was !== "resolved") await insertEntry(c, rows[0].id, { kind: "state_change", body: `${was} → resolved`, author });
+    await insertEntry(c, rows[0].id, { kind: "resolution", body: text, author });
+    return { from: was, to: "resolved", code, noted: trimmed !== null };
   });
 }
 

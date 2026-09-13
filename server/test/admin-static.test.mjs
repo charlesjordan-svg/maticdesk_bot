@@ -168,7 +168,7 @@ console.log("\n=== 5c. every field the ticket query layer returns has a reader (
   check("the detail page labels it internal, in words, and says the requester never sees it", /Internal resolution note/.test(pageJs) && /requester never sees it/.test(pageJs));
   check("the CLI labels it the same way", /internal resolution note/.test(cliJs) && /requester never sees it/.test(cliJs));
   // Since D275 the call also carries the AUTHOR of the state_change entry the move writes.
-  check("the state form carries a <textarea name=\"note\"> and statePost passes it to setTicketState()", /<textarea id="note" name="note"/.test(pageJs) && /setTicketState\(ctx\.tenant\.schemaName, ref, next, \{ note, author: consoleAuthor\(ctx\) \}\)/.test(pageJs));
+  check("the state form carries a <textarea name=\"note\"> and statePost passes it to setTicketState()", /<textarea id="note\$\{idSuffix\}" name="note"/.test(pageJs) && /setTicketState\(ctx\.tenant\.schemaName, ref, next, \{ note, author: consoleAuthor\(ctx\), from \}\)/.test(pageJs));
   check("the CLI's state command takes --note and passes it the same way", /setTicketState\(tenant, ref, next, \{ note: flag\("note"\), author: \{ kind: "system", label: "bin\/tickets\.mjs" \} \}\)/.test(cliJs));
   check("neither reader makes the note mandatory (the mandatory field is the requester-visible one, P2)", !/name="note"[^>]*required/.test(pageJs) && !/note.*required/i.test(cliJs));
 }
@@ -186,7 +186,7 @@ console.log("\n=== 5d. the timeline: visibility is the KIND's, never the caller'
   check("…and the public branch filters in SQL (visibility = 'public'), not in JavaScript after the rows arrived", /visibility === "public" \? "AND e\.visibility = 'public'" : ""/.test(qCode));
   check("KIND_VISIBILITY is frozen: work_note -> internal; comment, state_change, resolution -> public", /KIND_VISIBILITY = Object\.freeze\(\{[^}]*work_note: "internal"[^}]*\}\)/.test(qCode) && /comment: "public"/.test(qCode) && /state_change: "public"/.test(qCode) && /resolution: "public"/.test(qCode));
   check("the INSERT takes visibility from KIND_VISIBILITY[kind]; no writer accepts one from a caller", /KIND_VISIBILITY\[kind\]/.test(qCode) && !/function (addEntry|insertEntry|setTicketState)\([^)]*visibility/.test(qCode));
-  check("WRITABLE_KINDS is exactly work_note and state_change — no comment (P4), no resolution (P2)", /WRITABLE_KINDS = Object\.freeze\(\["work_note", "state_change"\]\)/.test(qCode) && /WRITABLE_KINDS\.includes\(kind\)/.test(qCode));
+  check("WRITABLE_KINDS is exactly work_note, state_change and resolution (P2) — no comment until P4", /WRITABLE_KINDS = Object\.freeze\(\["work_note", "state_change", "resolution"\]\)/.test(qCode) && /WRITABLE_KINDS\.includes\(kind\)/.test(qCode));
   check("setTicketState() writes its state_change entry INSIDE the same transaction (insertEntry on the same client)", /await insertEntry\(c, rows\[0\]\.id, \{ kind: "state_change"/.test(qCode));
   const shapeEntry = q.slice(q.indexOf("const shapeEntry"), q.indexOf("});", q.indexOf("const shapeEntry")));
   check("shapeEntry returns neither notified_at nor read_by_requester_at (P4's; reserved in admin-db §5c)", !/notified_at|read_by_requester_at/.test(jsCode(shapeEntry)));
@@ -208,6 +208,36 @@ console.log("\n=== 5d. the timeline: visibility is the KIND's, never the caller'
   check("D276: with nothing to show it says none AND why (no requester can comment in this build; P4, after D271)", /Oldest unanswered requester comment: none\./.test(page) && /No requester can comment in this build/.test(page) && /P4, after D271/.test(page));
   check("D276: the query reads tickets.awaiting_agent_since (tenant/006) and nothing writes it yet — the docblock says so", /FROM tickets WHERE awaiting_agent_since IS NOT NULL ORDER BY awaiting_agent_since ASC LIMIT 1/.test(qCode) && /NO WRITER/.test(q) && !/SET awaiting_agent_since/.test(qCode));
   check("the detail page's notYet() names requester comments as missing and no longer says the ticket cannot be commented on at all", /commented on by the requester/.test(page) && !/cannot be assigned to a person, commented on, or sent anywhere/.test(page));
+}
+
+console.log("\n=== 5e. resolution means something: refused without code and notes, closed terminal, the guard in the UPDATE (D278–D280) ===");
+{
+  const q = read("src/tickets/query.js"), qCode = jsCode(q);
+  const page = read("src/admin/pages/tickets.js"), pageCode = jsCode(page), cli = read("bin/tickets.mjs"), cliCode = jsCode(cli);
+  const { RESOLUTION_CODES, RESOLUTION_CODE_WORDS, NEXT_STATES } = await import("../src/tickets/query.js");
+  // D278 — the code and the notes, both required, refused with a sentence
+  check("RESOLUTION_CODES is frozen and is the six", Object.isFrozen(RESOLUTION_CODES) && RESOLUTION_CODES.join(",") === "fixed,workaround,no_fault_found,duplicate,withdrawn_by_user,referred_to_vendor");
+  check("every code has words (D244: a closed enum never reaches a screen as itself), shared by the console and the CLI", RESOLUTION_CODES.every((c) => typeof RESOLUTION_CODE_WORDS[c] === "string" && !/_/.test(RESOLUTION_CODE_WORDS[c])) && /RESOLUTION_CODE_WORDS\[/.test(pageCode) && /RESOLUTION_CODE_WORDS\[/.test(cliCode));
+  check("resolveTicket() refuses without BOTH a code and notes, naming what is missing, and writes nothing first", /if \(!RESOLUTION_CODES\.includes\(code\)\) missing\.push/.test(qCode) && /if \(!text\) missing\.push\("resolution notes the requester will read"\)/.test(qCode) && qCode.indexOf("if (missing.length)") < qCode.indexOf("SET state = 'resolved'"));
+  check("setTicketState() REFUSES resolved as a target — the CLI's any-state correction cannot make a code-less resolved ticket", /if \(next === "resolved"\) \{\s*return \{\s*refused:/.test(qCode));
+  check("resolving writes a public `resolution` entry with the notes as its body, and a state_change, in the same transaction", /await insertEntry\(c, rows\[0\]\.id, \{ kind: "resolution", body: text, author \}\)/.test(qCode) && /body: `\$\{was\} → resolved`/.test(qCode));
+  check("a move to a LIVE state clears the resolution columns; a move to closed keeps them and stamps closed_at/closed_by", /resolution_code  = CASE WHEN \$2 IN \('new', 'open'\) THEN NULL ELSE t\.resolution_code END/.test(qCode) && /closed_at = CASE WHEN \$2 = 'closed' THEN now\(\) ELSE NULL END/.test(qCode));
+  // D279 — closed terminal in the console, and offered only from resolved
+  check("NEXT_STATES: closed offers nothing; closed is offered ONLY from resolved; resolved is reached from new and open", NEXT_STATES.closed.length === 0 && Object.entries(NEXT_STATES).filter(([, tos]) => tos.includes("closed")).map(([f]) => f).join() === "resolved" && NEXT_STATES.new.includes("resolved") && NEXT_STATES.open.includes("resolved"));
+  check("the state <select> never offers resolved — that is the Resolve form's — and closed draws a terminal sentence naming the CLI", /next\.filter\(\(s\) => s !== "resolved"\)/.test(pageCode) && /Closed is terminal in this console \(D279\)/.test(page) && /tickets -- state \$\{t\.reference\} open/.test(page));
+  check("the Resolve form is drawn only when NEXT_STATES offers resolved, and requires code and notes", /if \(!ctx\.permissions\.has\("tickets\.write"\) \|\| !next\.includes\("resolved"\)\) return "";/.test(pageCode) && /name="resolutionCode" required/.test(page) && /name="resolutionNotes" rows="4" maxlength="4000" required/.test(page));
+  check("the Resolve form says the notes are requester-visible AND delivered to nobody in this build (D253's rule: never imply an egress outcome)", /Requester-visible — and delivered to nobody in this build/.test(page) && /Nothing carries these notes to the requester until P4/.test(page));
+  check("the detail page labels the resolution notes requester-visible and delivered to nobody; the CLI does the same", /requester-visible, delivered to nobody yet/.test(page) && /REQUESTER-VISIBLE once P4 delivers it; nobody sees it in this build/.test(cli));
+  check("the two notes are named side by side so they are not merged: the internal note's caption points at the resolution notes as a different field", /The requester-facing account is the resolution notes below, a different field \(D278\)/.test(page));
+  // D280 — the guard in the UPDATE, no read before the write
+  check("the guard is IN the UPDATE for both writers: … AND ($n::text IS NULL OR t.state = $n::text)", /WHERE t\.id = prev\.id AND \(\$4::text IS NULL OR t\.state = \$4::text\)/.test(qCode) && /WHERE t\.id = prev\.id AND \(\$5::text IS NULL OR t\.state = \$5::text\)/.test(qCode));
+  check("a guarded write that matched nothing asks the row where it is now and says so (staleOrMissing), or null when no such ticket", /if \(!rows\.length\) return staleOrMissing\(c, reference, from\);/.test(qCode) && (qCode.match(/return staleOrMissing\(c, reference, from\)/g) ?? []).length === 2 && /someone moved it after that state was read/.test(q));
+  const statePostBody = pageCode.slice(pageCode.indexOf("async function statePost"), pageCode.indexOf("async function resolvePost"));
+  const resolvePostBody = pageCode.slice(pageCode.indexOf("async function resolvePost"), pageCode.indexOf("const REF ="));
+  check("statePost and resolvePost read NOTHING before the write — no getTicket() in either; the form's hidden `from` is what the guard compares", !/getTicket\(/.test(statePostBody) && !/getTicket\(/.test(resolvePostBody) && (page.match(/<input type="hidden" name="from" value="\$\{t\.state\}">/g) ?? []).length === 2);
+  check("both POSTs pass `from` to the query layer and render a 409 on a stale form, audited as ticket.state.refused with why: stale", /setTicketState\(ctx\.tenant\.schemaName, ref, next, \{ note, author: consoleAuthor\(ctx\), from \}\)/.test(pageCode) && /resolveTicket\(ctx\.tenant\.schemaName, ref, \{ code, notes, note, author: consoleAuthor\(ctx\), from \}\)/.test(pageCode) && /ctx\.render\(409/.test(pageCode) && (pageCode.match(/why: "stale"/g) ?? []).length === 2);
+  check("resolving is audited as ticket.resolve with from, the CODE and noted — never the notes", /ctx\.audit\("ticket\.resolve", \{ subject: ref, detail: \{ from: r\.from, code: r\.code, noted: r\.noted \} \}\)/.test(pageCode) && !/ctx\.audit\("ticket\.resolve"[^)]*notes[^G]/.test(pageCode));
+  check("the CLI has resolve (--code, --resolution), refuses through the same function, and says the requester has not been told", /cmd === "resolve"/.test(cliCode) && /flag\("code"\), notes = flag\("resolution"\)/.test(cliCode) && /THE REQUESTER HAS NOT BEEN TOLD/.test(cli) && /"refused" in moved\) die/.test(cliCode));
 }
 
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");

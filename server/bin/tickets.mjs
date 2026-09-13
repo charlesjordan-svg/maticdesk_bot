@@ -5,8 +5,15 @@
  *
  *   node bin/tickets.mjs list [--state new|open|resolved|closed] [--limit N]
  *   node bin/tickets.mjs show <reference>          e.g. MD-1000
- *   node bin/tickets.mjs state <reference> <state> [--note "what fixed it"]
+ *   node bin/tickets.mjs state <reference> <new|open|closed> [--note "what fixed it"]
+ *   node bin/tickets.mjs resolve <reference> --code <code> --resolution "what the requester is told" [--note "…"]
  *   node bin/tickets.mjs users
+ *
+ * `resolve` is the ONE way to reach `resolved` (D278, tenant/007): a code (one of RESOLUTION_CODES)
+ * and requester-visible notes, both required, refused with a sentence without both — from the CLI
+ * as much as from the console, because the correction tool must not be able to make a resolved
+ * ticket with no resolution. `state … resolved` is refused and says to use this. The notes are
+ * PUBLIC and reach nobody in this build; `show` says so beside them.
  *
  * `--note` is the INTERNAL resolution note (tenant/004, D239): the human's account of what fixed
  * it, kept for the desk and never shown to the requester. `show` prints it. Blank keeps the
@@ -48,7 +55,7 @@
  */
 import { closePool } from "../src/db/pool.js";
 import { resolveTicketTenant } from "../src/tickets/file.js";
-import { TICKET_STATES, countTicketsByState, getTicket, listEntries, listReporters, listTickets, setTicketState } from "../src/tickets/query.js";
+import { TICKET_STATES, RESOLUTION_CODES, RESOLUTION_CODE_WORDS, countTicketsByState, getTicket, listEntries, listReporters, listTickets, resolveTicket, setTicketState } from "../src/tickets/query.js";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "list";
@@ -112,6 +119,16 @@ if (!tenant) {
           console.log(`    ${t.whatWasChecked ?? "-"}`);
           console.log("  internal resolution note (the desk's own record; the requester never sees it):");
           console.log(`    ${t.internalResolutionNote ?? "-"}`);
+          // The requester-visible half (D278). Public — and delivered to nobody until P4.
+          console.log("  resolution (REQUESTER-VISIBLE once P4 delivers it; nobody sees it in this build):");
+          if (t.resolutionCode) {
+            console.log(`    code      ${t.resolutionCode} — ${RESOLUTION_CODE_WORDS[t.resolutionCode] ?? t.resolutionCode}`);
+            console.log(`    resolved  ${t.resolvedAt ? t.resolvedAt.toISOString() : "-"}`);
+            console.log(`    notes     ${t.resolutionNotes}`);
+          } else {
+            console.log(`    not resolved${t.state === "closed" ? " — closed without a resolution (this CLI, or before tenant/007)" : ""}`);
+          }
+          if (t.closedAt) console.log(`  closed          ${t.closedAt.toISOString()} by ${t.closedBy}`);
           // The timeline, through the same function the console's detail page calls (D224, D275).
           // "all" is asked for in words: this is an operator's tool and is entitled to internal rows.
           const entries = await listEntries(tenant, ref, { visibility: "all" });
@@ -127,15 +144,33 @@ if (!tenant) {
       }
     } else if (cmd === "state") {
       const [ref, next] = positional;
-      if (!ref || !TICKET_STATES.includes(next)) die(`usage: node bin/tickets.mjs state <reference> <${TICKET_STATES.join("|")}> [--note "what fixed it"]`);
+      if (!ref || !TICKET_STATES.includes(next)) die(`usage: node bin/tickets.mjs state <reference> <${TICKET_STATES.join("|")}> [--note "what fixed it"]   (resolved: use \`resolve\`)`);
       else {
-        // Any state to any state: this is the operator's correction tool. The console offers only
-        // NEXT_STATES; the CLI does not, on purpose. The note goes through the same function the
-        // console's form calls, so `show` and the detail page cannot disagree about it (D224).
-        // The state_change entry is attributed to this program: a CLI call has no person on it.
+        // Any state to any state, EXCEPT resolved: this is the operator's correction tool, and a
+        // correction may not produce a resolved ticket with no resolution (D278) — setTicketState()
+        // refuses that target with a sentence pointing at `resolve`. No `from`: unconditional.
+        // The note goes through the same function the console's form calls, so `show` and the
+        // detail page cannot disagree about it (D224). The state_change entry is attributed to this
+        // program: a CLI call has no person on it.
         const moved = await setTicketState(tenant, ref, next, { note: flag("note"), author: { kind: "system", label: "bin/tickets.mjs" } });
         if (!moved) die(`no ticket ${ref} in ${tenant}`);
+        else if ("refused" in moved) die(`  ${moved.refused}`);
         else console.log(`  ${ref}: ${moved.from} -> ${moved.to}${moved.noted ? " (internal note recorded)" : ""}`);
+      }
+    } else if (cmd === "resolve") {
+      const ref = positional[0];
+      const code = flag("code"), notes = flag("resolution");
+      if (!ref) die(`usage: node bin/tickets.mjs resolve <reference> --code <${RESOLUTION_CODES.join("|")}> --resolution "what the requester is told" [--note "for the desk"]`);
+      else {
+        // The same function the console's Resolve form calls (D224). It refuses without both the
+        // code and the notes; the sentence it returns is printed as-is.
+        const r = await resolveTicket(tenant, ref, { code, notes, note: flag("note"), author: { kind: "system", label: "bin/tickets.mjs" } });
+        if (!r) die(`no ticket ${ref} in ${tenant}`);
+        else if ("refused" in r) die(`  ${r.refused}`);
+        else {
+          console.log(`  ${ref}: ${r.from} -> resolved (${r.code} — ${RESOLUTION_CODE_WORDS[r.code]})${r.noted ? " (internal note recorded)" : ""}`);
+          console.log("  THE REQUESTER HAS NOT BEEN TOLD — nothing delivers resolution notes in this build (P4, after D271).");
+        }
       }
     } else if (cmd === "users") {
       const rows = await listReporters(tenant);
@@ -147,7 +182,7 @@ if (!tenant) {
         console.log(`\n  ${rows.length} user(s) in ${tenant}. Every profile here is SELF-ASSERTED unless it says otherwise.`);
       }
     } else {
-      die(`unknown command ${JSON.stringify(cmd)}\nusage: node bin/tickets.mjs list | show <ref> | state <ref> <state> | users`);
+      die(`unknown command ${JSON.stringify(cmd)}\nusage: node bin/tickets.mjs list | show <ref> | state <ref> <new|open|closed> | resolve <ref> --code <code> --resolution "…" | users`);
     }
   } finally {
     await closePool();

@@ -28,17 +28,34 @@
  * no requester can comment yet, and it says why in words rather than drawing an empty cell. When
  * P4 lands the sentence changes on its own: `oldestUnansweredRequesterComment()` already reads the
  * clock (`tickets.awaiting_agent_since`) that P4 will start writing.
+ *
+ * P2, SINCE 2026-09-12 — RESOLUTION MEANS SOMETHING (D278–D280, tenant/007). `resolved` is reached
+ * only through the RESOLVE form, which requires a resolution code and requester-visible notes and is
+ * refused with a sentence without both; the generic state form no longer offers `resolved` at all.
+ * `closed` is TERMINAL here (D279) — nothing is offered from it; the CLI is the correction tool —
+ * and is offered only from `resolved`, so every ticket this console closes carries a code. And the
+ * TRANSITION GUARD IS IN THE UPDATE (D280): both forms carry the state the operator SAW as a hidden
+ * `from`, `statePost()`/`resolvePost()` read nothing before writing, and a stale form gets a 409
+ * naming where the ticket is now. The NEXT_STATES consult here is a suggestion about which buttons
+ * to draw; the database is the arbiter.
+ *
+ * TWO NOTES ON ONE PAGE, AND THEY MUST NOT MERGE. The INTERNAL resolution note (D239/D269) is the
+ * desk's account, optional, never shown. The RESOLUTION NOTES (D278) are written FOR the requester,
+ * required to resolve, PUBLIC — and reach nobody in this build, which every label beside them says.
  */
 import { html, notYet, empty, when, ago, csrfField, limit } from "../html.js";
 import { route } from "../route.js";
 import {
-  countTicketsByState, getTicket, listTickets, setTicketState, NEXT_STATES, TICKET_STATES,
-  addEntry, listEntries, oldestUnansweredRequesterComment,
+  countTicketsByState, getTicket, listTickets, setTicketState, resolveTicket, NEXT_STATES, TICKET_STATES,
+  RESOLUTION_CODES, RESOLUTION_CODE_WORDS, addEntry, listEntries, oldestUnansweredRequesterComment,
 } from "../../tickets/query.js";
 
 const NOBODY_EMAILED = "Nobody has been emailed about any of these. This build has no outbound email (D86), so this list is the queue: if you do not look here, nobody knows.";
 
 const pill = (state) => html`<span class="pill ${state}">${state}</span>`;
+
+/** `closed_by` values as words — a closed enum reaching a screen as itself is D244's defect. */
+const CLOSED_BY_WORDS = { console_user: "a console user", system: "the CLI, with no person attached", requester: "the requester", auto: "the auto-close job" };
 
 /** The console user as a timeline author: control-plane id recorded, email snapshotted (D143). */
 const consoleAuthor = (ctx) => ({ kind: "console_user", adminUserId: ctx.user.id, label: ctx.user.email });
@@ -139,30 +156,84 @@ ${pages > 1 ? html`<p class="filters pager"><strong>Page</strong>${page > 1 ? ht
   await ctx.render(200, body, { title: "Tickets", current: "/admin/tickets" });
 }
 
+/** The internal note field, shared by the state form and the Resolve form — one field, one wording. */
+function internalNoteField(idSuffix) {
+  return html`<label for="note${idSuffix}">Internal resolution note (optional)</label>
+    <textarea id="note${idSuffix}" name="note" rows="3" maxlength="4000" placeholder="What actually fixed it, in your own words — for the desk." style="max-width:100%"></textarea>
+    <p class="muted" style="font-size:13px;margin:4px 0 0">Internal: kept on the ticket for the desk, shown on this page and by the CLI. The requester never sees it. Leaving it blank keeps whatever was written before.</p>`;
+}
+
 /**
- * The one action on the detail page: the state, an optional internal note, one button (handback §3).
+ * The state form: the moves NEXT_STATES offers OTHER THAN `resolved` (that is the Resolve form's,
+ * below), an optional internal note, one button. It carries the state the operator is looking at as
+ * a hidden `from` — the guard in the UPDATE compares against it (D280).
  *
- * The note is the INTERNAL resolution note (tenant/004, D239; wired 2026-09-12, D269): the human's
- * own account of what fixed it, kept for the desk. It is one field, always shown, never required —
- * the requester-facing note that P2 will require on `resolved` is a different field with a
- * different visibility, and it is not here yet. Two conditionals landing in two phases is how one
- * of them ends up wrong, so this one has none.
+ * `closed` is terminal here (D279): no form, a sentence saying so and naming the CLI as the
+ * correction tool. From `open` the only move is to resolve, so this form says that and defers.
  */
 function stateBlock(ctx, t, next) {
   if (!ctx.permissions.has("tickets.write")) return html`<p class="muted">Your roles (${ctx.roles.join(", ")}) can read tickets but not change them.</p>`;
-  if (!next.length) return html`<p class="muted">No further transitions from ${t.state}.</p>`;
+  if (t.state === "closed") return html`<p class="muted"><strong>Closed is terminal in this console (D279).</strong> Nothing moves a closed ticket from here; a recurrence is a new ticket. The CLI (<span class="mono">npm.cmd run tickets -- state ${t.reference} open</span>) can still reopen it, as the correction tool.</p>`;
+  const moves = next.filter((s) => s !== "resolved");
+  if (!moves.length) return html`<p class="muted">From <strong>${t.state}</strong> the one move this console offers is to resolve it — the form below. Closing comes after resolving, so every closed ticket carries a resolution code (D279).</p>`;
   return html`<form method="post" action="/admin/tickets/${t.reference}/state">
     ${csrfField(ctx.csrf)}
+    <input type="hidden" name="from" value="${t.state}">
     <label for="next">Move ${t.reference} from <strong>${t.state}</strong> to</label>
-    <select id="next" name="next">${next.map((s) => html`<option value="${s}">${s}</option>`)}</select>
-    <label for="note">Internal resolution note (optional)</label>
-    <textarea id="note" name="note" rows="3" maxlength="4000" placeholder="What actually fixed it, in your own words." style="max-width:100%"></textarea>
-    <p class="muted" style="font-size:13px;margin:4px 0 0">Internal: kept on the ticket for the desk, shown on this page and by the CLI. The requester never sees it. Leaving it blank keeps whatever was written before.</p>
+    <select id="next" name="next">${moves.map((s) => html`<option value="${s}">${s}</option>`)}</select>
+    ${internalNoteField("")}
     <div class="row">
       <button class="primary" type="submit">Change state</button>
-      <span class="muted" style="font-size:13px">Recorded in the audit log with who did it, and whether a note was written — never the note itself.</span>
+      <span class="muted" style="font-size:13px">Recorded in the audit log with who did it, and whether a note was written — never the note itself. If someone else moves the ticket first, this is refused, not applied over theirs.</span>
     </div>
   </form>`;
+}
+
+/**
+ * The Resolve form (D278): a code, notes the requester will read, an optional internal note. Drawn
+ * only when NEXT_STATES offers `resolved` from the current state. Refused server-side without both
+ * required fields — the `required` attributes are a convenience, not the rule.
+ *
+ * THE NOTES REACH NOBODY IN THIS BUILD, and the form says so where the operator types them. They
+ * are still written FOR the requester, because the day P4 delivers them the notes already written
+ * must be readable by the person they are about. Nothing here implies delivery (D253's lesson: a
+ * surface may not describe an egress outcome it has not been told).
+ */
+function resolveBlock(ctx, t, next) {
+  if (!ctx.permissions.has("tickets.write") || !next.includes("resolved")) return "";
+  return html`<div class="panel">
+  <h2>Resolve</h2>
+  <form method="post" action="/admin/tickets/${t.reference}/resolve">
+    ${csrfField(ctx.csrf)}
+    <input type="hidden" name="from" value="${t.state}">
+    <label for="resolutionCode">Resolution code (required)</label>
+    <select id="resolutionCode" name="resolutionCode" required>
+      <option value="">— choose one —</option>
+      ${RESOLUTION_CODES.map((c) => html`<option value="${c}">${RESOLUTION_CODE_WORDS[c]} (${c})</option>`)}
+    </select>
+    <label for="resolutionNotes">Resolution notes — for the requester (required)</label>
+    <textarea id="resolutionNotes" name="resolutionNotes" rows="4" maxlength="4000" required placeholder="What was wrong and what was done, in words the person who reported it can read." style="max-width:100%"></textarea>
+    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>Requester-visible — and delivered to nobody in this build.</strong> Nothing carries these notes to the requester until P4 (after D271); they sit on the ticket and on its timeline as a public entry. Write them for the requester anyway.</p>
+    ${internalNoteField("-resolve")}
+    <div class="row">
+      <button class="primary" type="submit">Resolve ${t.reference}</button>
+      <span class="muted" style="font-size:13px">Refused without both a code and notes. Audited as who resolved it and which code — never the notes.</span>
+    </div>
+  </form>
+</div>`;
+}
+
+/** The current resolution, glossed (D244): the words first, the stored value subordinate. */
+function resolutionBlock(t) {
+  if (!t.resolutionCode) {
+    return html`<p class="muted">Not resolved.${t.state === "closed" ? " Closed without a resolution — by the CLI, or before resolution codes existed (tenant/007)." : ""}</p>`;
+  }
+  return html`<dl class="kv">
+    <dt>Code</dt><dd>${RESOLUTION_CODE_WORDS[t.resolutionCode] ?? t.resolutionCode} <span class="muted mono">${t.resolutionCode}</span></dd>
+    <dt>Resolved</dt><dd>${when(t.resolvedAt)}${t.resolvedAt ? html` <span class="muted">(${ago(t.resolvedAt)})</span>` : ""}</dd>
+  </dl>
+  <p class="muted" style="font-size:13px;margin:8px 0 4px">Resolution notes — <strong>requester-visible, delivered to nobody yet</strong> (P4).</p>
+  <blockquote>${t.resolutionNotes}</blockquote>`;
 }
 
 async function detailPage(ctx) {
@@ -176,6 +247,7 @@ async function detailPage(ctx) {
   const flash = ctx.url.searchParams.get("changed");
   const noted = ctx.url.searchParams.get("noted");
   const workNoted = ctx.url.searchParams.get("worknote");
+  const resolvedNow = ctx.url.searchParams.get("resolved");
   // "all": this page is the one reader entitled to internal rows, and it says so in the call (D275).
   const [entries, oldest] = await Promise.all([
     listEntries(ctx.tenant.schemaName, ref, { visibility: "all" }),
@@ -188,7 +260,7 @@ async function detailPage(ctx) {
 <p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
 ${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
 ${unansweredLimit(oldest)}
-${flash ? html`<div class="flash">State changed to ${t.state}.${noted ? " Internal note recorded." : ""}</div>` : ""}
+${flash ? html`<div class="flash">${resolvedNow ? "Resolved. The requester has NOT been told — nothing delivers resolution notes in this build." : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
 ${workNoted ? html`<div class="flash">Work note added — internal, on the timeline below.</div>` : ""}
 
 <div class="detail">
@@ -202,14 +274,20 @@ ${workNoted ? html`<div class="flash">Work note added — internal, on the timel
   <h2>Already checked</h2>
   <blockquote>${t.whatWasChecked ?? "-"}</blockquote>
   <h2>Internal resolution note</h2>
-  <p class="muted" style="font-size:13px;margin:0 0 4px">Written by whoever moved the ticket, for the desk's own record (D239). Internal: the requester never sees it, and this build has no requester-facing note.</p>
+  <p class="muted" style="font-size:13px;margin:0 0 4px">Written by whoever moved the ticket, for the desk's own record (D239). Internal: the requester never sees it. The requester-facing account is the resolution notes below, a different field (D278).</p>
   <blockquote>${t.internalResolutionNote ?? html`<span class="muted">none yet</span>`}</blockquote>
+  <h2>Resolution</h2>
+  <p class="muted" style="font-size:13px;margin:0 0 4px">A code you can count and notes written for the requester (D278). Both are PUBLIC — requester-visible once P4 can deliver them; nobody sees them in this build.</p>
+  ${resolutionBlock(t)}
+  ${t.closedAt ? html`<p class="muted" style="font-size:13px">Closed ${when(t.closedAt)} by ${CLOSED_BY_WORDS[t.closedBy] ?? t.closedBy}.</p>` : ""}
 </div>
 
 <div class="panel">
   <h2>State</h2>
   ${stateBlock(ctx, t, next)}
 </div>
+
+${resolveBlock(ctx, t, next)}
 
 ${timelinePanel(ctx, t, entries)}
 </div>
@@ -247,24 +325,85 @@ ${notYet({
   await ctx.render(200, body, { title: t.reference, current: "/admin/tickets" });
 }
 
+/** The 400 both POSTs render when the form asks for a move this console does not offer. */
+function notOffered(ctx, ref, from, next) {
+  return ctx.render(400, html`<h1>Not a move this console offers</h1><p class="lede">From <strong>${from}</strong> this console offers ${(NEXT_STATES[from] ?? []).join(", ") || "nothing — closed is terminal here (D279)"}, not ${next}. The CLI (<span class="mono">npm.cmd run tickets -- state</span>) allows any state, for corrections.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
+}
+
+/** The 409 both POSTs render when the guard in the UPDATE matched nothing (D280): the page was stale. */
+function stale(ctx, ref, refusal) {
+  return ctx.render(409, html`<h1>${ref} moved while you were looking at it</h1><p class="lede">${refusal.refused}</p><p><a href="/admin/tickets/${ref}">Look at ${ref} again</a></p>`, { title: "Not applied", current: "/admin/tickets" });
+}
+
+/**
+ * NO READ BEFORE THE WRITE (D280). The form carries the state the operator saw as `from`; the
+ * NEXT_STATES consult is on that, and the guard in the UPDATE decides whether the ticket is still
+ * there. Until P2 this read the ticket, checked, then wrote in a separate transaction — the
+ * check-then-act that lets two operators' moves land on top of each other.
+ */
 async function statePost(ctx) {
   const ref = ctx.params.ref;
   const next = String(ctx.form.next ?? "");
-  const current = await getTicket(ctx.tenant.schemaName, ref);
-  if (!current) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
-  if (!(NEXT_STATES[current.state] ?? []).includes(next)) {
-    await ctx.audit("ticket.state.refused", { subject: ref, detail: { from: current.state, to: next } });
-    return ctx.render(400, html`<h1>Not a move this console offers</h1><p class="lede">${ref} is <strong>${current.state}</strong>; it can go to ${(NEXT_STATES[current.state] ?? []).join(", ") || "nowhere"}. The CLI (<span class="mono">npm.cmd run tickets -- state</span>) allows any state, for corrections.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
+  const from = String(ctx.form.from ?? "");
+  if (!TICKET_STATES.includes(from) || !TICKET_STATES.includes(next)) {
+    return ctx.render(400, html`<h1>Not a state</h1><p class="lede">The form did not name a state this store has.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
+  }
+  if (next === "resolved") {
+    // resolved has its own form; a state change cannot produce a resolution with no code (D278).
+    await ctx.audit("ticket.state.refused", { subject: ref, detail: { from, to: next, why: "resolved needs the Resolve form" } });
+    return ctx.render(400, html`<h1>Resolving takes more than a state</h1><p class="lede">${ref} is resolved through the Resolve form — a resolution code and notes the requester will read (D278) — not by changing its state.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
+  }
+  if (!(NEXT_STATES[from] ?? []).includes(next)) {
+    await ctx.audit("ticket.state.refused", { subject: ref, detail: { from, to: next } });
+    return notOffered(ctx, ref, from, next);
   }
   // The note travels as-is; setTicketState() trims, caps at 4000 and keeps the previous note when
   // this one is blank. The audit records THAT a note was written, never what it said (D156's audit
   // is about who touched which record; the note is the record).
   const note = typeof ctx.form.note === "string" ? ctx.form.note : null;
-  const moved = await setTicketState(ctx.tenant.schemaName, ref, next, { note, author: consoleAuthor(ctx) });
+  const moved = await setTicketState(ctx.tenant.schemaName, ref, next, { note, author: consoleAuthor(ctx), from });
   if (!moved) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
+  if ("refused" in moved) {
+    await ctx.audit("ticket.state.refused", { subject: ref, detail: { from, to: next, why: "stale", now: moved.state } });
+    return stale(ctx, ref, moved);
+  }
   await ctx.audit("ticket.state", { subject: ref, detail: { from: moved.from, to: moved.to, noted: moved.noted } });
   ctx.log(`[admin] ${ctx.user.email} moved ${ref} ${moved.from} -> ${moved.to}${moved.noted ? " with an internal note" : ""}`);
   ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?changed=1${moved.noted ? "&noted=1" : ""}`);
+}
+
+/**
+ * The Resolve form's POST (D278). Same shape as statePost: no read first, `from` from the form, the
+ * guard in the UPDATE. `resolveTicket()` refuses without both required fields and its sentence is
+ * rendered as the 400. The audit carries the CODE (an enum, countable) and whether an internal note
+ * was written — never the notes' text, which is the record.
+ */
+async function resolvePost(ctx) {
+  const ref = ctx.params.ref;
+  const from = String(ctx.form.from ?? "");
+  if (!TICKET_STATES.includes(from)) {
+    return ctx.render(400, html`<h1>Not a state</h1><p class="lede">The form did not name a state this store has.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
+  }
+  if (!(NEXT_STATES[from] ?? []).includes("resolved")) {
+    await ctx.audit("ticket.state.refused", { subject: ref, detail: { from, to: "resolved" } });
+    return notOffered(ctx, ref, from, "resolved");
+  }
+  const code = String(ctx.form.resolutionCode ?? "");
+  const notes = typeof ctx.form.resolutionNotes === "string" ? ctx.form.resolutionNotes : "";
+  const note = typeof ctx.form.note === "string" ? ctx.form.note : null;
+  const r = await resolveTicket(ctx.tenant.schemaName, ref, { code, notes, note, author: consoleAuthor(ctx), from });
+  if (!r) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
+  if ("refused" in r) {
+    if (r.state !== null) {
+      await ctx.audit("ticket.state.refused", { subject: ref, detail: { from, to: "resolved", why: "stale", now: r.state } });
+      return stale(ctx, ref, r);
+    }
+    await ctx.audit("ticket.resolve.refused", { subject: ref, detail: { from, code: RESOLUTION_CODES.includes(code) ? code : null, notesGiven: notes.trim().length > 0 } });
+    return ctx.render(400, html`<h1>Not resolved</h1><p class="lede">${r.refused}</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
+  }
+  await ctx.audit("ticket.resolve", { subject: ref, detail: { from: r.from, code: r.code, noted: r.noted } });
+  ctx.log(`[admin] ${ctx.user.email} resolved ${ref} (${r.code})${r.noted ? " with an internal note" : ""} — the requester has not been told (nothing delivers)`);
+  ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?changed=1&resolved=1${r.noted ? "&noted=1" : ""}`);
 }
 
 /**
@@ -290,5 +429,6 @@ export const ticketRoutes = [
   route("GET", /^\/admin\/tickets\/?$/, "tickets.read", listPage),
   route("GET", new RegExp(`^/admin/tickets/${REF}$`), "tickets.read", detailPage),
   route("POST", new RegExp(`^/admin/tickets/${REF}/state$`), "tickets.write", statePost),
+  route("POST", new RegExp(`^/admin/tickets/${REF}/resolve$`), "tickets.write", resolvePost),
   route("POST", new RegExp(`^/admin/tickets/${REF}/worknote$`), "tickets.write", worknotePost),
 ];

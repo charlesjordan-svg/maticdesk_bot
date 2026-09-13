@@ -130,6 +130,22 @@ console.log("\n=== 2b. tenant/006 — the timeline's visibility is the KIND's, t
   check("no jsonb, no payload-shaped column: body is the one free-text field", !/jsonb/i.test(code));
 }
 
+console.log("\n=== 2c. tenant/007 — resolution: the six codes, four closers, and the database's copy of D278 (D278–D280) ===");
+{
+  const m007 = tenant.find((m) => /007-resolution/.test(m.version));
+  check("tenant/007-resolution.sql exists", Boolean(m007));
+  const sql = m007?.sql ?? "", code = sqlCode(sql);
+  check("it carries decision provenance with the status held when written (register §5.7b)",
+    /DECISION PROVENANCE/.test(sql) && /D278 \(PROPOSED 2026-09-12\)/.test(sql) && /D279 \(PROPOSED 2026-09-12\)/.test(sql) && /D280 \(PROPOSED 2026-09-12\)/.test(sql) && /D275 \(PROPOSED 2026-09-12\)/.test(sql) && /D269 \(RATIFIED 2026-09-12\)/.test(sql));
+  check("it adds the five columns, all IF NOT EXISTS", ["resolution_code", "resolution_notes", "resolved_at", "closed_at", "closed_by"].every((c) => new RegExp(`ADD COLUMN IF NOT EXISTS ${c}\\s`).test(code)));
+  check("the resolution code is a CHECK over the six, never free text", /resolution_code IS NULL OR resolution_code IN \(\s*'fixed', 'workaround', 'no_fault_found', 'duplicate', 'withdrawn_by_user', 'referred_to_vendor'\s*\)/.test(code));
+  check("closed_by has FOUR values — the CLI (system) is one, so a closed ticket never lies about its closer", /closed_by IS NULL OR closed_by IN \('requester', 'auto', 'console_user', 'system'\)/.test(code));
+  check("the database holds D278's rule itself — a resolved row needs code AND notes — as NOT VALID so an old resolved ticket still migrates", /CHECK \(state <> 'resolved' OR \(resolution_code IS NOT NULL AND resolution_notes IS NOT NULL\)\) NOT VALID/.test(code));
+  check("all three constraints are guarded through pg_constraint (ADD CONSTRAINT has no IF NOT EXISTS)", (code.match(/IF NOT EXISTS \(\s*SELECT 1 FROM pg_constraint/g) ?? []).length === 3);
+  check("the header puts the two notes side by side so the next writer does not merge them", /THE TWO NOTES, SIDE BY SIDE/.test(sql) && /internal_resolution_note/.test(sql) && /resolution_notes/.test(sql));
+  check("it says what a reopen does to the columns (cleared) and where the history lives (the timeline)", /WHAT THE COLUMNS MEAN ACROSS A REOPEN/.test(sql) && /resolution.{0,3} entry/.test(sql));
+}
+
 console.log("\n=== 3. the extension is installed once, database-wide ===");
 const c001 = control.find((m) => /control-plane/.test(m.version)).sql;
 check("control/001 creates the shared `extensions` schema", /CREATE SCHEMA IF NOT EXISTS extensions/i.test(c001));
