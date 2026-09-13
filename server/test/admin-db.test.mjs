@@ -644,6 +644,7 @@ try {
       created_at: "createdAt", updated_at: "updatedAt",
       resolution_code: "resolutionCode", resolution_notes: "resolutionNotes", resolved_at: "resolvedAt",
       closed_at: "closedAt", closed_by: "closedBy",
+      auto_close_at: "autoCloseAt",
     };
     /** Columns the requester never receives. One line, one reason. */
     const REQUESTER_HIDDEN = {
@@ -651,6 +652,7 @@ try {
       user_id: "the reporter's row id — the requester IS the reporter; echoing their profile back is P4's decision, not this shape's",
       session_id: "D75's link to a session the endpoint does not have yet",
       device_id: "the enrollment that filed it — the SCOPE KEY the credential supplies (D284), not a fact for the requester",
+      auto_close_job_id: "a control-plane reference (the job bound to the current resolution, D289) — the requester is told the DATE (auto_close_at), never the queue row",
       description: "the requester's own words — theirs already; the P3a handover's draft omits it, and P4's view decides whether to show what they typed",
       summary: "THE CASE NOTE — written for the assignee, never shown to the user (003-tickets.sql; D214: read aloud to one on 2026-09-04)",
       what_was_checked: "the model's checks, written for the assignee (D214)",
@@ -1506,7 +1508,7 @@ try {
     await setTicketState(schema, filedBody.reference, "open", { from: "new", note: "P3B-INTERNAL-SENTINEL", author: desk });
     await addEntry(schema, filedBody.reference, { kind: "work_note", body: "P3B-WORKNOTE-SENTINEL", author: desk });
     const list = await (await asDevice("/v1/tickets")).json();
-    check("GET /v1/tickets -> exactly the ticket this enrollment filed, in the allow-list shape, no sentinel on the wire", list.count === 1 && list.tickets[0].reference === filedBody.reference && Object.keys(list.tickets[0]).sort().join(",") === "category,closedAt,closedBy,createdAt,machineName,reference,resolutionCode,resolutionNotes,resolvedAt,state,updatedAt" && !JSON.stringify(list).includes("SENTINEL"), JSON.stringify(list).slice(0, 400));
+    check("GET /v1/tickets -> exactly the ticket this enrollment filed, in the allow-list shape, no sentinel on the wire", list.count === 1 && list.tickets[0].reference === filedBody.reference && Object.keys(list.tickets[0]).sort().join(",") === "autoCloseAt,category,closedAt,closedBy,createdAt,machineName,reference,resolutionCode,resolutionNotes,resolvedAt,state,updatedAt" && !JSON.stringify(list).includes("SENTINEL"), JSON.stringify(list).slice(0, 400));
     const one = await asDevice(`/v1/tickets/${filedBody.reference}`);
     const oneBody = await one.json();
     check("GET /v1/tickets/<ref> -> the ticket and its PUBLIC entries only: the state change, not the work note, no sentinel", one.status === 200 && oneBody.ticket?.reference === filedBody.reference && oneBody.entries?.length === 1 && oneBody.entries[0].kind === "state_change" && !JSON.stringify(oneBody).includes("SENTINEL"), JSON.stringify(oneBody).slice(0, 400));
@@ -1700,6 +1702,144 @@ try {
     for (let i = 0; i < WRITES_PER_MINUTE; i++) last = (await post(`/v1/ticket/${ref}/confirm`)).status;
     const over = await post(`/v1/ticket/${ref}/confirm`);
     check(`write ${WRITES_PER_MINUTE} in a minute is still answered (a 409 here); write ${WRITES_PER_MINUTE + 1} is 429 with retryAfterMs`, last === 409 && over.status === 429 && typeof (await over.json()).retryAfterMs === "number");
+    resetWriteThrottle();
+  }
+
+  console.log("\n=== P5. auto-close: bound to the resolution, withdrawn by confirm / reopen / any move, the handler run TWICE on one job (D289; D270's ratified condition) ===");
+  {
+    resetEnrollmentThrottle(); resetReadThrottle(); resetWriteThrottle(); resetCredentialThrottle();
+    const { withTenant } = await import("../src/db/tenant.js");
+    const { runOne, cancelJobsFor } = await import("../src/db/jobs.js");
+    const { JOB_HANDLERS } = await import("../src/jobs/handlers.js");
+    const { AUTOCLOSE_JOB, autocloseSetting } = await import("../src/tickets/autoclose.js");
+    const q = (sql, params) => getPool().query(sql, params);
+    const jobsFor = async (ticketId) => (await q("SELECT id, status, run_after FROM control.job_queue WHERE type = $1 AND ref_id = $2 ORDER BY created_at", [AUTOCLOSE_JOB, ticketId])).rows;
+    const row = async (ref) => (await q(`SELECT id, state, closed_by, closed_at, resolved_at, auto_close_at, auto_close_job_id FROM "${schema}".tickets WHERE reference = $1`, [ref])).rows[0];
+    const entriesOf = async (ref) => (await q(`SELECT e.kind, e.body, e.author_kind, e.author_label, e.visibility FROM "${schema}".ticket_entries e JOIN "${schema}".tickets t ON t.id = e.ticket_id WHERE t.reference = $1 ORDER BY e.created_at`, [ref])).rows;
+    const cliEnvP5 = { ...process.env, MATIC_TICKET_TENANT: schema };
+    const cliRun = (...a) => spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), ...a], { encoding: "utf8", env: cliEnvP5 });
+    const desk = { kind: "console_user", adminUserId: made.owner.id, label: made.owner.email };
+
+    // ---- the setting: control/009's default, the console form under settings.write, audited, the CLI through the same function
+    check("control/009 gave this tenant the default interval: 72 hours, a proposal", (await autocloseSetting({ tenantId })) === 72);
+    const list0 = await owner.go("/admin/tickets");
+    check("the tickets list shows the Auto-close panel - the sentence, the form (the owner has settings.write), and 72 called a proposal", /<h2>Auto-close<\/h2>/.test(list0.text) && /close on their own after 72 hours/.test(list0.text) && /action="\/admin\/tickets\/autoclose"/.test(list0.text) && /a proposal, not a measured figure/.test(list0.text));
+    // The it_agent's half (no panel without settings.read; 403 on the POST without settings.write) is
+    // pinned on the router table and the render condition in admin-static §5g: the it_agent session
+    // this file signed in at KB-6 has been revoked by the admin-reset checks since, and a second
+    // sign-in for one account inside a TOTP step is refused (KB-6's note), so it is not re-run here.
+    const bad =await owner.go("/admin/tickets/autoclose", { method: "POST", form: { _csrf: csrfOf(list0.text), hours: "0" } });
+    check("POST hours=0 -> 303 to ?autoclose=refused, the setting unchanged, audited as refused with the given value", bad.status === 303 && /autoclose=refused/.test(bad.location ?? "") && (await autocloseSetting({ tenantId })) === 72 && (await auditRows()).some((a) => a.action === "ticket.autoclose.refused" && a.detail?.given === "0"));
+    const set1 = await owner.go("/admin/tickets/autoclose", { method: "POST", form: { _csrf: csrfOf(list0.text), hours: "1" } });
+    check("POST hours=1 -> 303, the setting is 1, the flash says it applies from now on, audited with the value", set1.status === 303 && (await autocloseSetting({ tenantId })) === 1 && /Auto-close interval changed for tickets resolved from now on/.test((await owner.go("/admin/tickets?autoclose=set")).text) && (await auditRows()).some((a) => a.action === "ticket.autoclose.set" && a.detail?.hours === 1));
+    const cliRead = cliRun("autoclose");
+    check("bin/tickets.mjs autoclose prints the same setting the console wrote (D224's pattern)", cliRead.status === 0 && /after 1 hour\(s\)/.test(cliRead.stdout), cliRead.stdout + cliRead.stderr);
+
+    // ---- an endpoint of this tenant, so confirm and comment can be the requester's
+    const page = await owner.go("/admin/agents");
+    const fresh = await owner.go("/admin/agents/secrets/new", { method: "POST", form: { _csrf: csrfOf(page.text), ttlDays: "1" } });
+    const secret = fresh.text.match(/<div class="mono" style="margin-top:6px;font-size:15px;word-break:break-all">([^<]+)<\/div>/)?.[1];
+    const enrolled = await (await fetch(`${base}/v1/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant: slug, deviceKeyId: "p5-endpoint", secret }) })).json();
+    check("(fixture) a third endpoint enrolls", enrolled.status === "active" && /^mdc_/.test(enrolled.credential ?? ""), JSON.stringify(enrolled).slice(0, 160));
+    const cred = enrolled.credential;
+    const asDevice = (path, init = {}) => fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${cred}`, ...(init.headers ?? {}) } });
+    const post = (path, body) => asDevice(path, { method: "POST", body: JSON.stringify(body ?? {}) });
+    const file = async (desc) => {
+      const r = await (await post("/v1/ticket", { description: desc, summary: "P5-SENTINEL", category: "other", suggestedOwner: null, machineName: "LAPTOP-P5", reporter: { osUsername: "p5.user" } })).json();
+      if (!r.ok) throw new Error(`P5 fixture could not file a ticket: ${r.error}`);
+      return r.reference;
+    };
+
+    // ---- 1. resolve binds ONE job at resolved_at + 1 h; every surface says when
+    const ref = await file("p5: outlook keeps asking for a password");
+    await setTicketState(schema, ref, "open", { from: "new", author: desk });
+    const r1 = await resolveTicket(schema, ref, { code: "fixed", notes: "P5: cleared the cached credential. Please sign in once more.", from: "open", author: desk });
+    const t1 = await row(ref);
+    const j1 = await jobsFor(t1.id);
+    check("resolveTicket() returned autoCloseAt = resolved_at + 1 h (within 5 s), and the row carries the same instant", r1.autoCloseAt instanceof Date && Math.abs(r1.autoCloseAt.getTime() - (t1.resolved_at.getTime() + 3_600_000)) < 5000 && t1.auto_close_at.getTime() === r1.autoCloseAt.getTime());
+    check("exactly ONE ticket.autoclose job is queued for the ticket, run_after = the instant, and the ticket is BOUND to it by id", j1.length === 1 && j1[0].status === "queued" && new Date(j1[0].run_after).getTime() === t1.auto_close_at.getTime() && t1.auto_close_job_id === j1[0].id, JSON.stringify(j1));
+    const detail1 = await owner.go(`/admin/tickets/${ref}?changed=1&resolved=1`);
+    check("the detail page: the flash and the resolution block both say when it closes automatically and what stops it", /Closes automatically/.test(detail1.text) && /a comment from them reopens it, a confirmation closes it as theirs/.test(detail1.text) && /unless the requester says otherwise \(D289\)/.test(detail1.text));
+    const cliShow1 = cliRun("show", ref);
+    check("bin/tickets.mjs show prints the auto-close instant", cliShow1.status === 0 && /auto-close\s+\d{4}-.*unless the requester confirms or comments first/.test(cliShow1.stdout), cliShow1.stdout.slice(0, 400));
+    const mine = await (await asDevice(`/v1/tickets/${ref}`)).json();
+    check("the requester's read carries autoCloseAt (the date) and NOT the job id", typeof mine.ticket?.autoCloseAt === "string" && new Date(mine.ticket.autoCloseAt).getTime() === t1.auto_close_at.getTime() && !JSON.stringify(mine).includes(j1[0].id) && !("autoCloseJobId" in mine.ticket));
+
+    // ---- 2. the requester comments: reopened, the job WITHDRAWN, the binding cleared
+    const c1 = await (await post(`/v1/ticket/${ref}/comment`, { body: "Still asking. Twice this morning." })).json();
+    const t2 = await row(ref);
+    check("reopen: state open, auto_close_at and auto_close_job_id NULL, the queued job now CANCELLED (not deleted, not failed)", c1.ok === true && c1.reopened === true && t2.state === "open" && t2.auto_close_at === null && t2.auto_close_job_id === null && (await jobsFor(t2.id)).map((j) => j.status).join(",") === "cancelled");
+
+    // ---- 3. re-resolve: a NEW job, bound; the old stays cancelled. Then confirm withdraws the new one.
+    const r2 = await resolveTicket(schema, ref, { code: "fixed", notes: "P5: rebuilt the profile.", from: "open", author: desk });
+    const t3 = await row(ref);
+    const j3 = await jobsFor(t3.id);
+    check("resolve -> reopen -> resolve: TWO job rows, the first cancelled and the second queued, and the ticket bound to the SECOND", r2.autoCloseAt instanceof Date && j3.length === 2 && j3[0].status === "cancelled" && j3[1].status === "queued" && t3.auto_close_job_id === j3[1].id && j3[1].id !== j1[0].id);
+    const cf = await (await post(`/v1/ticket/${ref}/confirm`)).json();
+    const t4 = await row(ref);
+    check("confirm: closed by the requester, the binding cleared, the second job cancelled too", cf.ok === true && t4.state === "closed" && t4.closed_by === "requester" && t4.auto_close_job_id === null && (await jobsFor(t4.id)).map((j) => j.status).join(",") === "cancelled,cancelled");
+
+    // ---- 4. THE HANDLER, TWICE, on one job (D270's condition). Run directly under withTenant on a job
+    //         whose run_after is still an hour away, so a dev hub sharing this database cannot claim it
+    //         mid-test; only auto_close_at is moved into the past, which is the one fact the handler reads.
+    const ref2 = await file("p5: teams shows me as offline");
+    await setTicketState(schema, ref2, "open", { from: "new", author: desk });
+    await resolveTicket(schema, ref2, { code: "workaround", notes: "P5: signed you out and in. Watch it for a day.", from: "open", author: desk });
+    const t5 = await row(ref2);
+    const job5 = (await jobsFor(t5.id))[0];
+    const fakeJob = { id: job5.id, type: AUTOCLOSE_JOB, tenantSchema: schema, refId: t5.id, attempts: 1 };
+    const before = (await entriesOf(ref2)).length;
+    const early = await withTenant(schema, (c) => JOB_HANDLERS[AUTOCLOSE_JOB](fakeJob, c));
+    check("run BEFORE it is due: the handler does nothing (the due instant is in the WHERE), no entry, still resolved", early === undefined && (await row(ref2)).state === "resolved" && (await entriesOf(ref2)).length === before);
+    await q(`UPDATE "${schema}".tickets SET auto_close_at = now() - interval '1 minute' WHERE id = $1`, [t5.id]);
+    await withTenant(schema, (c) => JOB_HANDLERS[AUTOCLOSE_JOB](fakeJob, c));
+    const t6 = await row(ref2);
+    const e6 = await entriesOf(ref2);
+    check("run ONCE when due: closed, closed_by 'auto', the binding cleared, and ONE public state_change 'resolved → closed' by system/auto-close", t6.state === "closed" && t6.closed_by === "auto" && t6.auto_close_job_id === null && t6.auto_close_at === null && e6.length === before + 1 && e6.at(-1).kind === "state_change" && e6.at(-1).body === "resolved → closed" && e6.at(-1).author_kind === "system" && e6.at(-1).author_label === "auto-close" && e6.at(-1).visibility === "public", JSON.stringify(e6.at(-1)));
+    await withTenant(schema, (c) => JOB_HANDLERS[AUTOCLOSE_JOB](fakeJob, c));
+    const t7 = await row(ref2);
+    check("run TWICE (at-least-once): the second run finds the binding gone - no throw, no second entry, closed_at unchanged (D270's ratified condition, discharged)", (await entriesOf(ref2)).length === before + 1 && t7.closed_at.getTime() === t6.closed_at.getTime() && t7.closed_by === "auto");
+    check("(housekeeping) the job row this test bypassed the runner for is withdrawn, not left queued on the shared queue", (await cancelJobsFor(AUTOCLOSE_JOB, t5.id)).length === 1);
+    const detail6 = await owner.go(`/admin/tickets/${ref2}`);
+    check("the console says closed by the auto-close job and why; the timeline shows the state change from a public system entry", /by the auto-close job — the requester neither confirmed nor reopened within the tenant/.test(detail6.text) && /resolved → closed/.test(detail6.text));
+    const cliShow6 = cliRun("show", ref2);
+    check("the CLI glosses closed_by auto", /by auto \(the auto-close job: neither confirmed nor reopened within the interval, D289\)/.test(cliShow6.stdout), cliShow6.stdout.slice(-400));
+    const mine2 = await (await asDevice(`/v1/tickets/${ref2}`)).json();
+    check("the requester's read: closedBy auto, autoCloseAt null now, and the state change is a public entry labelled auto-close (what the endpoint says 'closed on its own' from)", mine2.ticket.closedBy === "auto" && mine2.ticket.autoCloseAt === null && mine2.entries.some((e) => e.kind === "state_change" && e.body === "resolved → closed" && e.authorKind === "system" && e.authorLabel === "auto-close"));
+
+    // ---- 5. THROUGH THE RUNNER'S PRIMITIVE, end to end: a due job is claimed, the handler runs, the row is done.
+    //         A running dev hub shares this database and now has this handler, so it MAY win the claim;
+    //         the check accepts either worker and says which — the ticket's outcome is the same either way.
+    const ref3 = await file("p5: the mouse cursor lags");
+    await setTicketState(schema, ref3, "open", { from: "new", author: desk });
+    await resolveTicket(schema, ref3, { code: "no_fault_found", notes: "P5: could not reproduce; tell us if it returns.", from: "open", author: desk });
+    const t8 = await row(ref3);
+    const job8 = (await jobsFor(t8.id))[0];
+    await q(`UPDATE "${schema}".tickets SET auto_close_at = now() - interval '1 minute' WHERE id = $1`, [t8.id]);
+    await q("UPDATE control.job_queue SET run_after = now() - interval '1 minute' WHERE id = $1", [job8.id]);
+    const ran = await runOne("p5-test-worker", (job, client) => JOB_HANDLERS[job.type](job, client), { types: Object.keys(JOB_HANDLERS) });
+    let jobRow = (await q("SELECT status, locked_by FROM control.job_queue WHERE id = $1", [job8.id])).rows[0];
+    for (let i = 0; i < 40 && jobRow.status !== "done"; i++) { await new Promise((r) => setTimeout(r, 250)); jobRow = (await q("SELECT status, locked_by FROM control.job_queue WHERE id = $1", [job8.id])).rows[0]; }
+    const t9 = await row(ref3);
+    check(`through runOne(): the job is done (claimed by ${ran ? "this test's worker" : `another process - ${jobRow.locked_by ?? "?"}, a dev hub sharing this database`}) and the ticket is closed by auto`, jobRow.status === "done" && t9.state === "closed" && t9.closed_by === "auto", JSON.stringify({ ran: ran?.id, jobRow, state: t9.state }));
+
+    // ---- 6. any move out of resolved by the desk withdraws the job; the kill switch; the Resolve form's copy
+    const ref4 = await file("p5: printer says offline");
+    await setTicketState(schema, ref4, "open", { from: "new", author: desk });
+    await resolveTicket(schema, ref4, { code: "fixed", notes: "P5: re-added the printer.", from: "open", author: desk });
+    const t10 = await row(ref4);
+    await setTicketState(schema, ref4, "open", { from: "resolved", author: desk });
+    check("the desk moves resolved -> open (setTicketState): the binding cleared and the job cancelled", (await row(ref4)).auto_close_job_id === null && (await jobsFor(t10.id)).map((j) => j.status).join(",") === "cancelled");
+    const off = cliRun("autoclose", "--off");
+    check("bin/tickets.mjs autoclose --off turns it off and says nothing queued fires", off.status === 0 && /turned OFF/.test(off.stdout) && (await autocloseSetting({ tenantId })) === null, off.stdout + off.stderr);
+    const r4 = await resolveTicket(schema, ref4, { code: "fixed", notes: "P5: re-added it again.", from: "open", author: desk });
+    check("with the interval OFF, resolving enqueues NOTHING and autoCloseAt is null", r4.autoCloseAt === null && (await row(ref4)).auto_close_at === null && (await row(ref4)).auto_close_job_id === null && (await jobsFor(t10.id)).every((j) => j.status === "cancelled"));
+    const detail10 = await owner.go(`/admin/tickets/${ref4}`);
+    check("the detail page says it will not close on its own because auto-close is off", /Will not close on its own/.test(detail10.text) && /auto-close is off for this tenant/.test(detail10.text));
+    const ref5 = await file("p5: a live ticket, to see the Resolve form's copy");
+    const live = await owner.go(`/admin/tickets/${ref5}`);
+    check("the Resolve form on a live ticket says auto-close is off; after --hours 72 it says resolving starts a 72-hour clock", /Auto-close is off for this tenant: the ticket stays resolved/.test(live.text) && (cliRun("autoclose", "--hours", "72").status === 0) && /Resolving starts a 72-hour clock \(D289\)/.test((await owner.go(`/admin/tickets/${ref5}`)).text));
+    check("the CLI refuses garbage through the same function's sentence", /whole number of hours from 1 to 8760, or off/.test(cliRun("autoclose", "--hours", "soon").stderr));
     resetWriteThrottle();
   }
 

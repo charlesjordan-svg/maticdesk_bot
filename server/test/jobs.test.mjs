@@ -217,6 +217,59 @@ console.log("=== 1. the loop, with fake primitives ===");
   check("…garbage and negatives fall back to the default rather than disabling the runner by accident", pollIntervalFromEnv({ MATIC_JOBS_POLL_MS: "soon" }) === DEFAULT_POLL_MS && pollIntervalFromEnv({ MATIC_JOBS_POLL_MS: "-5" }) === DEFAULT_POLL_MS);
 }
 
+console.log("\n=== 1b. the ticket.autoclose handler, headless, against a fake tenant client (D289; D270's contract) ===");
+{
+  const { createAutocloseHandler, AUTOCLOSE_AUTHOR } = await import("../src/tickets/autoclose.js");
+  /** A fake pg client: scripted answers per statement shape; records every statement. */
+  function fakeClient(script) {
+    const seen = [];
+    return {
+      seen,
+      async query(sql, params) {
+        seen.push({ sql, params });
+        if (/UPDATE tickets t/.test(sql)) return { rows: script.update ?? [] };
+        if (/INSERT INTO ticket_entries/.test(sql)) return { rows: [{ id: "entry-1", created_at: new Date() }] };
+        if (/SELECT reference, state, auto_close_job_id, auto_close_at FROM tickets/.test(sql)) return { rows: script.now ?? [] };
+        throw new Error("unexpected statement: " + sql.slice(0, 60));
+      },
+    };
+  }
+  const said = [];
+  const handler = createAutocloseHandler({ log: (l) => said.push(l) });
+  // A job id is control.job_queue's BIGSERIAL as a string (jobs.js returns String(rows[0].id)); the ticket id is the tenant's uuid.
+  const theJob = { id: "564", type: "ticket.autoclose", tenantSchema: "t_fake", refId: "22222222-2222-4222-8222-222222222222", attempts: 1 };
+
+  const bound = fakeClient({ update: [{ reference: "MD-77" }] });
+  await handler(theJob, bound);
+  const upd = bound.seen[0];
+  check("the ONE write is a guarded UPDATE: still resolved, bound to THIS job's id, due - all in the WHERE, under FOR UPDATE", /t\.state = 'resolved' AND t\.auto_close_job_id = \$2::bigint AND t\.auto_close_at <= now\(\)/.test(upd.sql) && /FOR UPDATE/.test(upd.sql) && upd.params[0] === theJob.refId && upd.params[1] === theJob.id);
+  check("…it closes as closed_by 'auto' and clears the binding in the same statement", /closed_by = 'auto'/.test(upd.sql) && /auto_close_at = NULL, auto_close_job_id = NULL/.test(upd.sql));
+  const ins = bound.seen[1];
+  check("…then writes ONE public state_change entry 'resolved → closed' by the auto-close author (system, labelled)", /INSERT INTO ticket_entries/.test(ins.sql) && ins.params[1] === "state_change" && ins.params[2] === "public" && ins.params[3] === "resolved → closed" && ins.params[4] === "system" && ins.params[7] === "auto-close" && AUTOCLOSE_AUTHOR.label === "auto-close");
+  check("…and logs the close by reference, never the notes", said.length === 1 && /MD-77 resolved -> closed \(closed_by auto\)/.test(said[0]) && bound.seen.length === 2);
+
+  said.length = 0;
+  const gone = fakeClient({ update: [], now: [{ reference: "MD-77", state: "closed", auto_close_job_id: null, auto_close_at: null }] });
+  await handler(theJob, gone);
+  check("the world moved on (closed already): NO throw, no entry written, one log line saying why and that this is success", gone.seen.length === 2 && !gone.seen.some((s) => /INSERT/.test(s.sql)) && /MD-77 is closed, not resolved/.test(said[0]) && /at-least-once: this is success/.test(said[0]), said.join(" | "));
+  said.length = 0;
+  const newer = fakeClient({ update: [], now: [{ reference: "MD-77", state: "resolved", auto_close_job_id: "565", auto_close_at: new Date() }] });
+  await handler(theJob, newer);
+  check("resolve -> reopen -> resolve: the ticket is resolved by a NEWER resolution bound to another job, so this job does nothing and says so", /resolved by a NEWER resolution bound to job 565/.test(said[0]));
+  said.length = 0;
+  const unbound = fakeClient({ update: [], now: [{ reference: "MD-77", state: "resolved", auto_close_job_id: null, auto_close_at: null }] });
+  await handler(theJob, unbound);
+  check("resolved with no binding (interval off, or a move cleared it): nothing to do", /not bound to any job/.test(said[0]));
+  said.length = 0;
+  const early = fakeClient({ update: [], now: [{ reference: "MD-77", state: "resolved", auto_close_job_id: theJob.id, auto_close_at: new Date("2099-01-01T00:00:00Z") }] });
+  await handler(theJob, early);
+  check("bound to this job but not yet due: nothing to do, and the line names the instant", /not due until 2099-01-01/.test(said[0]));
+  check("a job with no reference THROWS (the runner records it failed) - there is nothing it could re-check", await handler({ ...theJob, refId: null }, fakeClient({})).then(() => false, (e) => /carries no ticket reference/.test(e.message)));
+  const src = read("src/tickets/autoclose.js"), js = jsCode(src);
+  check("autoclose.js holds NO SQL of its own (D224): the guarded UPDATE is closeByAutoclose() in query.js", !/UPDATE tickets|INSERT INTO|SELECT .* FROM tickets/.test(js) && /closeByAutoclose\(client, \{ ticketId: job\.refId, jobId: job\.id, author: AUTOCLOSE_AUTHOR \}\)/.test(js));
+  check("…and its header records D270's proof and the kill switch", /AT-LEAST-ONCE, PROVEN/.test(src) && /NULL is the kill switch/.test(src));
+}
+
 console.log("\n=== 2. the rules, in the source ===");
 {
   const runnerSrc = read("src/jobs/runner.js"), runnerJs = jsCode(runnerSrc);
@@ -227,7 +280,9 @@ console.log("\n=== 2. the rules, in the source ===");
   check("the runner's header states the contract in words: AT-LEAST-ONCE, and idempotency is the handler's job", /AT-LEAST-ONCE/.test(runnerSrc) && /IDEMPOTENCY IS THE HANDLER'S JOB/.test(runnerSrc));
   check("…and names the job it is written for and the trap: ticket.autoclose bound to the resolution, not the ticket", /ticket\.autoclose/.test(runnerSrc) && /resolve -> reopen -> resolve/.test(runnerSrc));
   check("the handler registry repeats the contract where a handler author will read it", /At-least-once, never exactly-once/.test(handlersSrc) && /RE-CHECKS ITS PRECONDITION/.test(handlersSrc));
-  check("the registry is empty and frozen: P5 adds the first handler, the runtime exists first", Object.keys(JOB_HANDLERS).length === 0 && Object.isFrozen(JOB_HANDLERS));
+  check("the registry holds exactly ONE handler, ticket.autoclose (P5, D289), and is frozen", Object.keys(JOB_HANDLERS).join(",") === "ticket.autoclose" && Object.isFrozen(JOB_HANDLERS) && typeof JOB_HANDLERS["ticket.autoclose"] === "function");
+  check("…registered from src/tickets/autoclose.js by the constant the store enqueues under, so the two names cannot drift", /import \{ AUTOCLOSE_JOB, createAutocloseHandler \} from "\.\.\/tickets\/autoclose\.js"/.test(handlersSrc) && /\[AUTOCLOSE_JOB\]: createAutocloseHandler\(\{ log: console\.log \}\)/.test(handlersSrc) && /export const AUTOCLOSE_JOB = "ticket\.autoclose"/.test(read("src/tickets/query.js")));
+  check("…and the registry's header no longer claims to be empty", !/EMPTY ON PURPOSE/.test(handlersSrc) && /ONE ENTRY SINCE P5/.test(handlersSrc));
 
   check("the runner asserts NO tenant of its own — withTenant() is the one door and it already asserts", !/withTenant|assertTenantSchema|control\.tenants|SCHEMA_SHAPE/.test(runnerJs));
   check("the runner reaches the queue only through src/db/jobs.js's primitives", /from "\.\.\/db\/jobs\.js"/.test(runnerJs) && !/\.query\(|getPool|from "pg"/.test(runnerJs));

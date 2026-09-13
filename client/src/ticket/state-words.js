@@ -51,12 +51,12 @@ export function stateClass(state) {
 /**
  * The line under the label. Unseen beats everything - it is the one fact the user may act on -
  * then the resolved state's own sentence, then when the desk last wrote, then that it has not.
- * @param {{ state?: string, unseen?: number, lastUpdateAt?: string|null }} row
+ * @param {{ state?: string, unseen?: number, lastUpdateAt?: string|null, autoCloseAt?: string|null }} row
  * @param {Date} [now]
  */
 export function stateDetail(row, now = new Date()) {
   if ((row.unseen ?? 0) > 0) return "New from the service desk, not yet seen here";
-  if (row.state === "resolved") return "The desk says it's fixed";
+  if (row.state === "resolved") return row.autoCloseAt ? `The desk says it's fixed — closes on its own ${untilWords(row.autoCloseAt, now)} unless you say otherwise` : "The desk says it's fixed";
   if (row.lastUpdateAt) return `Last update from the desk ${agoWords(row.lastUpdateAt, now)}`;
   return "No update from the desk yet";
 }
@@ -86,6 +86,11 @@ export function stateSpoken(state) {
  */
 export function updateWords(entry, reference, state) {
   const words = String(entry.body ?? "").trim();
+  // D289: the hub closed it on its own. The entry is a system state change labelled by the auto-close
+  // job; the sentence says nobody at the desk did this, and what to do if the problem is back.
+  if (entry.kind === "state_change" && entry.authorKind === "system" && entry.authorLabel === "auto-close") {
+    return `${reference} closed on its own: the service desk had marked it fixed and nobody said otherwise in time. If the problem is back, raise a new ticket about it — quote ${reference}.`;
+  }
   if (entry.kind === "resolution") {
     return `The service desk has marked ${reference} as fixed. Their note: “${words}” If that's not right, the ticket can be reopened — from this window that isn't built yet, so quote ${reference} if you follow it up.`;
   }
@@ -96,6 +101,26 @@ export function updateWords(entry, reference, state) {
     return `${reference} has moved on at the service desk: ${stateSpoken(state).replace(/^the service desk/, "the desk")}.`;
   }
   return `${reference} has an update from the service desk: “${words}”`;
+}
+
+/**
+ * The other direction: "in 2 hours", "tomorrow", "in 3 days", or "any time now" once passed - for
+ * D289's "closes on its own …" clause. Coarse for the same reason as agoWords().
+ * @param {string|Date|null|undefined} at
+ * @param {Date} [now]
+ */
+export function untilWords(at, now = new Date()) {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const s = Math.round((d.getTime() - now.getTime()) / 1000);
+  if (s < 90) return "any time now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `in ${m} minutes`;
+  const h = Math.round(m / 60);
+  if (h < 24) return h === 1 ? "in about an hour" : `in about ${h} hours`;
+  const days = Math.round(h / 24);
+  return days === 1 ? "tomorrow" : `in ${days} days`;
 }
 
 /**

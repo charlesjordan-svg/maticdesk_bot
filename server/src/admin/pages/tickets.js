@@ -54,6 +54,7 @@ import {
   countTicketsByState, getTicket, listTickets, setTicketState, resolveTicket, NEXT_STATES, TICKET_STATES,
   RESOLUTION_CODES, RESOLUTION_CODE_WORDS, addEntry, listEntries, oldestUnansweredRequesterComment, replyToRequester,
 } from "../../tickets/query.js";
+import { autocloseSetting, setAutocloseHours, DEFAULT_AUTOCLOSE_HOURS, MAX_AUTOCLOSE_HOURS } from "../../tickets/autoclose.js";
 
 const NOBODY_EMAILED = "Nobody has been emailed about any of these. This build has no outbound email (D86), so this list is the queue: if you do not look here, nobody knows.";
 
@@ -166,6 +167,42 @@ function timelinePanel(ctx, t, entries) {
 const owner = (o) => o ? o.replace(/_/g, " ") : html`<span class="muted">unrouted</span>`;
 const category = (c) => c.replace(/_/g, " ");
 
+/**
+ * D289 — the tenant's auto-close interval, on the tickets list where the queue it shortens lives.
+ * Read under `settings.read`, changed under `settings.write` (tenant_owner / tenant_admin; an
+ * it_agent sees the sentence on each ticket instead). The number is a PROPOSAL and the copy says so:
+ * plan v3 §7.6 chose 72 hours to survive a weekend and established no vendor's default.
+ */
+function autocloseSettingPanel(ctx, hours, notice) {
+  const state = hours === null
+    ? html`<strong>Auto-close is off.</strong> A resolved ticket stays resolved until the requester confirms it fixed (it closes) or comments (it reopens), or the desk moves it.`
+    : html`<strong>Resolved tickets close on their own after ${hours} hour${hours === 1 ? "" : "s"}</strong> unless the requester confirms first (closed by them) or comments (reopened). The close is a public state change the requester's Matic Desk shows when it next polls; nobody is emailed (D86). Changing this applies to tickets resolved from now on — an instant already shown to a requester is kept.`;
+  const form = ctx.permissions.has("settings.write") ? html`
+  <form method="post" action="/admin/tickets/autoclose" class="row" style="margin-top:8px;align-items:center;gap:10px">
+    ${csrfField(ctx.csrf)}
+    <label for="autocloseHours" style="margin:0">Hours</label>
+    <input id="autocloseHours" name="hours" type="number" min="1" max="${MAX_AUTOCLOSE_HOURS}" step="1" value="${hours ?? DEFAULT_AUTOCLOSE_HOURS}" style="width:7em">
+    <button type="submit">Set</button>
+    <button type="submit" name="off" value="1">Turn off</button>
+    <span class="muted" style="font-size:13px">${DEFAULT_AUTOCLOSE_HOURS} is the default and a proposal, not a measured figure (plan v3 §7.6). Audited as who changed it and to what.</span>
+  </form>` : html`<p class="muted" style="font-size:13px;margin:6px 0 0">Your roles (${ctx.roles.join(", ")}) can read this but not change it (<span class="mono">settings.write</span>).</p>`;
+  return html`<div class="panel">
+  <h2>Auto-close</h2>
+  ${notice ? html`<div class="flash">${notice}</div>` : ""}
+  <p style="margin:0">${state}</p>
+  ${form}
+</div>`;
+}
+
+/** The sentence a resolved ticket carries about its own future (D289). */
+function autocloseWords(t, hours) {
+  if (t.state !== "resolved") return "";
+  if (t.autoCloseAt) {
+    return html`<p class="muted" style="font-size:13px"><strong>Closes automatically ${when(t.autoCloseAt)}</strong> (${ago(t.autoCloseAt)}) unless the requester says otherwise before then: a comment from them reopens it, a confirmation closes it as theirs. The requester's Matic Desk shows this date.</p>`;
+  }
+  return html`<p class="muted" style="font-size:13px"><strong>Will not close on its own</strong>${hours === null ? " — auto-close is off for this tenant" : " — it was resolved while auto-close was off, or the binding was cleared"}. It stays resolved until the requester confirms or comments, or the desk moves it.</p>`;
+}
+
 async function listPage(ctx) {
   const state = ctx.url.searchParams.get("state");
   const filter = state && TICKET_STATES.includes(state) ? state : null;
@@ -179,6 +216,8 @@ async function listPage(ctx) {
   const page = Math.min(Math.max(Number(ctx.url.searchParams.get("page")) || 1, 1), pages);
   const rows = await listTickets(schema, { state: filter, limit: PAGE, offset: (page - 1) * PAGE });
   const oldest = await oldestUnansweredRequesterComment(schema);
+  const hours = ctx.permissions.has("settings.read") ? await autocloseSetting({ tenantId: ctx.tenant.id }) : undefined;
+  const autocloseNotice = ctx.url.searchParams.get("autoclose") === "set" ? "Auto-close interval changed for tickets resolved from now on." : ctx.url.searchParams.get("autoclose") === "off" ? "Auto-close turned off. Nothing already queued fires: a job finds its ticket's binding and, if the desk turns this back on later, only new resolutions are bound." : ctx.url.searchParams.get("autoclose") === "refused" ? "Not changed: the interval is a whole number of hours from 1 to 8760, or off." : null;
   const pageHref = (p) => `/admin/tickets?${filter ? `state=${filter}&` : ""}page=${p}`;
   const body = html`
 <h1>Tickets</h1>
@@ -202,8 +241,24 @@ ${unansweredLimit(oldest)}
   </table>` : empty(filter ? `No tickets in state "${filter}".` : "No tickets have been filed in this tenant. The endpoint files one when a user accepts an escalation (POST /v1/ticket).")}
 </div>
 ${pages > 1 ? html`<p class="filters pager"><strong>Page</strong>${page > 1 ? html`<a href="${pageHref(page - 1)}">Previous</a>` : ""}<a class="current" href="${pageHref(page)}">${page} of ${pages}</a>${page < pages ? html`<a href="${pageHref(page + 1)}">Next</a>` : ""}<span class="muted">${inFilter} ticket${inFilter === 1 ? "" : "s"}, ${PAGE} a page</span></p>` : ""}
+${hours === undefined ? "" : autocloseSettingPanel(ctx, hours, autocloseNotice)}
 <p class="muted">The same rows, from a terminal: <span class="mono">npm.cmd run tickets -- list${filter ? ` --state ${filter}` : ""}</span> (server/).</p>`;
   await ctx.render(200, body, { title: "Tickets", current: "/admin/tickets" });
+}
+
+/** The interval's POST (D289): `settings.write`; off, or a whole number of hours; audited with the value, never a ticket. */
+async function autoclosePost(ctx) {
+  const off = String(ctx.form.off ?? "") === "1";
+  const hours = off ? null : String(ctx.form.hours ?? "").trim();
+  const r = await setAutocloseHours({ tenantId: ctx.tenant.id, hours: off ? null : (/^\d+$/.test(hours) ? Number(hours) : hours) });
+  if (!r.ok) {
+    await ctx.audit("ticket.autoclose.refused", { detail: { given: hours } });
+    ctx.redirect("/admin/tickets?autoclose=refused");
+    return;
+  }
+  await ctx.audit("ticket.autoclose.set", { detail: { hours: r.hours } });
+  ctx.log(`[admin] ${ctx.user.email} set the auto-close interval to ${r.hours === null ? "off" : `${r.hours} h`} for tickets resolved from now on`);
+  ctx.redirect(`/admin/tickets?autoclose=${r.hours === null ? "off" : "set"}`);
 }
 
 /** The internal note field, shared by the state form and the Resolve form — one field, one wording. */
@@ -249,10 +304,13 @@ function stateBlock(ctx, t, next) {
  * must be readable by the person they are about. Nothing here implies delivery (D253's lesson: a
  * surface may not describe an egress outcome it has not been told).
  */
-function resolveBlock(ctx, t, next) {
+function resolveBlock(ctx, t, next, autocloseHours) {
   if (!ctx.permissions.has("tickets.write") || !next.includes("resolved")) return "";
   return html`<div class="panel">
   <h2>Resolve</h2>
+  <p class="muted" style="font-size:13px;margin:0 0 8px">${autocloseHours === null
+    ? "Auto-close is off for this tenant: the ticket stays resolved until the requester confirms or comments, or the desk moves it."
+    : `Resolving starts a ${autocloseHours}-hour clock (D289): unless the requester confirms the fix or comments before then, the ticket closes on its own as a public state change. The interval is set on the tickets list.`}</p>
   <form method="post" action="/admin/tickets/${t.reference}/resolve">
     ${csrfField(ctx.csrf)}
     <input type="hidden" name="from" value="${t.state}">
@@ -300,9 +358,10 @@ async function detailPage(ctx) {
   const replied = ctx.url.searchParams.get("reply");
   const resolvedNow = ctx.url.searchParams.get("resolved");
   // "all": this page is the one reader entitled to internal rows, and it says so in the call (D275).
-  const [entries, oldest] = await Promise.all([
+  const [entries, oldest, autocloseHours] = await Promise.all([
     listEntries(ctx.tenant.schemaName, ref, { visibility: "all" }),
     oldestUnansweredRequesterComment(ctx.tenant.schemaName),
+    autocloseSetting({ tenantId: ctx.tenant.id }),
   ]);
 
   const body = html`
@@ -311,7 +370,7 @@ async function detailPage(ctx) {
 <p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
 ${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
 ${unansweredLimit(oldest)}
-${flash ? html`<div class="flash">${resolvedNow ? "Resolved. The requester's Matic Desk shows this the next time it polls while their app is open — nobody has been emailed (D86)." : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
+${flash ? html`<div class="flash">${resolvedNow ? `Resolved. The requester's Matic Desk shows this the next time it polls while their app is open — nobody has been emailed (D86).${t.autoCloseAt ? ` Closes automatically ${when(t.autoCloseAt)} unless the requester says otherwise (D289).` : ""}` : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
 ${workNoted ? html`<div class="flash">Work note added — internal, on the timeline below.</div>` : ""}
 ${replied ? html`<div class="flash">Reply added — public. The requester's Matic Desk shows it when it next polls; this is not email. The timeline below says when it was handed over and seen.</div>` : ""}
 
@@ -331,7 +390,8 @@ ${replied ? html`<div class="flash">Reply added — public. The requester's Mati
   <h2>Resolution</h2>
   <p class="muted" style="font-size:13px;margin:0 0 4px">A code you can count and notes written for the requester (D278). Both are PUBLIC — shown in the requester's Matic Desk when it polls (P4, D287); nobody is emailed (D86).</p>
   ${resolutionBlock(t)}
-  ${t.closedAt ? html`<p class="muted" style="font-size:13px">Closed ${when(t.closedAt)} by ${CLOSED_BY_WORDS[t.closedBy] ?? t.closedBy}.</p>` : ""}
+  ${autocloseWords(t, autocloseHours)}
+  ${t.closedAt ? html`<p class="muted" style="font-size:13px">Closed ${when(t.closedAt)} by ${CLOSED_BY_WORDS[t.closedBy] ?? t.closedBy}${t.closedBy === "auto" ? " — the requester neither confirmed nor reopened within the tenant's interval (D289)" : ""}.</p>` : ""}
 </div>
 
 <div class="panel">
@@ -339,7 +399,7 @@ ${replied ? html`<div class="flash">Reply added — public. The requester's Mati
   ${stateBlock(ctx, t, next)}
 </div>
 
-${resolveBlock(ctx, t, next)}
+${resolveBlock(ctx, t, next, autocloseHours)}
 
 ${timelinePanel(ctx, t, entries)}
 </div>
@@ -457,7 +517,7 @@ async function resolvePost(ctx) {
     return ctx.render(400, html`<h1>Not resolved</h1><p class="lede">${r.refused}</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Refused", current: "/admin/tickets" });
   }
   await ctx.audit("ticket.resolve", { subject: ref, detail: { from: r.from, code: r.code, noted: r.noted } });
-  ctx.log(`[admin] ${ctx.user.email} resolved ${ref} (${r.code})${r.noted ? " with an internal note" : ""} — the requester has not been told (nothing delivers)`);
+  ctx.log(`[admin] ${ctx.user.email} resolved ${ref} (${r.code})${r.noted ? " with an internal note" : ""} — shown in the requester's Matic Desk when it next polls${r.autoCloseAt ? `; closes automatically at ${r.autoCloseAt.toISOString()} unless they act (D289)` : "; auto-close is off"}`);
   ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?changed=1&resolved=1${r.noted ? "&noted=1" : ""}`);
 }
 
@@ -505,4 +565,5 @@ export const ticketRoutes = [
   route("POST", new RegExp(`^/admin/tickets/${REF}/resolve$`), "tickets.write", resolvePost),
   route("POST", new RegExp(`^/admin/tickets/${REF}/worknote$`), "tickets.write", worknotePost),
   route("POST", new RegExp(`^/admin/tickets/${REF}/reply$`), "tickets.write", replyPost),
+  route("POST", /^\/admin\/tickets\/autoclose\/?$/, "settings.write", autoclosePost),
 ];

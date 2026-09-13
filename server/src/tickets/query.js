@@ -33,6 +33,8 @@
  * together. `GET /v1/tickets` (src/index.js) is their caller.
  */
 import { withTenant } from "../db/tenant.js";
+import { withControl } from "../db/pool.js";
+import { enqueue, cancelJobsFor } from "../db/jobs.js";
 
 export const TICKET_STATES = ["new", "open", "resolved", "closed"];
 
@@ -86,6 +88,85 @@ export const RESOLUTION_CODE_WORDS = Object.freeze({
 
 /** Who closed a ticket, by author kind. `agent` has no closing path; if one appears, decide its value then. */
 const CLOSED_BY = Object.freeze({ console_user: "console_user", system: "system", requester: "requester" });
+
+// ---- auto-close (tenant/010, control/009; D289, P5) ---------------------------------------------
+
+/** The one job type this store enqueues. src/jobs/handlers.js registers the handler under this name. */
+export const AUTOCLOSE_JOB = "ticket.autoclose";
+
+/**
+ * The tenant's auto-close interval in hours, by SCHEMA, or null when off. Read at resolve time and
+ * never re-applied: a policy change is not a retroactive edit of instants already shown. A control
+ * read from the ticket store is allowed here because the ticket store is what has to know it
+ * (D224 puts the SQL about tickets in one place; this is that place).
+ * @param {string} schema
+ */
+export async function autocloseHoursForSchema(schema) {
+  const { rows } = await withControl((c) => c.query("SELECT ticket_autoclose_hours FROM control.tenants WHERE schema_name = $1", [schema]));
+  return rows[0]?.ticket_autoclose_hours ?? null;
+}
+
+/**
+ * Bind a fresh resolution to ONE auto-close job. Inside the resolving transaction, after the UPDATE
+ * that set `resolved_at`: any queued job for this ticket is cancelled first (a re-resolve while one
+ * waits), one job is enqueued for `resolvedAt + hours`, and its id and instant are written on the
+ * ticket — the binding the handler checks (`closeByAutoclose`). Off (hours null): both columns are
+ * cleared and nothing is enqueued. The enqueue commits on its own connection, so a resolve that
+ * rolls back afterwards leaves an orphan job whose binding was never written: the handler finds no
+ * row and does nothing, which is the contract.
+ *
+ * @param {import("pg").PoolClient} c  inside withTenant
+ * @param {{ schema: string, ticketId: string, resolvedAt: Date }} p
+ * @returns {Promise<{ autoCloseAt: Date|null, jobId: string|null }>}
+ */
+async function scheduleAutoclose(c, { schema, ticketId, resolvedAt }) {
+  const hours = await autocloseHoursForSchema(schema);
+  await cancelJobsFor(AUTOCLOSE_JOB, ticketId);
+  if (hours === null) {
+    await c.query("UPDATE tickets SET auto_close_at = NULL, auto_close_job_id = NULL WHERE id = $1", [ticketId]);
+    return { autoCloseAt: null, jobId: null };
+  }
+  const at = new Date(new Date(resolvedAt).getTime() + hours * 3_600_000);
+  const jobId = await enqueue({ type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId, runAfter: at });
+  await c.query("UPDATE tickets SET auto_close_at = $2, auto_close_job_id = $3::bigint WHERE id = $1", [ticketId, at, jobId]);
+  return { autoCloseAt: at, jobId };
+}
+
+/**
+ * The handler's one write (D289): resolved -> closed by 'auto', ONLY IF the ticket is still bound to
+ * THIS job — `state = 'resolved' AND auto_close_job_id = $jobId AND auto_close_at <= now()` — in one
+ * UPDATE, under the row lock, with a public `state_change` entry the requester's app shows. No row:
+ * the world moved on (confirmed, reopened, moved by the desk, re-resolved with a newer job, or the
+ * interval turned off before the binding was written) and the answer says which without throwing.
+ * Run twice on one job, the second run finds the binding cleared by the first — D270's proof.
+ *
+ * @param {import("pg").PoolClient} c  inside withTenant(job.tenantSchema)
+ * @param {{ ticketId: string, jobId: string, author: EntryAuthor }} p
+ * @returns {Promise<{ closed: true, reference: string }|{ closed: false, why: string }>}
+ */
+export async function closeByAutoclose(c, { ticketId, jobId, author }) {
+  const { rows } = await c.query(
+    `UPDATE tickets t
+        SET state = 'closed', updated_at = now(), closed_at = now(), closed_by = 'auto',
+            awaiting_agent_since = NULL, auto_close_at = NULL, auto_close_job_id = NULL
+       FROM (SELECT id, reference, state, auto_close_job_id, auto_close_at FROM tickets WHERE id = $1::uuid FOR UPDATE) prev
+      WHERE t.id = prev.id AND t.state = 'resolved' AND t.auto_close_job_id = $2::bigint AND t.auto_close_at <= now()
+      RETURNING t.reference`,
+    [ticketId, jobId],
+  );
+  if (rows.length) {
+    await insertEntry(c, ticketId, { kind: "state_change", body: "resolved → closed", author });
+    return { closed: true, reference: rows[0].reference };
+  }
+  const { rows: now } = await c.query("SELECT reference, state, auto_close_job_id, auto_close_at FROM tickets WHERE id = $1::uuid", [ticketId]);
+  if (!now.length) return { closed: false, why: `no ticket ${ticketId} in this tenant` };
+  const t = now[0];
+  const why = t.state !== "resolved" ? `${t.reference} is ${t.state}, not resolved`
+    : t.auto_close_job_id === null ? `${t.reference} is resolved but auto-close is not bound to any job (the interval was off, or a move cleared it)`
+    : String(t.auto_close_job_id) !== String(jobId) ? `${t.reference} is resolved by a NEWER resolution bound to job ${t.auto_close_job_id}`
+    : `${t.reference} is not due until ${new Date(t.auto_close_at).toISOString()}`;
+  return { closed: false, why };
+}
 
 // ---- the timeline (tenant/006, D275) ------------------------------------------------------------
 
@@ -391,6 +472,9 @@ export async function getTicket(schema, reference) {
       resolvedAt: t.resolved_at ?? null,
       closedAt: t.closed_at ?? null,
       closedBy: t.closed_by ?? null,
+      // When the CURRENT resolution closes on its own unless the requester acts (tenant/010, D289);
+      // null when not resolved or the tenant's interval is off. Both readers draw it.
+      autoCloseAt: t.auto_close_at ?? null,
     };
   });
 }
@@ -420,7 +504,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * `tickets` as visible or hidden and fails on one that is neither.
  */
 const REQUESTER_COLUMNS = `t.reference, t.state, t.category, t.machine_name, t.created_at, t.updated_at,
-              t.resolution_code, t.resolution_notes, t.resolved_at, t.closed_at, t.closed_by`;
+              t.resolution_code, t.resolution_notes, t.resolved_at, t.closed_at, t.closed_by, t.auto_close_at`;
 
 /** ONE shaping function for both requester readers: the allow-list as an object literal. */
 const shapeRequesterRow = (t) => ({
@@ -435,6 +519,7 @@ const shapeRequesterRow = (t) => ({
   resolvedAt: t.resolved_at ?? null,
   closedAt: t.closed_at ?? null,
   closedBy: t.closed_by ?? null,
+  autoCloseAt: t.auto_close_at ?? null,
 });
 
 /** The identity every requester reader takes: REQUIRED, no default, a uuid or a thrown error. */
@@ -568,9 +653,10 @@ export async function listEntriesForRequester(schema, reference, identity) {
  * `POST /v1/ticket/:ref/reopen`'s shape — the same transition, requiring the ticket to be resolved,
  * so "reopen" can never be a no-op comment on a live ticket by mistake.
  *
- * P5 WILL CANCEL THE AUTO-CLOSE JOB HERE. The `ticket.autoclose` job must be bound to the RESOLUTION
- * it was enqueued for (D270's condition 2), and its refId is P5's to decide; the cancel belongs on
- * the resolved -> open branch below and is written there when the job exists.
+ * D289 (P5): the resolved -> open branch clears the auto-close binding (`auto_close_at`,
+ * `auto_close_job_id`) in its UPDATE and withdraws the queued `ticket.autoclose` job — the job was
+ * bound to the resolution just undone, and a job whose binding is gone does nothing even if the
+ * withdrawal misses it (closeByAutoclose's guard).
  *
  * @param {string} schema
  * @param {string} reference
@@ -605,13 +691,16 @@ export async function requesterComment(schema, reference, { deviceId, body, only
             SET state = 'open', updated_at = now(),
                 resolution_code = NULL, resolution_notes = NULL, resolved_at = NULL,
                 closed_at = NULL, closed_by = NULL,
+                auto_close_at = NULL, auto_close_job_id = NULL,
                 awaiting_agent_since = COALESCE(awaiting_agent_since, now())
           WHERE id = $1`,
         [t.id],
       );
       await insertEntry(c, t.id, { kind: "state_change", body: "resolved → open", author: who });
       to = "open";
-      // P5: cancel the ticket.autoclose job bound to the resolution just undone — here.
+      // D289: the auto-close job bound to the resolution just undone is withdrawn. The UPDATE above
+      // already cleared the binding, which is the guarantee; this is the fast path.
+      await cancelJobsFor(AUTOCLOSE_JOB, t.id);
     } else {
       await c.query("UPDATE tickets SET updated_at = now(), awaiting_agent_since = COALESCE(awaiting_agent_since, now()) WHERE id = $1", [t.id]);
     }
@@ -626,7 +715,8 @@ export async function requesterComment(schema, reference, { deviceId, body, only
  * waiting on the desk any more. Guarded in the UPDATE like every other move (D280): only a
  * `resolved` ticket of THIS enrollment closes; anything else is a refusal naming the state now.
  *
- * P5 WILL CANCEL THE AUTO-CLOSE JOB HERE TOO: a confirmed closure makes the timer moot.
+ * D289 (P5): a confirmed closure makes the timer moot — the binding is cleared in the UPDATE and the
+ * queued `ticket.autoclose` job withdrawn.
  *
  * @param {string} schema
  * @param {string} reference
@@ -638,7 +728,8 @@ export async function confirmResolution(schema, reference, { deviceId } = {}) {
   return withTenant(schema, async (c) => {
     const { rows } = await c.query(
       `UPDATE tickets t
-          SET state = 'closed', updated_at = now(), closed_at = now(), closed_by = 'requester', awaiting_agent_since = NULL
+          SET state = 'closed', updated_at = now(), closed_at = now(), closed_by = 'requester', awaiting_agent_since = NULL,
+              auto_close_at = NULL, auto_close_job_id = NULL
          FROM (SELECT id, state AS was, user_id FROM tickets WHERE reference = $1 AND device_id = $2::uuid FOR UPDATE) prev
         WHERE t.id = prev.id AND t.state = 'resolved'
         RETURNING t.id, prev.user_id`,
@@ -650,7 +741,8 @@ export async function confirmResolution(schema, reference, { deviceId } = {}) {
       return { refused: `${reference} is ${r2[0].state}, not resolved: only a resolved ticket can be confirmed fixed. Nothing was changed.`, state: r2[0].state };
     }
     await insertEntry(c, rows[0].id, { kind: "state_change", body: "resolved → closed", author: { kind: "requester", userId: rows[0].user_id, label: null } });
-    // P5: cancel the ticket.autoclose job bound to this resolution — here.
+    // D289: a confirmed closure makes the timer moot; the binding is cleared above, the job withdrawn here.
+    await cancelJobsFor(AUTOCLOSE_JOB, rows[0].id);
     return { from: "resolved", to: "closed", closedBy: "requester" };
   });
 }
@@ -842,7 +934,8 @@ export async function setTicketState(schema, reference, next, { note = null, aut
               resolution_notes = CASE WHEN $2 IN ('new', 'open') THEN NULL ELSE t.resolution_notes END,
               resolved_at      = CASE WHEN $2 IN ('new', 'open') THEN NULL ELSE t.resolved_at END,
               closed_at = CASE WHEN $2 = 'closed' THEN now() ELSE NULL END,
-              closed_by = CASE WHEN $2 = 'closed' THEN $5::text ELSE NULL END
+              closed_by = CASE WHEN $2 = 'closed' THEN $5::text ELSE NULL END,
+              auto_close_at = NULL, auto_close_job_id = NULL
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
         WHERE t.id = prev.id AND ($4::text IS NULL OR t.state = $4::text)
         RETURNING t.id, prev.was`,
@@ -851,6 +944,9 @@ export async function setTicketState(schema, reference, next, { note = null, aut
     if (!rows.length) return staleOrMissing(c, reference, from);
     const was = rows[0].was;
     if (was !== next) await insertEntry(c, rows[0].id, { kind: "state_change", body: `${was} → ${next}`, author });
+    // D289: this cannot TARGET resolved, so every move here leaves it or never had it; a queued
+    // auto-close job for a ticket that is no longer resolved by that resolution is withdrawn.
+    if (was === "resolved") await cancelJobsFor(AUTOCLOSE_JOB, rows[0].id);
     return { from: was, to: next, noted: trimmed !== null };
   });
 }
@@ -866,14 +962,18 @@ export async function setTicketState(schema, reference, next, { note = null, aut
  * keeps every resolution across a reopen while the columns hold the current one. The `from`
  * guard is the same as `setTicketState()`'s (D280).
  *
- * The notes are PUBLIC and reach NOBODY in this build: nothing delivers them until P4. Both
- * readers say so beside them. They are written FOR the requester anyway, because the day delivery
- * exists the notes already written must be the kind a requester can read.
+ * The notes are PUBLIC and reach the requester's Matic Desk when it next polls (P4, D287); both
+ * readers say so beside them, and neither says "sent".
+ *
+ * D289 (P5): the resolution is BOUND to one auto-close job. `scheduleAutoclose()` runs inside this
+ * transaction after the UPDATE — the tenant's interval read, any older queued job for the ticket
+ * cancelled, one job enqueued for `resolved_at + interval`, its id and instant written on the row.
+ * Off for the tenant: nothing enqueued, both columns null, `autoCloseAt` null in the result.
  *
  * @param {string} schema
  * @param {string} reference
  * @param {{ code: string, notes: string, note?: string|null, author?: EntryAuthor, from?: string|null }} r
- * @returns {Promise<{ from: string, to: "resolved", code: string, noted: boolean }|RefusedMove|null>}
+ * @returns {Promise<{ from: string, to: "resolved", code: string, noted: boolean, autoCloseAt: Date|null }|RefusedMove|null>}
  */
 export async function resolveTicket(schema, reference, { code, notes, note = null, author = SYSTEM_AUTHOR, from = null }) {
   if (from !== null && !TICKET_STATES.includes(from)) throw new Error(`from must be null or one of: ${TICKET_STATES.join(", ")}`);
@@ -894,14 +994,15 @@ export async function resolveTicket(schema, reference, { code, notes, note = nul
               closed_at = NULL, closed_by = NULL
          FROM (SELECT id, state AS was FROM tickets WHERE reference = $1 FOR UPDATE) prev
         WHERE t.id = prev.id AND ($5::text IS NULL OR t.state = $5::text)
-        RETURNING t.id, prev.was`,
+        RETURNING t.id, prev.was, t.resolved_at`,
       [reference, code, text, trimmed, from],
     );
     if (!rows.length) return staleOrMissing(c, reference, from);
     const was = rows[0].was;
     if (was !== "resolved") await insertEntry(c, rows[0].id, { kind: "state_change", body: `${was} → resolved`, author });
     await insertEntry(c, rows[0].id, { kind: "resolution", body: text, author });
-    return { from: was, to: "resolved", code, noted: trimmed !== null };
+    const { autoCloseAt } = await scheduleAutoclose(c, { schema, ticketId: rows[0].id, resolvedAt: rows[0].resolved_at });
+    return { from: was, to: "resolved", code, noted: trimmed !== null, autoCloseAt };
   });
 }
 

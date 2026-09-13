@@ -222,7 +222,7 @@ console.log("\n=== 5d. the timeline: visibility is the KIND's, never the caller'
   check("D276: both ticket screens draw unansweredLimit(oldest) from oldestUnansweredRequesterComment()", (pageCode.match(/\$\{unansweredLimit\(oldest\)\}/g) ?? []).length === 2 && (pageCode.match(/oldestUnansweredRequesterComment\(/g) ?? []).length >= 2);
   check("D276: it renders an AGE via ago(oldest.since) and never a count", /ago\(oldest\.since\)/.test(pageCode) && !/oldest\.length|unanswered[^;]*count\(/i.test(pageCode));
   check("D276: with nothing to show it says none AND what none means now that requesters CAN comment (answered, or none arrived)", /Oldest unanswered requester comment: none\./.test(page) && /Every requester comment has been answered, or none has arrived/.test(page) && !/No requester can comment in this build/.test(page));
-  check("D276: the query reads tickets.awaiting_agent_since, and since P4 it has WRITERS: requesterComment() starts it with COALESCE (a second comment does not restart it); replyToRequester() and confirmResolution() clear it", /FROM tickets WHERE awaiting_agent_since IS NOT NULL ORDER BY awaiting_agent_since ASC LIMIT 1/.test(qCode) && (qCode.match(/awaiting_agent_since = COALESCE\(awaiting_agent_since, now\(\)\)/g) ?? []).length === 2 && (qCode.match(/awaiting_agent_since = NULL/g) ?? []).length === 2);
+  check("D276: the query reads tickets.awaiting_agent_since, and since P4 it has WRITERS: requesterComment() starts it with COALESCE (a second comment does not restart it); replyToRequester(), confirmResolution() and (P5) closeByAutoclose() clear it", /FROM tickets WHERE awaiting_agent_since IS NOT NULL ORDER BY awaiting_agent_since ASC LIMIT 1/.test(qCode) && (qCode.match(/awaiting_agent_since = COALESCE\(awaiting_agent_since, now\(\)\)/g) ?? []).length === 2 && (qCode.match(/awaiting_agent_since = NULL/g) ?? []).length === 3);
   // D286/D287 — the requester's actions and the hub's two stamps, structurally.
   const rc = qCode.slice(qCode.indexOf("export async function requesterComment"), qCode.indexOf("\n}\n", qCode.indexOf("export async function requesterComment")));
   check("requesterComment() locks the row AND scopes it to the enrollment in one SELECT … FOR UPDATE (D284), so the transition is decided under the lock", /SELECT id, state, user_id FROM tickets WHERE reference = \$1 AND device_id = \$2::uuid FOR UPDATE/.test(rc));
@@ -230,7 +230,7 @@ console.log("\n=== 5d. the timeline: visibility is the KIND's, never the caller'
   const cf = qCode.slice(qCode.indexOf("export async function confirmResolution"), qCode.indexOf("\n}\n", qCode.indexOf("export async function confirmResolution")));
   check("confirmResolution(): the guard is IN the UPDATE (t.state = 'resolved', D280), closed_by is the literal 'requester', the clock is cleared, and a refusal names the state now", /WHERE t\.id = prev\.id AND t\.state = 'resolved'/.test(cf) && /closed_by = 'requester'/.test(cf) && /awaiting_agent_since = NULL/.test(cf) && /not resolved: only a resolved ticket can be confirmed fixed/.test(cf));
   check("both stamps are the HUB's now(), scoped to the enrollment's tickets, and never taken from the body: markEntriesNotified() skips the requester's own comments; ackEntries() stamps only public, unacknowledged, own entries", /SET notified_at = now\(\)[\s\S]*?e\.author_kind <> 'requester' AND e\.notified_at IS NULL/.test(qCode) && /SET read_by_requester_at = now\(\)[\s\S]*?t\.device_id = \$1::uuid AND e\.id = ANY\(\$2::uuid\[\]\)[\s\S]*?e\.visibility = 'public' AND e\.read_by_requester_at IS NULL/.test(qCode));
-  check("the P5 hook is written where it belongs — the resolved -> open branch and confirm both say the auto-close cancel goes there", (q.match(/P5: cancel the ticket\.autoclose job/g) ?? []).length === 2 || (q.match(/P5[^\n]*autoclose/g) ?? []).length >= 2);
+  check("the P5 hooks are BUILT where the placeholders said they would go (D289): the resolved -> open branch and confirm both withdraw the auto-close job, and no placeholder survives", (q.match(/D289 \(P5\)/g) ?? []).length >= 2 && !/P5 WILL CANCEL|P5: cancel the ticket\.autoclose job/.test(q));
   const rr = jsCode(read("src/tickets/requester-routes.js"));
   check("the requester routes hold no SQL (D224), require the device on every action with the exported sentence, and decide no transition themselves", !/SELECT|UPDATE|INSERT/.test(rr) && /if \(!device\) return send\(401, \{ ok: false, error: NEEDS_CREDENTIAL_TO_ACT \}\)/.test(rr) && /requesterComment\(device\.tenantSchema, reference/.test(rr) && /confirmResolution\(device\.tenantSchema, reference/.test(rr) && /ackEntries\(device\.tenantSchema/.test(rr));
   check("index.js dispatches the four POSTs to the action handler BEFORE the read route (they share /v1/tickets' prefix), with the authenticated device", index.indexOf("ACTION_PATH.test(pathname)") > 0 && index.indexOf("ACTION_PATH.test(pathname)") < index.indexOf('pathname === "/v1/tickets"') && /handleRequesterAction\(req, res, send, \{ device: auth\.principal, pathname \}\)/.test(index));
@@ -302,6 +302,7 @@ console.log("\n=== 5f. the requester-safe read shape: an allow-list, not whateve
     resolvedAt: "when it was resolved",
     closedAt: "when it was closed",
     closedBy: "by what kind of actor — requester, auto, console_user, system (D278); glossed by the renderer",
+    autoCloseAt: "when the current resolution closes on its own unless they act (D289) — the requester is TOLD the date; the job id behind it is hidden",
   };
   const q = read("src/tickets/query.js"), qCode = jsCode(q);
   const mod = await import("../src/tickets/query.js");
@@ -455,6 +456,39 @@ console.log("\n=== 5a. one retrieval layer, and one ingest, for the console and 
   check("the console's embedder and retrieval health reader are the ones the ask route got, passed from src/index.js",
     /adminHandler\(\{ log, embedder, retrievalHealth[,}]/.test(index)
     && /embedder = null, retrievalHealth = null[,}]/.test(routerJs));
+}
+
+console.log("\n=== 5g. auto-close (P5, D289): bound to the resolution, cancelled on every way out, the setting under settings.write ===");
+{
+  const q = read("src/tickets/query.js"), qCode = jsCode(q);
+  const page = read("src/admin/pages/tickets.js"), pageJs = jsCode(page);
+  const cli = read("bin/tickets.mjs"), cliJs = jsCode(cli);
+  const ac = read("src/tickets/autoclose.js"), acJs = jsCode(ac);
+  check("resolveTicket() binds the fresh resolution to ONE job inside its transaction, after the UPDATE, and returns the instant",
+    /RETURNING t\.id, prev\.was, t\.resolved_at/.test(qCode) && /const \{ autoCloseAt \} = await scheduleAutoclose\(c, \{ schema, ticketId: rows\[0\]\.id, resolvedAt: rows\[0\]\.resolved_at \}\);/.test(qCode) && /return \{ from: was, to: "resolved", code, noted: trimmed !== null, autoCloseAt \};/.test(qCode));
+  check("scheduleAutoclose(): reads the tenant's hours, cancels any queued job for the ticket FIRST, enqueues at resolved_at + hours, writes id and instant on the row; off -> both null and nothing enqueued",
+    /const hours = await autocloseHoursForSchema\(schema\);\s*await cancelJobsFor\(AUTOCLOSE_JOB, ticketId\);/.test(qCode) && /if \(hours === null\) \{\s*await c\.query\("UPDATE tickets SET auto_close_at = NULL, auto_close_job_id = NULL WHERE id = \$1"/.test(qCode) && /hours \* 3_600_000/.test(qCode) && /enqueue\(\{ type: AUTOCLOSE_JOB, tenantSchema: schema, refId: ticketId, runAfter: at \}\)/.test(qCode) && /SET auto_close_at = \$2, auto_close_job_id = \$3::bigint WHERE id = \$1/.test(qCode));
+  check("EVERY way out of resolved clears the binding in its UPDATE and withdraws the job: requesterComment (reopen), confirmResolution, setTicketState",
+    (qCode.match(/auto_close_at = NULL, auto_close_job_id = NULL/g) ?? []).length >= 5 && (qCode.match(/await cancelJobsFor\(AUTOCLOSE_JOB, /g) ?? []).length === 4 && /if \(was === "resolved"\) await cancelJobsFor\(AUTOCLOSE_JOB, rows\[0\]\.id\);/.test(qCode));
+  check("closeByAutoclose() is the handler's one write and it is guarded on state, the job id AND the due instant, in the WHERE (D280's rule, D270's contract)",
+    /export async function closeByAutoclose\(c, \{ ticketId, jobId, author \}\)/.test(qCode) && /WHERE t\.id = prev\.id AND t\.state = 'resolved' AND t\.auto_close_job_id = \$2::bigint AND t\.auto_close_at <= now\(\)/.test(qCode) && /closed_by = 'auto'/.test(qCode));
+  check("…and a miss returns a sentence rather than throwing - the four reasons, each named", /is \$\{t\.state\}, not resolved/.test(qCode) && /not bound to any job/.test(qCode) && /NEWER resolution bound to job/.test(qCode) && /is not due until/.test(qCode));
+  check("the job type is ONE constant, exported from query.js and re-exported by autoclose.js; nothing spells the string twice", (q.match(/"ticket\.autoclose"/g) ?? []).length === 1 && !/"ticket\.autoclose"/.test(acJs) && /export \{ AUTOCLOSE_JOB \};/.test(acJs));
+  check("no P5 placeholder comment survives in query.js", !/P5 WILL CANCEL|P5: cancel the ticket\.autoclose job/.test(q));
+  check("the requester shape carries autoCloseAt and the column string carries t.auto_close_at; the job id is NOT in either", /t\.closed_by, t\.auto_close_at`/.test(qCode) && /autoCloseAt: t\.auto_close_at \?\? null,\n\}\);/.test(qCode) && !/auto_close_job_id/.test(qCode.slice(qCode.indexOf("const REQUESTER_COLUMNS"), qCode.indexOf("export async function getTicketForRequester"))));
+  check("the setting: control.tenants.ticket_autoclose_hours, read by schema in the store and by tenant id for the console, written by ONE function that refuses out-of-range and takes null as off",
+    /SELECT ticket_autoclose_hours FROM control\.tenants WHERE schema_name = \$1/.test(qCode) && /SELECT ticket_autoclose_hours FROM control\.tenants WHERE id = \$1/.test(acJs) && /UPDATE control\.tenants SET ticket_autoclose_hours = \$2 WHERE id = \$1/.test(acJs) && /n < 1 \|\| n > MAX_AUTOCLOSE_HOURS/.test(acJs) && /export const DEFAULT_AUTOCLOSE_HOURS = 72;/.test(acJs) && /export const MAX_AUTOCLOSE_HOURS = 8760;/.test(acJs));
+  check("the console's interval route is POST /admin/tickets/autoclose under settings.write, calls setAutocloseHours(), audits the VALUE (never a ticket) and the refusal",
+    /route\("POST", \/\^\\\/admin\\\/tickets\\\/autoclose\\\/\?\$\/, "settings\.write", autoclosePost\)/.test(pageJs) && /await setAutocloseHours\(\{ tenantId: ctx\.tenant\.id, hours:/.test(pageJs) && /ctx\.audit\("ticket\.autoclose\.set", \{ detail: \{ hours: r\.hours \} \}\)/.test(pageJs) && /ctx\.audit\("ticket\.autoclose\.refused"/.test(pageJs));
+  check("…the panel is drawn only for settings.read, the form only for settings.write, and the copy calls 72 a PROPOSAL and says a change is not retroactive",
+    /ctx\.permissions\.has\("settings\.read"\) \? await autocloseSetting\(\{ tenantId: ctx\.tenant\.id \}\) : undefined/.test(pageJs) && /ctx\.permissions\.has\("settings\.write"\) \? html/.test(pageJs) && /is the default and a proposal, not a measured figure/.test(page) && /an instant already shown to a requester is kept/.test(page));
+  check("the detail page says when a resolved ticket closes on its own and what stops it; the Resolve form says resolving starts the clock; a closed-by-auto ticket says why",
+    /Closes automatically \$\{when\(t\.autoCloseAt\)\}/.test(page) && /a comment from them reopens it, a confirmation closes it as theirs/.test(page) && /Resolving starts a \$\{autocloseHours\}-hour clock \(D289\)/.test(page) && /neither confirmed nor reopened within the tenant's interval \(D289\)/.test(page) && /Will not close on its own/.test(page));
+  check("…and neither surface says the requester was emailed or notified of the close", !/emailed about the close|requester (is|was|has been) notified/.test(page + cli));
+  check("the CLI: show prints auto-close and glosses closed_by auto; resolve prints the instant or that auto-close is off; autoclose reads/sets through the SAME setAutocloseHours()",
+    /t\.autoCloseAt/.test(cliJs) && /the auto-close job: neither confirmed nor reopened/.test(cli) && /closes automatically at \$\{r\.autoCloseAt\.toISOString\(\)\}/.test(cliJs) && /cmd === "autoclose"/.test(cliJs) && /await setAutocloseHours\(\{ tenantId: row\.id/.test(cliJs) && /await autocloseSetting\(\{ tenantId: row\.id \}\)/.test(cliJs));
+  const idx = read("src/index.js");
+  check("index.js no longer says nothing is registered", !/Nothing is registered yet/.test(idx) && /One handler is registered since P5/.test(idx));
 }
 
 console.log("\n=== 6. honest stubs: no zero stands in for an absent concept (exit criterion 6) ===");

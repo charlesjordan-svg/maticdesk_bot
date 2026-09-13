@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TicketWatch, POLL_DEFAULT_MS, POLL_FLOOR_MS, SNAPSHOT_FILENAME } from "../src/agent/ticket-watch.js";
-import { stateWords, stateClass, stateDetail, stateSpoken, updateWords, agoWords } from "../src/ticket/state-words.js";
+import { stateWords, stateClass, stateDetail, stateSpoken, updateWords, agoWords, untilWords } from "../src/ticket/state-words.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -74,7 +74,7 @@ const timers = fakeTimers();
 const w = new TicketWatch({ client, dir, intervalMs: 60_000, onUpdate: (u) => updates.push(u), onLog: (l) => logs.push(l), now, setTimer: timers.setTimer, clearTimer: timers.clearTimer });
 client.list = { ok: true, tickets: [
   { reference: "MD-1", state: "open", updatedAt: "2026-09-12T09:50:00.000Z", resolutionNotes: null },
-  { reference: "MD-2", state: "closed", updatedAt: "2026-09-01T09:00:00.000Z", resolutionNotes: "Replaced the cable" },
+  { reference: "MD-2", state: "closed", updatedAt: "2026-09-01T09:00:00.000Z", resolutionNotes: "Replaced the cable", autoCloseAt: null },
 ] };
 client.byRef["MD-1"] = { ok: true, ticket: { reference: "MD-1", state: "open" }, entries: [
   entry("s1", "state_change", "console_user", "2026-09-12T09:00:00.000Z", { readByRequesterAt: "2026-09-12T09:01:00.000Z" }),
@@ -91,6 +91,7 @@ client.byRef["MD-2"] = { ok: true, ticket: { reference: "MD-2", state: "closed" 
   const row = w.status().tickets["MD-1"];
   check("the snapshot row: state, the hub's updatedAt, the desk's last write and its kind, unseen 1", row.state === "open" && row.updatedAt === "2026-09-12T09:50:00.000Z" && row.lastUpdateAt === "2026-09-12T09:50:00.000Z" && row.lastUpdateKind === "comment" && row.unseen === 1, JSON.stringify(row));
   check("MD-2: closed, no desk entry, unseen 0, and the resolution notes carried", w.status().tickets["MD-2"].unseen === 0 && w.status().tickets["MD-2"].lastUpdateAt === null && w.status().tickets["MD-2"].resolutionNotes === "Replaced the cable");
+  check("the row carries autoCloseAt (null here; an ISO string when the hub gives one - D289)", w.status().tickets["MD-2"].autoCloseAt === null && "autoCloseAt" in w.status().tickets["MD-1"]);
   check("status() strips the private id list", !("_unseenIds" in row) && Object.values(w.status().tickets).every((r) => !("_unseenIds" in r)));
   check("basis ok, canQuery true, checkedAt is the poll's clock", w.canQuery && w.status().checkedAt === new Date(T0).toISOString());
   check("the log says shown, not spoken", logs.some((l) => /MD-1: 1 unseen entry from the desk \(comment\) - shown, not spoken/.test(l)), logs.join(" | "));
@@ -120,7 +121,7 @@ console.log("\n=== 4. acknowledge(): the ack goes to the hub for exactly what wa
 console.log("\n=== 5. the desk writes again: only the NEW entry is announced; a resolution carries the state it left ===");
 {
   client.calls.length = 0;
-  client.list.tickets[0] = { reference: "MD-1", state: "resolved", updatedAt: "2026-09-12T10:05:00.000Z", resolutionNotes: "Reinstalled the driver" };
+  client.list.tickets[0] = { reference: "MD-1", state: "resolved", updatedAt: "2026-09-12T10:05:00.000Z", resolutionNotes: "Reinstalled the driver", autoCloseAt: "2026-09-15T10:05:00.000Z" };
   client.byRef["MD-1"].ticket.state = "resolved";
   client.byRef["MD-1"].entries[2].readByRequesterAt = "2026-09-12T10:01:00.000Z";
   client.byRef["MD-1"].entries.push(entry("e2", "resolution", "console_user", "2026-09-12T10:05:00.000Z", { body: "Reinstalled the driver" }));
@@ -129,7 +130,7 @@ console.log("\n=== 5. the desk writes again: only the NEW entry is announced; a 
   check("MD-1 was re-read because updatedAt moved", client.calls.some((c) => c[0] === "ticket" && c[1] === "MD-1"));
   check("one more update, e2 only, with the resolved state", updates.length === 2 && updates[1].entries.map((e) => e.id).join(",") === "e2" && updates[1].state === "resolved", JSON.stringify(updates[1]));
   const row = w.status().tickets["MD-1"];
-  check("the row: resolved, last update is the resolution, unseen 1, notes carried", row.state === "resolved" && row.lastUpdateKind === "resolution" && row.unseen === 1 && row.resolutionNotes === "Reinstalled the driver");
+  check("the row: resolved, last update is the resolution, unseen 1, notes carried, autoCloseAt carried as ISO", row.state === "resolved" && row.lastUpdateKind === "resolution" && row.unseen === 1 && row.resolutionNotes === "Reinstalled the driver" && row.autoCloseAt === "2026-09-15T10:05:00.000Z");
 }
 
 console.log("\n=== 6. the hub goes away: the basis says so, the last known rows stay for the band, nothing is announced ===");
@@ -188,16 +189,21 @@ console.log("\n=== 9. the words: one vocabulary, no enum on the surface, nothing
   check("stateDetail: unseen beats everything, then the resolved sentence, then the ago, then 'no update yet'",
     /New from the service desk, not yet seen here/.test(stateDetail({ state: "resolved", unseen: 1 }))
     && stateDetail({ state: "resolved", unseen: 0 }) === "The desk says it's fixed"
+    && stateDetail({ state: "resolved", unseen: 0, autoCloseAt: "2026-09-15T12:00:00.000Z" }, at) === "The desk says it's fixed — closes on its own in 3 days unless you say otherwise"
     && stateDetail({ state: "open", unseen: 0, lastUpdateAt: "2026-09-12T11:40:00.000Z" }, at) === "Last update from the desk 20 minutes ago"
     && stateDetail({ state: "new", unseen: 0, lastUpdateAt: null }) === "No update from the desk yet");
   check("agoWords is coarse and spoken", agoWords("2026-09-12T11:59:30.000Z", at) === "just now" && agoWords("2026-09-12T09:00:00.000Z", at) === "3 hours ago" && agoWords("2026-09-11T11:00:00.000Z", at) === "yesterday" && agoWords("2026-09-08T11:00:00.000Z", at) === "4 days ago" && agoWords(null) === "" && agoWords("garbage") === "");
   const reply = updateWords({ kind: "comment", body: "Try turning the printer off and on." }, "MD-7", "open");
   const fixed = updateWords({ kind: "resolution", body: "Reinstalled the driver" }, "MD-7", "resolved");
   const moved = updateWords({ kind: "state_change", body: "new → open" }, "MD-7", "open");
+  const auto = updateWords({ kind: "state_change", body: "resolved → closed", authorKind: "system", authorLabel: "auto-close" }, "MD-7", "closed");
+  const byDesk = updateWords({ kind: "state_change", body: "resolved → closed", authorKind: "console_user", authorLabel: "desk@devco.example" }, "MD-7", "closed");
+  check("D289: a state change labelled auto-close says the ticket closed ON ITS OWN and what to do if the problem is back; the same change by a person does not", /MD-7 closed on its own/.test(auto) && /nobody said otherwise in time/.test(auto) && /raise a new ticket/.test(auto) && !/on its own/.test(byDesk) && /it's closed/.test(byDesk), auto);
+  check("untilWords is coarse and forward-looking", untilWords("2026-09-12T12:01:00.000Z", at) === "any time now" && untilWords("2026-09-12T12:40:00.000Z", at) === "in 40 minutes" && untilWords("2026-09-12T15:00:00.000Z", at) === "in about 3 hours" && untilWords("2026-09-13T13:00:00.000Z", at) === "tomorrow" && untilWords("2026-09-16T12:00:00.000Z", at) === "in 4 days" && untilWords(null) === "");
   check("a comment is quoted in full with the reference, and says replying here isn't built", /replied on MD-7: “Try turning the printer off and on\.”/.test(reply) && /Replying from this window isn't built yet/.test(reply));
   check("a resolution says fixed, quotes the note, and says reopening here isn't built", /marked MD-7 as fixed/.test(fixed) && /“Reinstalled the driver”/.test(fixed) && /reopened — from this window that isn't built yet/.test(fixed));
   check("a state change is glossed, never the arrow body", /MD-7 has moved on at the service desk: the desk is looking at it\./.test(moved) && !/→|new → open/.test(moved), moved);
-  const all = [...states.flatMap((s) => [stateWords(s), stateSpoken(s), stateDetail({ state: s, unseen: 0 })]), reply, fixed, moved];
+  const all = [...states.flatMap((s) => [stateWords(s), stateSpoken(s), stateDetail({ state: s, unseen: 0 })]), reply, fixed, moved, auto, stateDetail({ state: "resolved", unseen: 0, autoCloseAt: "2026-09-15T12:00:00.000Z" }, at)];
   check("no surface word says sent, notified, emailed, or names the hub", all.every((s) => !/\b(sent|notified|email|emailed|hub)\b/i.test(s)), all.find((s) => /\b(sent|notified|email|emailed|hub)\b/i.test(s)));
   check("no snake_case reaches a surface", all.every((s) => !/\b[a-z]+_[a-z]+\b/.test(s)));
 }

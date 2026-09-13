@@ -57,6 +57,8 @@
 import { closePool } from "../src/db/pool.js";
 import { resolveTicketTenant } from "../src/tickets/file.js";
 import { TICKET_STATES, RESOLUTION_CODES, RESOLUTION_CODE_WORDS, countTicketsByState, getTicket, listEntries, listReporters, listTickets, resolveTicket, setTicketState, replyToRequester } from "../src/tickets/query.js";
+import { autocloseSetting, setAutocloseHours, MAX_AUTOCLOSE_HOURS } from "../src/tickets/autoclose.js";
+import { listTenants } from "../src/db/tenants.js";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "list";
@@ -133,7 +135,8 @@ if (!tenant) {
           } else {
             console.log(`    not resolved${t.state === "closed" ? " — closed without a resolution (this CLI, or before tenant/007)" : ""}`);
           }
-          if (t.closedAt) console.log(`  closed          ${t.closedAt.toISOString()} by ${t.closedBy}`);
+          if (t.autoCloseAt) console.log(`  auto-close      ${t.autoCloseAt.toISOString()} unless the requester confirms or comments first (D289); the requester's app shows this date`);
+          if (t.closedAt) console.log(`  closed          ${t.closedAt.toISOString()} by ${t.closedBy}${t.closedBy === "auto" ? " (the auto-close job: neither confirmed nor reopened within the interval, D289)" : ""}`);
           if (t.reopenedFrom) console.log(`  follow-up to    ${t.reopenedFrom} (the requester raised this about a closed ticket, D286)`);
           // The timeline, through the same function the console's detail page calls (D224, D275).
           // "all" is asked for in words: this is an operator's tool and is entitled to internal rows.
@@ -181,6 +184,7 @@ if (!tenant) {
         else if ("refused" in r) die(`  ${r.refused}`);
         else {
           console.log(`  ${ref}: ${r.from} -> resolved (${r.code} — ${RESOLUTION_CODE_WORDS[r.code]})${r.noted ? " (internal note recorded)" : ""}`);
+          console.log(r.autoCloseAt ? `  closes automatically at ${r.autoCloseAt.toISOString()} unless the requester confirms or comments first (D289)` : "  auto-close is off for this tenant: it stays resolved until the requester or the desk moves it");
           console.log("  THE REQUESTER'S MATIC DESK SHOWS THIS WHEN IT NEXT POLLS (D287) — not email; nobody has been emailed (D86).");
         }
       }
@@ -206,8 +210,20 @@ if (!tenant) {
         }
         console.log(`\n  ${rows.length} user(s) in ${tenant}. Every profile here is SELF-ASSERTED unless it says otherwise.`);
       }
+    } else if (cmd === "autoclose") {
+      // D289. The same function the console's form calls (D224's pattern): read, set, or turn off.
+      const row = (await listTenants()).find((x) => x.schemaName === tenant);
+      if (!row) die(`no tenant row for schema ${tenant}`);
+      if (flag("hours") === null && !argv.includes("--off")) {
+        const h = await autocloseSetting({ tenantId: row.id });
+        console.log(h === null ? "  auto-close: OFF - a resolved ticket stays resolved until the requester confirms or comments, or the desk moves it" : `  auto-close: resolved tickets close on their own after ${h} hour(s) unless the requester confirms or comments first (D289). 72 is the default and a proposal (plan v3 §7.6).`);
+      } else {
+        const r = await setAutocloseHours({ tenantId: row.id, hours: argv.includes("--off") ? null : (/^\d+$/.test(flag("hours") ?? "") ? Number(flag("hours")) : flag("hours")) });
+        if (!r.ok) die(`  ${r.refused}`);
+        console.log(r.hours === null ? "  auto-close turned OFF for tickets resolved from now on; nothing already queued fires against a ticket whose binding is gone" : `  auto-close set to ${r.hours} hour(s) for tickets resolved from now on (1-${MAX_AUTOCLOSE_HOURS})`);
+      }
     } else {
-      die(`unknown command ${JSON.stringify(cmd)}\nusage: node bin/tickets.mjs list | show <ref> | state <ref> <new|open|closed> | resolve <ref> --code <code> --resolution "…" | users`);
+      die(`unknown command ${JSON.stringify(cmd)}\nusage: node bin/tickets.mjs list | show <ref> | state <ref> <new|open|closed> | resolve <ref> --code <code> --resolution "…" | reply <ref> --body "…" | autoclose [--hours N | --off] | users`);
     }
   } finally {
     await closePool();

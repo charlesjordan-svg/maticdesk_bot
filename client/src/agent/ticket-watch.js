@@ -56,6 +56,7 @@ export const SNAPSHOT_FILENAME = "tickets-seen.json";
  * @property {string|null} lastUpdateKind comment | resolution | state_change
  * @property {number} unseen          desk entries the hub has not seen acknowledged
  * @property {string|null} resolutionNotes
+ * @property {string|null} autoCloseAt   D289: when a resolved ticket closes on its own unless the requester acts
  */
 
 /**
@@ -215,6 +216,8 @@ export class TicketWatch {
         lastUpdateKind: prev?.lastUpdateKind ?? null,
         unseen: prev?.unseen ?? 0,
         resolutionNotes: t.resolutionNotes ?? null,
+        // D289: when the current resolution closes on its own unless the requester acts; null otherwise.
+        autoCloseAt: t.autoCloseAt ? new Date(t.autoCloseAt).toISOString() : null,
         _unseenIds: prev?._unseenIds ?? [],
       };
       if (needsTimeline) {

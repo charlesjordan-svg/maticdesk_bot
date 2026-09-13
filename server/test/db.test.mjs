@@ -101,6 +101,21 @@ async function main() {
   await getPool().query(m008.sql);
   check("running control/008's SQL a SECOND time changes nothing in the catalog", (await devicesCatalog()) === snap008);
 
+  // D289: control/009 — the auto-close interval on the tenant row; re-run a no-op; the CHECK refuses 0 and 8761.
+  const m009c = readMigrations("control").find((m) => /009-ticket-autoclose-interval/.test(m.version));
+  const tenantsCatalog = async () => JSON.stringify({
+    cols: (await getPool().query("SELECT column_name, column_default FROM information_schema.columns WHERE table_schema = 'control' AND table_name = 'tenants' ORDER BY 1")).rows,
+    cons: (await getPool().query("SELECT conname FROM pg_constraint WHERE conrelid = 'control.tenants'::regclass ORDER BY 1")).rows.map((r) => r.conname),
+  });
+  const snap009c = await tenantsCatalog();
+  check("control/009 gave tenants ticket_autoclose_hours with DEFAULT 72 and the range CHECK", Boolean(m009c) && /"column_name":"ticket_autoclose_hours","column_default":"72"/.test(snap009c) && /tenants_autoclose_hours_range/.test(snap009c), snap009c);
+  await getPool().query(m009c.sql);
+  check("running control/009's SQL a SECOND time changes nothing in the catalog", (await tenantsCatalog()) === snap009c);
+  for (const bad of [0, 8761, -5]) {
+    check(`the CHECK refuses ${bad} hours`, /violates check constraint|tenants_autoclose_hours_range/.test(await getPool().query("INSERT INTO control.tenants (slug, schema_name, display_name, ticket_autoclose_hours) VALUES ('zz-autoclose-probe', 't_zz_autoclose_probe', 'probe', $1)", [bad]).then(() => "accepted", (e) => e.message)));
+  }
+  check("…and NULL (off) and 1 and 8760 are accepted", await getPool().query("INSERT INTO control.tenants (slug, schema_name, display_name, ticket_autoclose_hours) VALUES ('zz-autoclose-probe', 't_zz_autoclose_probe', 'probe', NULL) RETURNING id").then(async (r) => { await getPool().query("UPDATE control.tenants SET ticket_autoclose_hours = 1 WHERE id = $1", [r.rows[0].id]); await getPool().query("UPDATE control.tenants SET ticket_autoclose_hours = 8760 WHERE id = $1", [r.rows[0].id]); await getPool().query("DELETE FROM control.tenants WHERE id = $1", [r.rows[0].id]); return true; }, () => false));
+
   // =============================================================================================
   console.log("\n=== 1. two tenants, two schemas ===");
   const ta = await createTenant(A, { displayName: "Alpha" });
@@ -271,6 +286,13 @@ async function main() {
   await withTenant(SC, (c) => c.query(m009t.sql));
   check("running tenant/009's SQL a SECOND time changes nothing in the catalog", (await deviceCatalog()) === snap009t);
   check("the database refuses a follow-up to a ticket that does not exist (the FK)", /violates foreign key|not present in table/.test(await withTenant(SC, async (c) => { try { await c.query("INSERT INTO tickets (reference, description, summary, category, reopened_from) VALUES ('MD-B1-9', 'x', 'x', 'other', gen_random_uuid())"); return ""; } catch (e) { return e.message; } })));
+
+  // D289: tenant/010 — the auto-close binding on the ticket, re-run a no-op, NO foreign key on the job id.
+  const m010t = readMigrations("tenant").find((m) => /010-autoclose/.test(m.version));
+  const snap010t = await deviceCatalog();
+  check("tenant/010 gave the fresh tenant tickets.auto_close_at (timestamptz) and auto_close_job_id (uuid) with the partial index and NO new foreign key", Boolean(m010t) && /"column_name":"auto_close_at","data_type":"timestamp with time zone"/.test(snap010t) && /"column_name":"auto_close_job_id","data_type":"bigint"/.test(snap010t) && /tickets_auto_close/.test(snap010t) && !/auto_close/.test(JSON.parse(snap010t).fks.join(",")), snap010t);
+  await withTenant(SC, (c) => c.query(m010t.sql));
+  check("running tenant/010's SQL a SECOND time changes nothing in the catalog", (await deviceCatalog()) === snap010t);
 
   // =============================================================================================
   console.log("\n=== 5. a job for tenant B is picked up by a worker that sees only B's data ===");

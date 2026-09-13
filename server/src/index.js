@@ -710,7 +710,7 @@ if (isMain) {
       // banners are out, and never awaited: a tick that cannot reach PostgreSQL logs once and keeps
       // polling (src/jobs/runner.js), so the runner cannot delay "listening" or stop the hub starting
       // — the same property /v1/health has, reporting corpus errors rather than refusing to boot.
-      // Nothing is registered yet (src/jobs/handlers.js says why). The runner claims only the types
+      // One handler is registered since P5 (ticket.autoclose, D289). The runner claims only the types
       // it has handlers for and LOGS how many due jobs of other types are waiting, so an empty
       // registry is visible in this log, not silent in the table — and it cannot fail work that a
       // hub with a fuller registry, or a test suite sharing this database, enqueued.

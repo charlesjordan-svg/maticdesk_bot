@@ -170,6 +170,21 @@ console.log("\n=== 2e. tenant/009 — tickets.reopened_from: a follow-up to a cl
   check("the header says why THIS column has a foreign key when device_id has none (same schema; the earlier ticket must exist)", /WHY A FOREIGN KEY HERE/.test(sql) && /SAME tenant schema/.test(sql));
 }
 
+console.log("\n=== 2f. tenant/010 + control/009 — auto-close: the binding on the ticket, the interval on the tenant (D289) ===");
+{
+  const m010 = tenant.find((m) => /010-autoclose/.test(m.version));
+  check("tenant/010-autoclose.sql exists", Boolean(m010));
+  const sql = m010?.sql ?? "", code = sqlCode(sql);
+  check("it carries decision provenance with the status held when written — D289 PROPOSED, D270 RATIFIED, D196 ratified, D284 PROPOSED", /DECISION PROVENANCE/.test(sql) && /D289 \(PROPOSED 2026-09-12\)/.test(sql) && /D270 \(RATIFIED 2026-09-12\)/.test(sql) && /D196 \(ratified 2026-09-04\)/.test(sql) && /D284 \(PROPOSED 2026-09-12\)/.test(sql));
+  check("it adds auto_close_at (timestamptz) and auto_close_job_id (BIGINT - control.job_queue.id is a bigserial - with NO foreign key: a tenant schema must not reference the control plane), IF NOT EXISTS, and a partial index", /ADD COLUMN IF NOT EXISTS auto_close_at\s+timestamptz/.test(code) && /ADD COLUMN IF NOT EXISTS auto_close_job_id bigint;/.test(code) && !/auto_close_job_id bigint REFERENCES/.test(code) && /bigserial \(control\/001\), not a\s*-- uuid/.test(sql) && /CREATE INDEX IF NOT EXISTS tickets_auto_close ON tickets \(auto_close_at\) WHERE auto_close_at IS NOT NULL/.test(code));
+  check("the header says why the JOB ID is on the ticket rather than resolved_at on the job (D196: no payload column)", /WHY THE JOB ID IS ON THE TICKET/.test(sql) && /no payload column \(D196\)/.test(sql));
+  const c009 = control.find((m) => /009-ticket-autoclose-interval/.test(m.version));
+  check("control/009-ticket-autoclose-interval.sql exists and names D289 PROPOSED, D270 RATIFIED, D278 PROPOSED", Boolean(c009) && /D289 \(PROPOSED 2026-09-12\)/.test(c009?.sql ?? "") && /D270 \(RATIFIED 2026-09-12\)/.test(c009?.sql ?? "") && /D278 \(PROPOSED 2026-09-12\)/.test(c009?.sql ?? ""));
+  const ccode = sqlCode(c009?.sql ?? "");
+  check("it adds tenants.ticket_autoclose_hours integer DEFAULT 72, nullable, with a guarded CHECK of 1..8760", /ADD COLUMN IF NOT EXISTS ticket_autoclose_hours integer DEFAULT 72/.test(ccode) && /conname = 'tenants_autoclose_hours_range'/.test(ccode) && /ticket_autoclose_hours IS NULL OR \(ticket_autoclose_hours BETWEEN 1 AND 8760\)/.test(ccode));
+  check("the header calls 72 OUR default and a proposal, and NULL the kill switch", /72 is OUR default/.test(c009?.sql ?? "") && /NULL means OFF/.test(c009?.sql ?? ""));
+}
+
 console.log("\n=== 3. the extension is installed once, database-wide ===");
 const c001 = control.find((m) => /control-plane/.test(m.version)).sql;
 check("control/001 creates the shared `extensions` schema", /CREATE SCHEMA IF NOT EXISTS extensions/i.test(c001));
