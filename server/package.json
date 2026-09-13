@@ -22,7 +22,8 @@
     "kb:floor": "node bin/kb-floor.mjs",
     "tickets": "node bin/tickets.mjs",
     "tickets:list": "node bin/tickets.mjs list",
-    "admin": "node bin/admin.mjs"
+    "admin": "node bin/admin.mjs",
+    "clickthrough": "node test/clickthrough-e2e.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"

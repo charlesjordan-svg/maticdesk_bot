@@ -1,0 +1,272 @@
+
+=== S1 — Matic resolves it, and no ticket is born (deflection) ===
+  PASS  [T1.1] a covered question is answered
+  PASS  [T1.1] the answer cites an article rather than asserting
+  PASS  [T1.1] and the citation is an article the hub actually supplied (D205 drops any other)
+  PASS  [T1.1] NO row appeared in tickets — a deflection is the absence of a ticket
+  PASS  [T1.2] the client's capability catalog carries flush_dns
+  PASS  [T1.2] it carries the plain words a report is written in (D250)
+  PASS  [T1.2] and those words name no mechanism
+  PASS  [T1.2] while the TITLE keeps the mechanism's name, because a title is the capability's identity
+  PASS  [T1.2] no ticket was filed by an action that succeeded
+  PASS  [T1.3] the endpoint can begin a session over the wire
+  PASS  [T1.3] and report the one outcome a client may report: resolved (D90's confirmation turn)
+  PASS  [T1.3] the store counts it as a resolved SESSION, and deflection is computable
+  FAIL  [T1.3] the console's Metrics page shows a deflection FIGURE, not 'cannot be computed'  — Deflection
+  PASS  [T1.3] and the figure it shows is the one deflectionOf() computes
+  PASS  [T1.4] the requester's tickets list is still empty — the band count is unchanged
+  PASS  [T1.4] 'where's my ticket?' invents no ticket
+
+=== S2 — Matic cannot fix it, files a ticket, the desk resolves it, the requester confirms ===
+  PASS  [T2.1] the ticket comes back as a real MD-#### reference
+  PASS  [T2.1] the band has words for every state the hub can be in, and none of them is a hub enum
+  PASS  [T2.1] and it is the requester's own: one ticket, this enrollment's
+  PASS  [T2.2] the ticket is in the console queue
+  PASS  [T2.2] its state is new
+  FAIL  [T2.2] the detail page names the enrollment the Agents page lists — the device KEY, not only an internal uuid  — device <span class="mono">d3c4fb29-5c33-4a61-a5f0-de42af856900
+  PASS  [T2.2] and the self-asserted OS username
+  FAIL  [T2.2] with the profile source GLOSSED in words, not shown as a raw enum (D244's rule, on the console)  — self_asserted
+  PASS  [T2.3] both work notes are on the ticket
+  PASS  [T2.3] the console labels each one INTERNAL in words, not only by colour
+  PASS  [T2.3] the CLI labels them internal too
+  PASS  [T2.4] before the endpoint polls, the console says NOT YET HANDED
+  PASS  [T2.4] and never CLAIMS the reply was sent, notified or emailed
+  PASS  [T2.4] while the honest negative — that nothing CAN be emailed — is still on the page (D213/D245)
+  PASS  [T2.4] after the read, the console says HANDED, not yet seen
+  PASS  [T2.4] after the ack, the console says SEEN
+  PASS  [T2.5] the reply reached the requester's read, quoted in full
+  PASS  [T2.5] in one poll — the same request that hands it over returns it
+  PASS  [T2.5] and the transcript line quotes the desk rather than speaking in the agent's voice
+  PASS  [T2.6] resolve without a code is refused with a sentence, and the ticket did not move
+  PASS  [T2.6] resolve without notes is refused too
+  PASS  [T2.6] and the refusal names what is missing rather than showing a constraint
+  PASS  [T2.6] with both, it is accepted
+  PASS  [T2.7] the requester's line says it closes on its own in 3 days unless they say otherwise
+  PASS  [T2.7] the console's detail page carries the same clock
+  PASS  [T2.7] and the two clocks are the same instant
+  PASS  [T2.8] confirm closes the ticket, closed_by the requester
+  PASS  [T2.8] the desk's resolution stays on the record (D278)
+  PASS  [T2.8] and the queued auto-close job is CANCELLED, not left to fire
+  PASS  [T2.9] the timeline is ordered oldest first and every entry is attributed
+  PASS  [T2.9] the CLI's show and the console agree on the entry count
+  PASS  [T2.9] and both carry the resolution code, in the same words
+
+=== S3 — escalated to a desk agent, worked with notes, resolved by the desk ===
+  PASS  [T3.1] a comment on a LIVE ticket does not reopen it and starts the clock
+  PASS  [T3.1] the console's tickets list shows an AGE, not a count
+  PASS  [T3.1] and the ticket's own page shows it too
+  PASS  [T3.2] the desk's reply clears the clock
+  PASS  [T3.2] in the same transaction as the entry — the reply is on the timeline and the clock is gone together
+  PASS  [T3.2] and the clock it cleared was this ticket's
+  PASS  [T3.3] the internal work note is not in the requester's read
+  PASS  [T3.3] nor is the case note or what_was_checked
+  PASS  [T3.3] and the public reply IS
+  PASS  [T3.4] a second comment does not restart the clock: the age is the OLDEST unanswered
+  PASS  [T3.5] the resolution reaches the requester
+  PASS  [T3.5] presented as a QUOTATION, attributed to the service desk, never in the agent's own voice (D214)
+
+=== S4 — a handoff between two agents, and the fact that there is no assignment model ===
+  PASS  [T4.1] the work note is stamped with A's label and the resolution with B's — a snapshot per entry
+  PASS  [T4.1] and the console's timeline shows BOTH people
+  PASS  [T4.2] the resolution is authored by whoever resolved it (D252)
+  PASS  [T4.2] and nothing on the page claims a person owns, was assigned or is handling it
+  PASS  [T4.2] while the honest negative — that it CANNOT be assigned — is still there (OPEN-4)
+  PASS  [T4.3] the audit carries a work note by A
+  PASS  [T4.3] a resolve by B
+  PASS  [T4.3] and a reply, on the earlier ticket, by whoever wrote it
+  PASS  [T4.4] the ticket carries a suggested owner
+  FAIL  [T4.4] the console calls it a suggestion and says it routes nothing  —  
+     
+   
+ 
+ 
+ 
+   
+     Routing 
+     
+       Category  other 
+       Suggested owner  desktop support 
+       Machine  LAPTOP-CT-A 
+       Session  none — the endpoint creates no sessions yet (D75) 
+       Follow-up to   none  
+     
+   
+   
+     Reporter 
+     
+       Name  ct.
+  PASS  [T4.4] and no surface implies it was assigned to that team
+  PASS  [T4.5] one move lands and the other is refused — 303 and 409, never two 303s
+  PASS  [T4.5] the loser gets a sentence naming where the ticket is NOW, not a constraint violation
+  PASS  [T4.5] and nothing was silently overwritten: the ticket moved exactly once
+
+=== S5 — referred to a vendor, resolved on the vendor's answer ===
+  PASS  [T5.1] the vendor exchange is recorded as work notes, internal
+  PASS  [T5.1] the vendor has no enrollment and no account in this tenant
+  PASS  [T5.2] the requester's comment while the ticket is with the vendor starts the clock
+  PASS  [T5.2] and the desk can hold the ticket open without resolving it
+  PASS  [T5.2] the console surfaces the wait as an age on the queue
+  PASS  [T5.3] the ticket resolves as referred_to_vendor
+  PASS  [T5.3] the requester-visible notes reach them
+  PASS  [T5.3] they leak no vendor internal detail — no case number, no price, no vendor name
+  PASS  [T5.3] and no internal string is anywhere in what the endpoint received
+  PASS  [T5.4] the console glosses the code in words rather than showing the enum alone
+  PASS  [T5.4] and nothing on any surface says the vendor was notified, emailed or contacted BY THE PRODUCT
+
+=== S6 — the requester disagrees: resolved -> comment -> reopen -> re-resolve ===
+  PASS  [T6.1] the comment reopened it
+  PASS  [T6.1] the resolution columns are cleared in the same transaction
+  PASS  [T6.1] a PUBLIC 'resolved → open' entry is on the timeline
+  PASS  [T6.1] and the clock has started
+  PASS  [T6.1] the console no longer shows a resolution for it
+  PASS  [T6.2] the binding is cleared
+  PASS  [T6.2] and the first job is CANCELLED
+  PASS  [T6.3] reopen without a reason is refused, and nothing changed
+  PASS  [T6.3] reopen WITH a reason does the same transition
+  PASS  [T6.3] and records the reason as the public comment
+  PASS  [T6.4] re-resolving enqueues a job with a different id, and the ticket is bound to the new one
+  PASS  [T6.4] the first job, run by hand, closes nothing and says why
+  PASS  [T6.5] the second job, run once when due, closes the ticket
+  PASS  [T6.5] run TWICE, the second run writes nothing (D270's at-least-once, re-proven end to end)
+
+=== S7 — confidentiality, end to end, on a ticket that has everything to leak ===
+  PASS  [T7.1] GET /v1/tickets carries none of the internal values
+  PASS  [T7.1] GET /v1/tickets/:reference and its timeline carry none of them
+  PASS  [T7.1] and the ticket's keys are EXACTLY the allow-list
+  PASS  [T7.3] the ack payload carries none of them
+  PASS  [T7.3] the 404 for another enrollment's ticket carries none of them
+  PASS  [T7.3] the 401 without a credential carries none of them
+  PASS  [T7.3] and an unknown route's body carries none of them
+  PASS  [T7.4] a column on neither list is caught — the allow-list fails closed
+  PASS  [T7.4] and the unclassified column does NOT reach the requester, because the reader names its columns
+  PASS  [T7.4] reverted: the probe column is gone
+  PASS  [T7.5] listEntriesForRequester() ignores a visibility argument — it has none to pass
+  PASS  [T7.5] so an internal entry cannot be reached through it
+  PASS  [T7.5] and it refuses to run without an identity, rather than defaulting to one
+
+=== S8 — closure, terminality, auto-close, and the thing that is actually broken ===
+  PASS  [T8.1] before the due instant the handler does nothing and says it is not due
+  PASS  [T8.1] and the ticket is still resolved
+  PASS  [T8.1] after it, the ticket closes as closed_by auto
+  PASS  [T8.1] with exactly ONE public state change, authored by the auto-close job
+  PASS  [T8.1] and the requester's line says it closed ON ITS OWN, not that the desk closed it
+  PASS  [T8.2] the console offers NO forward transition from closed
+  PASS  [T8.2] a comment on a closed ticket is refused
+  PASS  [T8.2] with the way forward, naming the reference to quote
+  PASS  [T8.2] a new ticket carries reopened_from as a real foreign key
+  PASS  [T8.2] and it is accepted only for THIS enrollment's closed ticket
+  PASS  [T8.3] bin/tickets.mjs can still move a closed ticket
+  PASS  [T8.4] changing the interval is NOT retroactive — an instant already shown is kept
+  PASS  [T8.4] the setting did change for tickets resolved from now on
+  PASS  [T8.4] with the interval off, a new resolution binds no job at all
+  PASS  [T8.4] and the ticket resolved BEFORE the switch keeps its queued job (P5 ledger item 5)
+  PASS  [T8.4] an agent with neither settings.read nor settings.write is offered no way to change it
+  PASS  [T8.4] and every resolved ticket still tells that agent what the interval does to it
+  PASS  [T8.4] and a POST from that session is refused by the route, not only hidden from the page
+  PASS  [T8.5] (premise) the resolution was never handed over and never seen
+  FAIL  [T8.5] THE TICKET DOES NOT CLOSE: a resolution the requester was never shown is not consent  — state is closed, closed_by auto — a ticket closed on a notice nobody could receive (D290)
+  FAIL  [T8.5] and when the client finally starts, the requester is shown the resolution — not a closure  — state closed
+  FAIL  [T8.6] a resolution with read_by_requester_at unstamped does not close the ticket
+  FAIL  [T8.6] and the handler says so — it names delivery, not the binding
+  FAIL  [T8.6] it RE-ARMS rather than giving up: the ticket is still bound to a live job  — [["863","queued"]]
+  FAIL  [T8.7] once the resolution is delivered and acked, a clock exists  — ["2026-09-13T08:53:14.819Z",null]
+  FAIL  [T8.7] and it is measured from the ACK, not from resolved_at  — resolved_at 2026-09-13T08:53:14.703Z, read Sun Sep 13 2026 01:53:14 GMT-0700 (Pacific Daylight Time), due undefined
+  PASS  [T8.7] and when THAT is due the ticket does close
+  PASS  [T8.8] an undelivered resolution does NOT re-arm forever — the backstop fires
+  FAIL  [T8.8] and it does not close the ticket either: it stays resolved for a human  — state closed
+  FAIL  [T8.8] the console surfaces it as resolved and never delivered — a queue item for a person  — no such surface
+
+=== S9 — identity, isolation, and the orphan class ===
+  PASS  [T9.1] no credential -> 401
+  PASS  [T9.1] with the sentence that names the credential and says nothing changed
+  PASS  [T9.1] and nothing changed
+  PASS  [T9.2] Endpoint B asking for Endpoint A's reference gets 404, never 403
+  PASS  [T9.2] and the SAME 404 as a reference that does not exist — not an existence oracle
+  PASS  [T9.2] acting on it is the same 404
+  PASS  [T9.3] a live enrollment reads
+  PASS  [T9.3] and a revoked one stops working on its NEXT request
+  PASS  [T9.4] over 20 writes in a minute -> 429
+  PASS  [T9.4] with retryAfterMs, so the client can obey rather than guess
+  PASS  [T9.4] the read limit's sibling behaves the same over 60
+  PASS  [T9.4] and its sentence states the floor as a floor, not a suggestion
+  PASS  [T9.5] last_seen_at moves on an authenticated call
+  PASS  [T9.5] and the console's Agents page shows it
+  PASS  [T9.6] a ticket with no enrollment is readable by no requester route
+  PASS  [T9.6] it is NOT backfilled onto a matching OS username — that would be authorization by convention
+  PASS  [T9.6] and the identity field says exactly why, in the requester's own response
+  PASS  [T9.7] admin-static's client-tree detector runs and passes against the real client
+
+=== S10 — the product under adverse conditions ===
+  PASS  [T10.1] a hub that is not there fails the send rather than appearing to succeed
+  PASS  [T10.1] the client's copy for a failed send says Not sent and that nothing was filed
+  PASS  [T10.1] fileTicket() returns the user's sentence and the diagnostic SEPARATELY (D246)
+  PASS  [T10.1] and no URL, port or stack reaches what is spoken (D246)
+  PASS  [T10.2] with the endpoint away, the console still says not yet handed — it does not assume
+  PASS  [T10.2] on recovery ONE poll delivers the whole backlog, in order
+  PASS  [T10.2] and the console moves to seen
+  PASS  [T10.3] applyHubStatus has a loss note and a recovery note and nothing else
+  PASS  [T10.3] the loss copy names both the company's guidance and the service desk
+  PASS  [T10.3] and so does the recovery copy — F1/F2 of 2026-09-11, still matched
+  PASS  [T10.3] and persona.json's own connection lines name the same pair
+  PASS  [T10.4] on loopback with the env var set, the bypass is ON
+  PASS  [T10.4] bound to a LAN address it is REFUSED, with a reason
+  PASS  [T10.4] and the env var is back as it was
+  PASS  [T10.4] a plaintext LAN peer is refused by the listener too, so neither guard is the only one
+  PASS  [T10.5] exactly one worker claimed the job — SKIP LOCKED, not a lock wait
+  PASS  [T10.5] the ticket closed exactly once, with ONE public state change
+  PASS  [T10.6] a claimed job is `running` while the hub holds it
+  FAIL  [T10.6] the reaper returns it to the queue rather than leaving it stuck running  — ["queued"]
+  PASS  [T10.6] and it runs to completion on the next tick — at-least-once, not at-most-once
+
+=== S7 (concluded) — the canary, across every byte the endpoint was ever handed ===
+  PASS  [T7.6] the canary INTERNAL-CANARY-20260913085305 is absent from ALL 151 requester-facing responses captured this run
+  PASS  [T7.6] and so is every other internal string this run wrote
+  PASS  [T7.2] (harness) the wire this run captured carries nothing for the DOM to render — the Electron pass is the test
+
+==============================================================================================
+  CLICK-THROUGH 20260913085305 — 51/59 tests PASS, 8 FAIL, 0 NOT RUN
+  169 assertions passed, 14 failed. 151 requester-facing responses captured.
+==============================================================================================
+  FAIL     T1.3  the session outcome is a deflection (D89 counts SESSIONS) and the console's deflection surface reflects it
+           - the console's Metrics page shows a deflection FIGURE, not 'cannot be computed' — Deflection
+  FAIL     T2.2  the ticket lands in the console queue with provenance (device_key_id, os_username) and state = new
+           - the detail page names the enrollment the Agents page lists — the device KEY, not only an internal uuid — device <span class="mono">d3c4fb29-5c33-4a61-a5f0-de42af856900
+           - with the profile source GLOSSED in words, not shown as a raw enum (D244's rule, on the console) — self_asserted
+  FAIL     T4.4  suggested_owner routes nothing and NO surface implies it does
+           - the console calls it a suggestion and says it routes nothing —  
+     
+   
+ 
+ 
+ 
+   
+     Routing 
+     
+       Category  other 
+       Suggested owner  desktop support 
+       Machine  LAPTOP-CT-A 
+       Session  none — the endpoint creates no sessions yet (D75) 
+       Follow-up to   none  
+     
+   
+   
+     Reporter 
+     
+       Name  ct.
+  FAIL     T8.5  THE FRIDAY/TUESDAY TEST: a resolution the requester was never shown does not close the ticket
+           - THE TICKET DOES NOT CLOSE: a resolution the requester was never shown is not consent — state is closed, closed_by auto — a ticket closed on a notice nobody could receive (D290)
+           - and when the client finally starts, the requester is shown the resolution — not a closure — state closed
+  FAIL     T8.6  a resolution with read_by_requester_at unstamped does not close; the handler re-arms and says so
+           - a resolution with read_by_requester_at unstamped does not close the ticket
+           - and the handler says so — it names delivery, not the binding
+           - it RE-ARMS rather than giving up: the ticket is still bound to a live job — [["863","queued"]]
+  FAIL     T8.7  a delivered and acked resolution closes on the interval measured FROM THE ACK, not from resolved_at
+           - once the resolution is delivered and acked, a clock exists — ["2026-09-13T08:53:14.819Z",null]
+           - and it is measured from the ACK, not from resolved_at — resolved_at 2026-09-13T08:53:14.703Z, read Sun Sep 13 2026 01:53:14 GMT-0700 (Pacific Daylight Time), due undefined
+  FAIL     T8.8  an undelivered resolution does not re-arm forever: the backstop fires and it surfaces as 'resolved, never delivered'
+           - and it does not close the ticket either: it stays resolved for a human — state closed
+           - the console surfaces it as resolved and never delivered — a queue item for a person — no such surface
+  FAIL     T10.6  a hub restart mid-job leaves NO row stuck running (the reaper)
+           - the reaper returns it to the queue rather than leaving it stuck running — ["queued"]
+
+  results.json -> C:\Users\Charles\Downloads\maticdesk_bot\docs\handovers\screenshots\2026-09-13-clickthrough\results.json
