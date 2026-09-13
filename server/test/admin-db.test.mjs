@@ -358,7 +358,13 @@ try {
       /Matic Desk endpoints enroll themselves at startup/.test(agents.text) && agents.text.indexOf("enroll themselves") < agents.text.indexOf('<div class="panel">'));
     check("Agents (D272 revisited): …that each row is one enrollment per OS user, and the counts are enrollments, not people or machines", /per OS user, not per machine/.test(agents.text) && /enrollments, not\s+people or machines/.test(agents.text.replace(/\s+/g, " ")));
     const metrics = await owner.go("/admin/metrics");
-    check("Metrics: 200, real question counts, deflection explained as not computable", metrics.status === 200 && /asked, all time/.test(metrics.text) && /cannot be computed/.test(metrics.text));
+    // 2026-09-13: this pinned the words "cannot be computed", which the page said of deflection in
+    // general. It was true before D236-D239 and false after, and the page went on saying it. What is
+    // true of THIS tenant - which has no sessions - is that there is nothing to compute a ratio over,
+    // and the page must say that WITHOUT claiming the figure is impossible. The other direction (a
+    // tenant WITH sessions shows a real percentage) is T1.3 of the click-through.
+    check("Metrics: 200, real question counts, and deflection explained for a tenant with NO sessions", metrics.status === 200 && /asked, all time/.test(metrics.text) && /No sessions yet/.test(metrics.text) && /nothing to compute a ratio over/.test(metrics.text), metrics.text.replace(/<[^>]+>/g, " ").match(/Deflection[^.]{0,160}/)?.[0] ?? "(no deflection block)");
+    check("…and it does NOT claim the figure cannot be computed - the hub has counted it since D236-D239; what is missing is the CLIENT half", !/cannot be computed/.test(metrics.text) && /D90/.test(metrics.text), (metrics.text.match(/cannot be computed/g) ?? []).join(","));
     check("Metrics: the tenant's tickets by category are real (hardware: 1)", /<td>hardware<\/td><td>1<\/td>/.test(metrics.text));
     const knowledge = await owner.go("/admin/knowledge");
     // Was: "…and the search/ingest stubs". All three are real since 2026-09-09 (the editor as of

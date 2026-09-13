@@ -1069,7 +1069,7 @@ const applyStart = renderer.indexOf("function applyHubStatus");
 
   // T7.2 is the rendered DOM, which only Electron can answer. The harness records the requirement
   // and the UI pass answers it; it is never reported as a pass by this file.
-  check("T7.2", "(harness) the wire this run captured carries nothing for the DOM to render — the Electron pass is the test", WIRE.every((w) => !w.text.includes(CANARY)));
+  check("T7.2", "(harness half) the wire this run captured carries nothing for a DOM to render — the VERDICT is the Electron pass, and results.json says so", WIRE.every((w) => !w.text.includes(CANARY)));
 } catch (err) {
   console.error(`\nTHE RUN STOPPED: ${err.stack ?? err.message}`);
   fail++;
@@ -1096,6 +1096,9 @@ function writeResults() {
     return {
       id, scenario, surface, proves, eyes,
       result: cs.length === 0 ? "NOT RUN" : cs.every((c) => c.ok) ? "PASS" : "FAIL",
+      // T7.2 is the RENDERED DOM and only Electron can answer it. This file asserts the half it can
+      // (nothing internal on the wire) and refuses to let that read as the test having been run.
+      ...(id === "T7.2" ? { verdictFrom: "the Electron DOM grep in the UI pass, not this file" } : {}),
       checks: cs.length,
       failed: cs.filter((c) => !c.ok).map((c) => `${c.label}${c.extra ? ` — ${c.extra}` : ""}`),
     };

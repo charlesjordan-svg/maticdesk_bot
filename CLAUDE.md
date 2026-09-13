@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D290 onward**, as of D289), with a status
+- New decisions are **appended** to the register with the next free ID (**D293 onward**, as of D292 — the register's own procedure line was corrected in the same pass on 2026-09-13, §5.60), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -214,7 +214,7 @@ npm.cmd install            # pg - the only dependency
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
 #                            B0 hub (51) + B1 source rules (85) + B7a source rules (112) + the job runner
 #                            with fake primitives (67) + B2 console pure parts (86) + B2 source rules (221)
-#                            + the listener gate, TLS-or-nothing and the LAN path over the loopback adapter (41, bind.test.mjs) + P4's requester routes and console delivery pins + P5's handler against a fake client and the binding pins = 733
+#                            + the listener gate, TLS-or-nothing and the LAN path over the loopback adapter (41, bind.test.mjs) + P4's requester routes and console delivery pins + P5's handler against a fake client and the binding pins + D290's delivery gate (the handler headless against the new four-condition shape, including that an UNDELIVERED resolution writes nothing) = 750
 npm.cmd run db:up          # PostgreSQL 17 + pgvector in Docker, loopback, port 5433 (D197)
 npm.cmd run migrate        # control plane + every tenant schema in one run
 npm.cmd run test:db        # the files that need the database: B1's six exit criteria + the job runtime (93) + B7a retrieval (52)
@@ -224,7 +224,7 @@ npm.cmd run test:db        # the files that need the database: B1's six exit cri
 #                              D266 keep-flags and totp --user, D267 bypass end to end, the work-note timeline round trip, the Agents page's caveats, P2's resolution round trip and the concurrent-move race, P3a's requester-safe
 #                              read shape with every `tickets` column classified visible or hidden, and P3b's credential end to
 #                              end: minted once, GET /v1/tickets scoped to the enrollment, the tenant from the credential, a
-#                              second hub with NO tenant filing into it, revocation refusing the next request, and P4's requester comment/confirm/reopen transitions, the hand-off and ack stamps, the console reply end to end, and P5's auto-close: bound, withdrawn by confirm/reopen/move, the handler run TWICE, the setting on the console and the CLI) = 661
+#                              second hub with NO tenant filing into it, revocation refusing the next request, and P4's requester comment/confirm/reopen transitions, the hand-off and ack stamps, the console reply end to end, and P5's auto-close: bound, withdrawn by confirm/reopen/move, the handler run TWICE, the setting on the console and the CLI, and D290's §4b: the Friday/Tuesday case against the database, the re-arm, the backstop firing, the console's 'Resolved, never delivered' list, the CLI agreeing and the requester's read carrying none of it, and the Metrics page's own copy pinned to what is true of a tenant with NO sessions rather than to the claim that deflection cannot be computed) = 674
 #                            A RUNNING DEV HUB SHARES THIS DATABASE AND POLLS control.job_queue (D270). It claims only
 #                            types it has handlers for - ONE since P5, ticket.autoclose - so the suite's b1-* jobs are safe beside it,
 #                            and a due ticket.autoclose job the suite makes MAY be claimed by the dev hub first: admin-db P5
@@ -244,6 +244,24 @@ node bin/kb.mjs ingest <bundle.json>      # validate WHOLE, write, refuse a seco
 npm.cmd run kb:accept      # B7a's acceptance list end-to-end (30); needs db + Ollama. NEGATIVE TEST FIRST
 npm.cmd run kb:answer      # the answer contract against a real model (18). Ollama only, NO database
 npm.cmd run kb:floor       # is a relevance floor possible? Answer: NOT over fused RRF scores (§5.16c)
+npm.cmd run clickthrough   # THE TICKET LIFECYCLE END TO END (2026-09-13): ten scenarios, 59 tests, 185 assertions
+#                            against the real hub, the real console's own routes with a real signed-in session, and
+#                            the real job runner. Needs PostgreSQL; needs NO Ollama (S1's retrieval leg is lexical on
+#                            purpose). ITS OWN TENANT - `clickthrough`/`t_clickthrough`, dropped and recreated each
+#                            run and LEFT IN PLACE at the end so the scorecard is auditable; the dev tenant is never
+#                            touched. No SQL of its own except TIME TRAVEL and fixtures (D224): you never wait 72
+#                            hours and you never lower the interval and call it the same test - S8 does both.
+#                            Every internal string it writes carries INTERNAL-CANARY-<runId>, and S7 greps ALL 153
+#                            requester-facing responses the run captured, not one. Writes
+#                            docs/handovers/screenshots/2026-09-13-clickthrough/results.json, which the scorecard in
+#                            the handback is GENERATED from, so the two cannot drift.
+#                            THE UI PASS IS NOT THE HARNESS and is not in the repo: a scratch DevTools-Protocol
+#                            driver, the 2026-09-11/12 method - Chrome on --remote-debugging-port=9222 for the
+#                            console, electron.cmd . --remote-debugging-port=9223 for the panel. READ THE DOM WITH
+#                            textContent, NEVER innerText: it silently reported four console assertions as absent
+#                            when the text was on the page (CLAUDE.md's own trap, hit again).
+#                            2026-09-13: 59/59. T8.5 - the Friday/Tuesday test - FAILED FIRST exactly as predicted
+#                            and nobody had run it; D290 is the fix. Five more findings came from LOOKING at screens.
 node bin/db.mjs create-tenant devco       # REQUIRED for tickets. A fresh database has NO tenants,
 #                            and /v1/ticket answers 503 (with the fix) until one exists (D213)
 npm.cmd run tickets -- list               # B6-lite. UNTIL OUTBOUND EMAIL EXISTS, THIS IS THE QUEUE

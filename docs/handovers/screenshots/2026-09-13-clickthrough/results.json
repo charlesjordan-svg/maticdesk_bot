@@ -1,9 +1,9 @@
 {
   "summary": {
-    "runId": "20260913091328",
-    "at": "2026-09-13T09:13:42.871Z",
+    "runId": "20260913093534",
+    "at": "2026-09-13T09:35:49.059Z",
     "tenant": "clickthrough",
-    "canary": "INTERNAL-CANARY-20260913091328",
+    "canary": "INTERNAL-CANARY-20260913093534",
     "tests": 59,
     "passed": 59,
     "failed": 0,
@@ -352,6 +352,7 @@
       "proves": "the rendered panel DOM contains none of the five internal values",
       "eyes": "panel",
       "result": "PASS",
+      "verdictFrom": "the Electron DOM grep in the UI pass, not this file",
       "checks": 1,
       "failed": []
     },

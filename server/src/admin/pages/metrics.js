@@ -39,7 +39,7 @@ async function metricsPage(ctx) {
 
   const body = html`
 <h1>Metrics</h1>
-<p class="lede">What this build can count. Every figure names its source; the one that matters most cannot be computed yet, and the page says why rather than showing a zero.</p>
+<p class="lede">What this build can count, and what each figure is NOT. Deflection is over sessions and only an explicit "yes, that fixed it" counts toward it; "answered" is the model's own claim that an article covered the question, not that anything was fixed; and retrieval figures from this hub are a floor rather than a measurement (no reranker, D207; a dev embedder, D203).</p>
 
 <h2>Questions to the assistant <span class="muted" style="font-weight:400;font-size:13px">— control.kb_retrieval_log, hub-wide (not tenant-scoped until device auth exists)</span></h2>
 <div class="grid">
@@ -92,7 +92,11 @@ function deflectionBlock(ctx, outcomes, deflection) {
       arrives: "the endpoint reporting its sessions and asking D90's question",
     });
   }
+  // Below this many sessions the percentage is arithmetic rather than a rate, and the panel says so
+  // above the tile: a 100% built from one session is exactly the figure that ends up in a deck.
+  const THIN = 20;
   return html`<h2>Deflection <span class="muted" style="font-weight:400;font-size:13px">— ${ctx.tenant.displayName}'s sessions (D89: over SESSIONS, never over tickets)</span></h2>
+${denom > 0 && denom < THIN ? html`<p class="lede" style="font-size:14px"><strong>Too few sessions to read as a rate.</strong> ${denom} session${denom === 1 ? "" : "s"} in the denominator, so the figure below is arithmetic rather than a measurement of the product: one more session moves it by about ${Math.round(100 / denom)} points. It is shown with its denominator because that is a fact; hiding it would be a dashboard nobody can check.</p>` : ""}
 <div class="grid">
   ${stat(deflection === null ? "-" : `${Math.round(deflection * 100)}%`, "deflection", denom ? `${c.resolved} of ${denom} sessions ended with the user confirming a fix` : "nothing in the denominator yet")}
   ${stat(c.resolved, "resolved", "the user said the fix worked — the only route to this outcome (D89)")}
