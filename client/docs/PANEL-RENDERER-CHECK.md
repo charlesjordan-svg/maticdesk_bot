@@ -390,6 +390,32 @@ pre-P4 code, sharing the same `userData` — it cannot be stopped from a session
 `enrollment.json` and `tickets-seen.json` there, so **the next time that agent is started on the current
 code it will already be enrolled** as device `cac7b851-…` and will poll for MD-1010.
 
+## 12. Background presence (D293–D296, register §5.61) — **RUN 2026-09-13 over the DevTools Protocol and Windows UI Automation**
+
+The agent outlives its window since 2026-09-13. The page was driven as in §10/§11; the notification
+area was read and clicked through UI Automation (the icon is a button named with its tooltip inside
+`TopLevelWindowForOverflowXamlIsland` once the hidden-icons chevron is invoked); the window was closed
+with `WindowPattern.Close` — **WM_CLOSE, the X button's path. Do not use `window.close()` from the page:
+it takes Chromium's own route, the close event never fires, and it proves nothing about the app.** A
+second hub on 8790 ran the current tree; the agent had its own `--user-data-dir`. Screenshots:
+`docs/handovers/screenshots/2026-09-13-background-presence/`. The falsifiable list from the brief, and
+what each did:
+
+| # | Check | 2026-09-13 |
+|---|---|---|
+| 12.1 | Close the window → the process survives, the icon appears, the one-time notice appears **once** | **PASS.** Log: hidden, voice stopped, audio muted, notice shown and remembered; process alive; page `hidden`; second close: no notice. `02-first-close-notice.png`, `03-tray-overflow-idle.png` |
+| 12.2 | With the window closed, the desk replies → tray *needs you* within one poll, **nothing spoken**; open → the reply is there, tray back to idle | **PASS.** Held within one poll; haloed icon, tooltip "1 update … waiting for you"; `speak()` refused with the D293 sentence; hub *handed, not yet seen*; tray click → reply shown, acknowledged, hub *seen*, icon idle. `04-…needs-you.png`, `05-…reply-shown.png` |
+| 12.3 | **Friday/Tuesday:** resolve with the window closed, then open → the resolution is shown and D290's clock arms on the ack, not the backstop | **PASS.** `auto_close_at` 13:20:03 (resolution) → 13:21:03 (ack) + 72 h; both entries *seen*. `06-…resolution-shown.png` |
+| 12.4 | Stop the hub → *unreachable*; start it → idle | **PASS.** Struck icon within about a minute; back to idle on the next successful probe |
+| 12.5 | Tray **Quit** → the process is gone (check the process list) | **NOT DRIVEN — [CHARLES].** This Windows 11 build ignored injected right-clicks and the Menu key in the overflow (the left click was accepted). The OS-side kill was used instead and the process was gone. Two right-clicks for a person |
+| 12.6 | A second launch → the existing window shows, no second process | **PASS.** Log *a second launch asked for the window*; one page target; the second process exited. A logon-style (`--background`) second launch hands over silently and shows no window |
+| 12.7 | Toggle Start with Windows off → gone from Task Manager's Startup tab; on → back | **MENU NOT DRIVEN — [CHARLES]** (as 12.5). **The rule behind it was:** Task Manager's disabled marker written by hand, relaunch → log *the user turned it off in Task Manager; adopted, NOT re-registered*, `settings.json` off, Run value untouched. The default registered the Run entry on first launch |
+| 12.8 | Autostart launches to the tray with no window | **PASS.** Zero page targets, no voice worker, tray present; the tray click created the first window of the run. `08-window-created-from-tray-after-logon-start.png` |
+
+**What it does not establish:** anything heard (the voice starts and stops with the window by the log,
+and nobody listened); the taskbar flash; the menu's two clicks. The menu's contents and the click wiring
+are pinned in `test/presence.test.mjs` §1 and §4.
+
 ## 9. What to write down
 
 For anything that fails: what you did, what you saw, and what you expected. A screenshot of the
