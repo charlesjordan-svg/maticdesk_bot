@@ -160,6 +160,16 @@ console.log("\n=== 2d. tenant/008 — tickets.device_id: the requester's scope i
   check("control/008 (the credential, D282) exists beside it and names D271 as decided", Boolean(controlM008) && /D271 \(DECIDED 2026-09-12, founder\)/.test(controlM008?.sql ?? "") && /D282 \(PROPOSED 2026-09-12\)/.test(controlM008?.sql ?? ""));
 }
 
+console.log("\n=== 2e. tenant/009 — tickets.reopened_from: a follow-up to a closed ticket, linked, with an FK inside the schema (D286) ===");
+{
+  const m009 = tenant.find((m) => /009-reopened-from/.test(m.version));
+  check("tenant/009-reopened-from.sql exists", Boolean(m009));
+  const sql = m009?.sql ?? "", code = sqlCode(sql);
+  check("it carries decision provenance with the status held when written (register §5.7b) — D286/D279/D284 PROPOSED, D269 RATIFIED", /DECISION PROVENANCE/.test(sql) && /D286 \(PROPOSED 2026-09-12\)/.test(sql) && /D279 \(PROPOSED 2026-09-12\)/.test(sql) && /D284 \(PROPOSED 2026-09-12\)/.test(sql) && /D269 \(RATIFIED 2026-09-12\)/.test(sql));
+  check("it adds reopened_from as a uuid REFERENCES tickets(id), IF NOT EXISTS, with a partial index", /ADD COLUMN IF NOT EXISTS reopened_from uuid REFERENCES tickets\(id\)/.test(code) && /CREATE INDEX IF NOT EXISTS tickets_reopened_from ON tickets \(reopened_from\) WHERE reopened_from IS NOT NULL/.test(code));
+  check("the header says why THIS column has a foreign key when device_id has none (same schema; the earlier ticket must exist)", /WHY A FOREIGN KEY HERE/.test(sql) && /SAME tenant schema/.test(sql));
+}
+
 console.log("\n=== 3. the extension is installed once, database-wide ===");
 const c001 = control.find((m) => /control-plane/.test(m.version)).sql;
 check("control/001 creates the shared `extensions` schema", /CREATE SCHEMA IF NOT EXISTS extensions/i.test(c001));

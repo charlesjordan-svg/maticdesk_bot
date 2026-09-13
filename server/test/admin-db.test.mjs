@@ -455,10 +455,10 @@ try {
     check("four are attributed to the console user's email (snapshot, D143) and one to bin/tickets.mjs",
       before6.filter((e) => e.authorKind === "console_user" && e.authorLabel === made.owner.email).length === 4 && before6.filter((e) => e.authorKind === "system" && e.authorLabel === "bin/tickets.mjs").length === 1);
     const page4 = await owner.go(`/admin/tickets/${ref}`);
-    check("the detail page draws the timeline: 5 entries, each labelled public IN WORDS", /Timeline<span class="count">5<\/span>/.test(page4.text) && (page4.text.match(/reaches nobody in this build \(D86\)/g) ?? []).length === 5);
-    check("D276: the indicator reads none, with the reason in words (no requester can comment in this build)", /Oldest unanswered requester comment: none\./.test(page4.text) && /No requester can comment in this build/.test(page4.text));
+    check("the detail page draws the timeline: 5 entries, each labelled public IN WORDS with its delivery state — none handed yet, because no endpoint has read this ticket (D287)", /Timeline<span class="count">5<\/span>/.test(page4.text) && (page4.text.match(/not yet handed to the requester's app/g) ?? []).length === 5);
+    check("D276: the indicator reads none, and says what none means (answered, or none arrived)", /Oldest unanswered requester comment: none\./.test(page4.text) && /Every requester comment has been answered, or none has arrived/.test(page4.text));
     check("D276: the list page carries the same indicator", /Oldest unanswered requester comment: none\./.test((await owner.go("/admin/tickets")).text));
-    check("the page offers ONE composer — Add work note — and no reply-to-requester", new RegExp(`action="/admin/tickets/${ref}/worknote"`).test(page4.text) && !/[Rr]eply to requester/.test(page4.text) && !/name="visibility"/.test(page4.text));
+    check("the page offers TWO composers — Add work note and Reply to requester — and no visibility control (D287)", new RegExp(`action="/admin/tickets/${ref}/worknote"`).test(page4.text) && new RegExp(`action="/admin/tickets/${ref}/reply"`).test(page4.text) && !/name="visibility"/.test(page4.text));
     const csrf4 = csrfOf(page4.text);
     const NOTE_BODY = "called the user; <dock> firmware & cable both replaced";
     const noCsrfWn = await owner.go(`/admin/tickets/${ref}/worknote`, { method: "POST", form: { body: NOTE_BODY } });
@@ -504,7 +504,7 @@ try {
     // The page for an OPEN ticket: no state form (the one move is to resolve), the Resolve form drawn.
     const openPage = await owner.go(`/admin/tickets/${ref}`);
     check("from open the console draws NO state form and says the one move is to resolve — closing comes after resolving (D279)", !/action="\/admin\/tickets\/[^"]+\/state"/.test(openPage.text) && /the one move this console offers is to resolve it/.test(openPage.text));
-    check("…and draws the Resolve form with the six codes glossed, a required notes field, and the delivered-to-nobody sentence", new RegExp(`action="/admin/tickets/${ref}/resolve"`).test(openPage.text) && /<option value="no_fault_found">No fault found \(no_fault_found\)<\/option>/.test(openPage.text) && /name="resolutionNotes"[^>]*required/.test(openPage.text) && /delivered to nobody in this build/.test(openPage.text));
+    check("…and draws the Resolve form with the six codes glossed, a required notes field, and the delivered-to-nobody sentence", new RegExp(`action="/admin/tickets/${ref}/resolve"`).test(openPage.text) && /<option value="no_fault_found">No fault found \(no_fault_found\)<\/option>/.test(openPage.text) && /name="resolutionNotes"[^>]*required/.test(openPage.text) && /shown in the requester's Matic Desk the next time it polls/.test(openPage.text));
     check("the page says the ticket is Not resolved (the CLI's reopen cleared the current resolution)", /Not resolved\./.test(openPage.text));
     const csrfR = csrfOf(openPage.text);
 
@@ -524,11 +524,11 @@ try {
     const t2 = await getTicket(schema, ref);
     check("the row: resolved, code workaround, notes as given, resolved_at set, the earlier internal note untouched", t2.state === "resolved" && t2.resolutionCode === "workaround" && t2.resolutionNotes === RES2 && t2.resolvedAt instanceof Date && t2.internalResolutionNote === "reopened: the dock failed again", JSON.stringify([t2.resolutionCode, t2.internalResolutionNote]));
     const resolvedPage = await owner.go(`/admin/tickets/${ref}?changed=1&resolved=1`);
-    check("the detail page glosses the code (D244), renders the notes ESCAPED under a requester-visible-but-delivered-to-nobody caption, and the flash says the requester has NOT been told",
-      /Workaround in place <span class="muted mono">workaround<\/span>/.test(resolvedPage.text) && resolvedPage.text.includes(escapeHtml(RES2)) && !resolvedPage.text.includes("<left>") && /requester-visible, delivered to nobody yet/.test(resolvedPage.text) && /The requester has NOT been told/.test(resolvedPage.text));
+    check("the detail page glosses the code (D244), renders the notes ESCAPED under a caption saying they are shown in the requester's Matic Desk when it next polls, and the flash says so too — and that nobody has been emailed",
+      /Workaround in place <span class="muted mono">workaround<\/span>/.test(resolvedPage.text) && resolvedPage.text.includes(escapeHtml(RES2)) && !resolvedPage.text.includes("<left>") && /requester-visible; shown in their Matic Desk when it next polls/.test(resolvedPage.text) && /The requester&#39;s Matic Desk shows this the next time it polls/.test(resolvedPage.text) && /nobody has been emailed \(D86\)/.test(resolvedPage.text));
     check("…the state form now offers closed and open from resolved, with from=resolved hidden, and no Resolve form", /<option value="closed">closed<\/option>/.test(resolvedPage.text) && /<input type="hidden" name="from" value="resolved">/.test(resolvedPage.text) && !new RegExp(`action="/admin/tickets/${ref}/resolve"`).test(resolvedPage.text));
     const cliShow2 = cliRun("show", ref);
-    check("bin/tickets.mjs show prints the resolution — code glossed, notes, and REQUESTER-VISIBLE … nobody sees it", cliShow2.status === 0 && /code      workaround — Workaround in place/.test(cliShow2.stdout) && cliShow2.stdout.includes(RES2) && /REQUESTER-VISIBLE once P4 delivers it; nobody sees it in this build/.test(cliShow2.stdout), cliShow2.stdout.slice(-500));
+    check("bin/tickets.mjs show prints the resolution — code glossed, notes, and REQUESTER-VISIBLE: shown in their Matic Desk when it next polls", cliShow2.status === 0 && /code      workaround — Workaround in place/.test(cliShow2.stdout) && cliShow2.stdout.includes(RES2) && /REQUESTER-VISIBLE: shown in their Matic Desk when it next polls/.test(cliShow2.stdout), cliShow2.stdout.slice(-500));
     const resEntries = (await listEntries(schema, ref, { visibility: "public" })).filter((e) => e.kind === "resolution");
     check("the timeline keeps EVERY resolution as a public entry — two now, across the reopen — while the row holds the current one", resEntries.length === 2 && resEntries[1].body === RES2 && resEntries[1].authorLabel === made.owner.email);
     // auditRows() is newest first; the workaround resolve is the newest ticket.resolve row.
@@ -563,7 +563,7 @@ try {
     check("bin/tickets.mjs resolve without --resolution is refused through the SAME function, with the same sentence", cliNoNotes.status === 1 && /cannot be resolved without resolution notes the requester will read/.test(cliNoNotes.stderr));
     const cliOk = cliRun("resolve", ref, "--code", "fixed", "--resolution", "Replaced the dock. Please confirm it works for you.");
     const t5 = await getTicket(schema, ref);
-    check("bin/tickets.mjs resolve --code --resolution resolves, prints the glossed code, and says THE REQUESTER HAS NOT BEEN TOLD", cliOk.status === 0 && /-> resolved \(fixed — Fixed\)/.test(cliOk.stdout) && /THE REQUESTER HAS NOT BEEN TOLD/.test(cliOk.stdout) && t5.state === "resolved" && t5.resolutionCode === "fixed", cliOk.stdout + cliOk.stderr);
+    check("bin/tickets.mjs resolve --code --resolution resolves, prints the glossed code, and says the requester's Matic Desk shows it when it next polls", cliOk.status === 0 && /-> resolved \(fixed — Fixed\)/.test(cliOk.stdout) && /THE REQUESTER'S MATIC DESK SHOWS THIS WHEN IT NEXT POLLS/.test(cliOk.stdout) && t5.state === "resolved" && t5.resolutionCode === "fixed", cliOk.stdout + cliOk.stderr);
     check("…and the timeline's third resolution entry is attributed to bin/tickets.mjs", (await listEntries(schema, ref, { visibility: "public" })).filter((e) => e.kind === "resolution").length === 3 && (await listEntries(schema, ref, { visibility: "all" })).at(-1).authorLabel === "bin/tickets.mjs");
 
     // D280 — the race. Two moves from the same seen state, concurrently: exactly one lands.
@@ -657,6 +657,7 @@ try {
       suggested_owner: "routing is internal",
       internal_resolution_note: "INTERNAL by name (D269): the desk's account, the KB draft loop's input",
       awaiting_agent_since: "D276's indicator — the desk's queue age, not the requester's",
+      reopened_from: "the CLOSED ticket this one follows up (D286) — the requester supplied the reference and holds both; the link is the desk's to read",
     };
     const cols = (await getPool().query(
       "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'tickets' ORDER BY ordinal_position", [schema],
@@ -1630,7 +1631,7 @@ try {
     const withReply = await (await asDevice(`/v1/tickets/${ref}`)).json();
     check("…and it reaches the endpoint on its next read, stamped notified", withReply.entries.some((e) => e.authorKind === "console_user" && e.kind === "comment" && e.notifiedAt !== null) && withReply.handed === 1);
     check("addEntry() REFUSES a comment: a comment is a transition with two named writers (D286)", await addEntry(schema, ref, { kind: "comment", body: "x", author: desk }).then(() => false, (e) => /D286/.test(e.message)));
-    check("replyToRequester() refuses a non-console author", await replyToRequester(schema, ref, { body: "x", author: { kind: "system", label: "cli" } }).then(() => false, (e) => /console_user/.test(e.message)));
+    check("replyToRequester() is the DESK's: it refuses a requester as author (that is requesterComment(), a transition) and takes the console or the CLI", await replyToRequester(schema, ref, { body: "x", author: { kind: "requester" } }).then(() => false, (e) => /console_user/.test(e.message)));
 
     // Reopen needs a resolved ticket and a reason; confirm needs a resolved ticket.
     check("POST reopen on an OPEN ticket -> 409 naming the state and pointing at /comment", (await (async () => { const r = await post(`/v1/ticket/${ref}/reopen`, { reason: "x" }); return r.status === 409 && /not resolved/.test((await r.json()).error); })()));
@@ -1655,6 +1656,43 @@ try {
     check("an unknown reference -> 404 'readable by this enrollment' for comment and confirm alike", (await post("/v1/ticket/MD-999999/comment", { body: "x" })).status === 404 && (await post("/v1/ticket/MD-999999/confirm")).status === 404);
     const notMine = (await listTickets(schema)).find((t) => t.reference !== ref);
     check("a ticket this enrollment did not file -> 404, the same sentence (no existence oracle)", Boolean(notMine) && (await post(`/v1/ticket/${notMine.reference}/comment`, { body: "x" })).status === 404);
+
+    // The console (D287): the reply composer, delivery state per entry, the derived badge, the follow-up link.
+    const filed2 = await (await post("/v1/ticket", { description: "p4: follow-up to the reader", summary: "P4-SENTINEL-2", category: "hardware", suggestedOwner: null, reporter: { osUsername: "p4.user" }, reopenedFrom: ref })).json();
+    check("POST /v1/ticket with reopenedFrom naming the CLOSED ticket this enrollment filed -> 201, and the row carries the link by reference", filed2.ok === true && filed2.reopenedFrom === ref && (await getTicket(schema, filed2.reference)).reopenedFrom === ref, JSON.stringify(filed2).slice(0, 200));
+    const badLink = await post("/v1/ticket", { description: "x", summary: "x", category: "other", suggestedOwner: null, reporter: { osUsername: "p4.user" }, reopenedFrom: notMine.reference });
+    check("…reopenedFrom naming a ticket this enrollment did NOT file -> 400 'readable by this enrollment', nothing filed", badLink.status === 400 && /readable by this enrollment/.test((await badLink.json()).error));
+    const openLink = await post("/v1/ticket", { description: "x", summary: "x", category: "other", suggestedOwner: null, reporter: { osUsername: "p4.user" }, reopenedFrom: filed2.reference });
+    check("…reopenedFrom naming a ticket that is NOT closed -> 400 pointing at /comment", openLink.status === 400 && /not closed/.test((await openLink.json()).error));
+    const anonLink = await fetch(`${base}/v1/ticket`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description: "x", summary: "x", category: "other", suggestedOwner: null, reporter: { osUsername: "u" }, reopenedFrom: ref }) });
+    check("…and with no credential -> 400: a follow-up link needs the enrollment that filed the earlier ticket", anonLink.status === 400 && /credential/.test((await anonLink.json()).error));
+    const cliEnvP4 = { ...process.env, MATIC_TICKET_TENANT: schema };
+    const page2 = await owner.go(`/admin/tickets/${filed2.reference}`);
+    check("the detail page shows Follow-up to <the closed ref> as a link, and bin/tickets.mjs show prints 'follow-up to'", new RegExp(`<a class="mono" href="/admin/tickets/${ref}">${ref}</a>`).test(page2.text) && /follow-up to    /.test(spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", filed2.reference], { encoding: "utf8", env: cliEnvP4 }).stdout));
+    const csrf2 = csrfOf(page2.text);
+    check("the page draws TWO composers — Reply to requester and Add work note — and the reply says in-app, only while their app is open and polling, not email", new RegExp(`action="/admin/tickets/${filed2.reference}/reply"`).test(page2.text) && new RegExp(`action="/admin/tickets/${filed2.reference}/worknote"`).test(page2.text) && /only while their Matic Desk app is open and polling\. This is not email/.test(page2.text) && !/awaiting the requester/.test(page2.text));
+    const emptyReply = await owner.go(`/admin/tickets/${filed2.reference}/reply`, { method: "POST", form: { body: "  ", _csrf: csrf2 } });
+    check("POST reply with no words -> 400 and nothing added", emptyReply.status === 400 && (await listEntries(schema, filed2.reference, { visibility: "all" })).length === 0);
+    const rep = await owner.go(`/admin/tickets/${filed2.reference}/reply`, { method: "POST", form: { body: "  We have your follow-up; a technician will call. <b>soon</b>  ", _csrf: csrf2 } });
+    check("POST reply -> 303 back to the ticket flagged reply=1", rep.status === 303 && rep.location === `/admin/tickets/${filed2.reference}?reply=1`, `${rep.status} ${rep.location}`);
+    const page3 = await owner.go(`/admin/tickets/${filed2.reference}?reply=1`);
+    check("the flash says the requester's Matic Desk shows it when it next polls and that this is not email", /Reply added — public\. The requester's Matic Desk shows it when it next polls; this is not email/.test(page3.text));
+    check("the entry renders ESCAPED, labelled public and NOT YET HANDED — no endpoint has read it", page3.text.includes("We have your follow-up; a technician will call. &lt;b&gt;soon&lt;/b&gt;") && /not yet handed to the requester's app/.test(page3.text));
+    check("…and the page carries the derived 'awaiting the requester' badge: the last public word is the desk's", /awaiting the requester/.test(page3.text));
+    check("audited as ticket.comment with the entry id and never the words", (await auditRows()).some((r) => r.action === "ticket.comment" && r.subject === filed2.reference && Boolean(r.detail?.entry) && !/technician/.test(JSON.stringify(r))));
+    await asDevice(`/v1/tickets/${filed2.reference}`);
+    check("after the endpoint reads, the entry reads 'handed to the requester's app … not yet seen'", /handed to the requester's app [^<]* — not yet seen/.test((await owner.go(`/admin/tickets/${filed2.reference}`)).text));
+    const handedIds = (await (await asDevice(`/v1/tickets/${filed2.reference}`)).json()).entries.map((e) => e.id);
+    await post("/v1/tickets/ack", { entryIds: handedIds });
+    check("after the ack, it reads 'seen by the requester'", /seen by the requester/.test((await owner.go(`/admin/tickets/${filed2.reference}`)).text));
+    await post(`/v1/ticket/${filed2.reference}/comment`, { body: "Thanks. Still waiting though." });
+    const page5 = await owner.go(`/admin/tickets/${filed2.reference}`);
+    check("a requester comment renders 'from the requester', attributed to the requester, and the awaiting badge is GONE (the requester has the last word)", /<span class="pill">public<\/span> <span>from the requester<\/span>/.test(page5.text) && /the requester<\/span> · /.test(page5.text) && !/awaiting the requester/.test(page5.text));
+    check("…and the D276 indicator now shows an AGE on this ticket, on the detail page and the list", new RegExp(`Oldest unanswered requester comment: [^<]+</strong>, on <a class="mono" href="/admin/tickets/${filed2.reference}">`).test(page5.text) && new RegExp(`href="/admin/tickets/${filed2.reference}">${filed2.reference}</a> — waiting since`).test((await owner.go("/admin/tickets")).text));
+    const cliReply = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "reply", filed2.reference, "--body", "From the CLI: noted."], { encoding: "utf8", env: cliEnvP4 });
+    check("bin/tickets.mjs reply writes through the SAME replyToRequester(), says PUBLIC and not email, and clears the clock", cliReply.status === 0 && /PUBLIC/.test(cliReply.stdout) && /not email/.test(cliReply.stdout) && (await oldestUnansweredRequesterComment(schema)) === null, cliReply.stdout + cliReply.stderr);
+    const cliShow3 = spawnSync(process.execPath, [join(SERVER, "bin/tickets.mjs"), "show", filed2.reference], { encoding: "utf8", env: cliEnvP4 });
+    check("bin/tickets.mjs show prints delivery marks per public line — {seen …} and {not yet handed …} — and 'the requester' as the comment's author", /\{seen \d{4}/.test(cliShow3.stdout) && /\{not yet handed to the requester's app\}/.test(cliShow3.stdout) && /the requester\s+Thanks\. Still waiting though\./.test(cliShow3.stdout), cliShow3.stdout.slice(-700));
 
     // The write limit, the read limit's sibling.
     resetWriteThrottle();

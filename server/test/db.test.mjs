@@ -264,6 +264,14 @@ async function main() {
   await withTenant(SC, (c) => c.query(m008t.sql));
   check("running tenant/008's SQL a SECOND time changes nothing in the catalog", (await deviceCatalog()) === snap008t);
 
+  // D286: tenant/009 — the follow-up link, WITH a foreign key (same schema), re-run a no-op.
+  const m009t = readMigrations("tenant").find((m) => /009-reopened-from/.test(m.version));
+  const snap009t = await deviceCatalog();
+  check("tenant/009 gave the fresh tenant tickets.reopened_from (uuid) with a foreign key onto tickets and the partial index", Boolean(m009t) && /"column_name":"reopened_from","data_type":"uuid"/.test(snap009t) && /tickets_reopened_from/.test(snap009t) && /reopened_from/.test(JSON.parse(snap009t).fks.join(",")), snap009t);
+  await withTenant(SC, (c) => c.query(m009t.sql));
+  check("running tenant/009's SQL a SECOND time changes nothing in the catalog", (await deviceCatalog()) === snap009t);
+  check("the database refuses a follow-up to a ticket that does not exist (the FK)", /violates foreign key|not present in table/.test(await withTenant(SC, async (c) => { try { await c.query("INSERT INTO tickets (reference, description, summary, category, reopened_from) VALUES ('MD-B1-9', 'x', 'x', 'other', gen_random_uuid())"); return ""; } catch (e) { return e.message; } })));
+
   // =============================================================================================
   console.log("\n=== 5. a job for tenant B is picked up by a worker that sees only B's data ===");
   const bSessionId = await withTenant(SB, async (c) =>

@@ -7,6 +7,7 @@
  *   node bin/tickets.mjs show <reference>          e.g. MD-1000
  *   node bin/tickets.mjs state <reference> <new|open|closed> [--note "what fixed it"]
  *   node bin/tickets.mjs resolve <reference> --code <code> --resolution "what the requester is told" [--note "…"]
+ *   node bin/tickets.mjs reply <reference> --body "…"           the desk's public reply (D287): shown in the requester's Matic Desk when it polls; not email
  *   node bin/tickets.mjs users
  *
  * `resolve` is the ONE way to reach `resolved` (D278, tenant/007): a code (one of RESOLUTION_CODES)
@@ -55,7 +56,7 @@
  */
 import { closePool } from "../src/db/pool.js";
 import { resolveTicketTenant } from "../src/tickets/file.js";
-import { TICKET_STATES, RESOLUTION_CODES, RESOLUTION_CODE_WORDS, countTicketsByState, getTicket, listEntries, listReporters, listTickets, resolveTicket, setTicketState } from "../src/tickets/query.js";
+import { TICKET_STATES, RESOLUTION_CODES, RESOLUTION_CODE_WORDS, countTicketsByState, getTicket, listEntries, listReporters, listTickets, resolveTicket, setTicketState, replyToRequester } from "../src/tickets/query.js";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "list";
@@ -124,7 +125,7 @@ if (!tenant) {
           console.log("  internal resolution note (the desk's own record; the requester never sees it):");
           console.log(`    ${t.internalResolutionNote ?? "-"}`);
           // The requester-visible half (D278). Public — and delivered to nobody until P4.
-          console.log("  resolution (REQUESTER-VISIBLE once P4 delivers it; nobody sees it in this build):");
+          console.log("  resolution (REQUESTER-VISIBLE: shown in their Matic Desk when it next polls, D287; not email):");
           if (t.resolutionCode) {
             console.log(`    code      ${t.resolutionCode} — ${RESOLUTION_CODE_WORDS[t.resolutionCode] ?? t.resolutionCode}`);
             console.log(`    resolved  ${t.resolvedAt ? t.resolvedAt.toISOString() : "-"}`);
@@ -133,16 +134,23 @@ if (!tenant) {
             console.log(`    not resolved${t.state === "closed" ? " — closed without a resolution (this CLI, or before tenant/007)" : ""}`);
           }
           if (t.closedAt) console.log(`  closed          ${t.closedAt.toISOString()} by ${t.closedBy}`);
+          if (t.reopenedFrom) console.log(`  follow-up to    ${t.reopenedFrom} (the requester raised this about a closed ticket, D286)`);
           // The timeline, through the same function the console's detail page calls (D224, D275).
           // "all" is asked for in words: this is an operator's tool and is entitled to internal rows.
           const entries = await listEntries(tenant, ref, { visibility: "all" });
           console.log("");
-          console.log(`  timeline (${entries.length} entr${entries.length === 1 ? "y" : "ies"}, oldest first — [INTERNAL] never reaches the requester; [public] reaches nobody in this build):`);
-          if (!entries.length) console.log("    (none yet — a state change or a console work note writes one)");
+          console.log(`  timeline (${entries.length} entr${entries.length === 1 ? "y" : "ies"}, oldest first — [INTERNAL] never reaches the requester; [public] is shown in their Matic Desk when it polls, and each public line says whether it was handed over and seen, D287):`);
+          if (!entries.length) console.log("    (none yet — a state change, a reply or a work note writes one)");
           for (const e of entries) {
             const label = e.visibility === "internal" ? "[INTERNAL]" : "[public]  ";
             const body = e.body.replace(/\r?\n/g, "\n" + " ".repeat(6));
-            console.log(`    ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")}  ${label}  ${e.kind.replace(/_/g, " ").padEnd(12)} ${(e.authorLabel ?? e.authorKind).padEnd(24)} ${body}`);
+            const who = e.authorKind === "requester" ? "the requester" : (e.authorLabel ?? e.authorKind);
+            // D287: the hub's two stamps, in words. The requester's own comments are never "delivered".
+            const delivery = e.visibility !== "public" || e.authorKind === "requester" ? ""
+              : e.readByRequesterAt ? `  {seen ${e.readByRequesterAt.toISOString().slice(0, 16).replace("T", " ")}}`
+                : e.notifiedAt ? `  {handed ${e.notifiedAt.toISOString().slice(0, 16).replace("T", " ")}, not yet seen}`
+                  : "  {not yet handed to the requester's app}";
+            console.log(`    ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")}  ${label}  ${e.kind.replace(/_/g, " ").padEnd(12)} ${who.padEnd(24)} ${body}${delivery}`);
           }
         }
       }
@@ -173,7 +181,20 @@ if (!tenant) {
         else if ("refused" in r) die(`  ${r.refused}`);
         else {
           console.log(`  ${ref}: ${r.from} -> resolved (${r.code} — ${RESOLUTION_CODE_WORDS[r.code]})${r.noted ? " (internal note recorded)" : ""}`);
-          console.log("  THE REQUESTER HAS NOT BEEN TOLD — nothing delivers resolution notes in this build (P4, after D271).");
+          console.log("  THE REQUESTER'S MATIC DESK SHOWS THIS WHEN IT NEXT POLLS (D287) — not email; nobody has been emailed (D86).");
+        }
+      }
+    } else if (cmd === "reply") {
+      // D287: the desk's public reply from a terminal — the SAME replyToRequester() the console's
+      // composer calls, attributed to the CLI. It stops D276's clock. Not email.
+      const ref = positional[0];
+      const body = flag("body");
+      if (!ref || !body) die('usage: node bin/tickets.mjs reply <reference> --body "what the requester is told"');
+      else {
+        const r = await replyToRequester(tenant, ref, { body, author: { kind: "system", label: "bin/tickets.mjs" } });
+        if (!r) die(`no ticket ${ref} in ${tenant}`);
+        else {
+          console.log(`  ${ref}: reply recorded (entry ${r.id}) — PUBLIC. Shown in the requester's Matic Desk when it next polls (D287); not email, nobody emailed (D86).`);
         }
       }
     } else if (cmd === "users") {

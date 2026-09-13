@@ -14,20 +14,24 @@
  * "NOBODY HAS BEEN EMAILED" travels here too. That makes six surfaces for D213's caveat, and the
  * redundancy is the point (B6-TICKET-STORE.md §0).
  *
- * THE TIMELINE, SINCE 2026-09-12 (tenant/006, D275) — WORK NOTES ONLY. The detail page lists every
- * entry through `listEntries(…, { visibility: "all" })` — the console is the one reader entitled
- * to the internal rows, and it asks for them in words — and each entry carries its visibility AS
- * A LABEL, not only a colour, so a screenshot cannot lose it. ONE composer: "Add work note",
- * internal. There is deliberately NO "reply to requester" composer: nothing can deliver one until
- * P4 (gated on D271), and a button that reaches nobody for three phases is this project's signature
- * defect built on purpose (plan v3 §0 finding 8). `ticket.worknote` joins the audit log with who
- * and when and never the words. A state change writes its own entry inside `setTicketState()`.
+ * THE TIMELINE, SINCE 2026-09-12 (tenant/006, D275). The detail page lists every entry through
+ * `listEntries(…, { visibility: "all" })` — the console is the one reader entitled to the internal
+ * rows, and it asks for them in words — and each entry carries its visibility AS A LABEL, not only
+ * a colour, so a screenshot cannot lose it. P1 shipped ONE composer, "Add work note", and refused a
+ * "reply to requester" while nothing could deliver one (plan v3 §0 finding 8). P4 (D286/D287, the
+ * same evening) shipped the second: the endpoint polls behind its credential (D282/D284), so a
+ * public reply reaches the requester's Matic Desk while it is open — and the composer says exactly
+ * that, and that it is not email. `ticket.comment` and `ticket.worknote` join the audit log with
+ * who and when and never the words. A state change writes its own entry inside `setTicketState()`.
+ *
+ * D287 — THE CONSOLE REPORTS DELIVERY, IT DOES NOT IMPLY IT. Every public entry the desk wrote
+ * renders its own delivery state from the hub's two stamps: not yet handed to the requester's app;
+ * handed <ago>, not yet seen; seen <ago>. The requester's own comments are labelled as theirs.
  *
  * D276 — THE AGE, NOT THE COUNT. Both ticket screens carry, beside "NOBODY HAS BEEN EMAILED", the
- * age of the oldest requester comment nobody has answered. It reads "none" in this build because
- * no requester can comment yet, and it says why in words rather than drawing an empty cell. When
- * P4 lands the sentence changes on its own: `oldestUnansweredRequesterComment()` already reads the
- * clock (`tickets.awaiting_agent_since`) that P4 will start writing.
+ * age of the oldest requester comment nobody has answered. Since P4 the clock has a writer: a
+ * requester's comment starts it (D286) and the desk's public reply stops it, so "none" means every
+ * requester comment has been answered or none has arrived, and the sentence says both.
  *
  * P2, SINCE 2026-09-12 — RESOLUTION MEANS SOMETHING (D278–D280, tenant/007). `resolved` is reached
  * only through the RESOLVE form, which requires a resolution code and requester-visible notes and is
@@ -41,13 +45,14 @@
  *
  * TWO NOTES ON ONE PAGE, AND THEY MUST NOT MERGE. The INTERNAL resolution note (D239/D269) is the
  * desk's account, optional, never shown. The RESOLUTION NOTES (D278) are written FOR the requester,
- * required to resolve, PUBLIC — and reach nobody in this build, which every label beside them says.
+ * required to resolve, PUBLIC — shown in the requester's Matic Desk when it next polls (P4, D287),
+ * and never emailed (D86), which every label beside them says.
  */
 import { html, notYet, empty, when, ago, csrfField, limit } from "../html.js";
 import { route } from "../route.js";
 import {
   countTicketsByState, getTicket, listTickets, setTicketState, resolveTicket, NEXT_STATES, TICKET_STATES,
-  RESOLUTION_CODES, RESOLUTION_CODE_WORDS, addEntry, listEntries, oldestUnansweredRequesterComment,
+  RESOLUTION_CODES, RESOLUTION_CODE_WORDS, addEntry, listEntries, oldestUnansweredRequesterComment, replyToRequester,
 } from "../../tickets/query.js";
 
 const NOBODY_EMAILED = "Nobody has been emailed about any of these. This build has no outbound email (D86), so this list is the queue: if you do not look here, nobody knows.";
@@ -61,55 +66,100 @@ const CLOSED_BY_WORDS = { console_user: "a console user", system: "the CLI, with
 const consoleAuthor = (ctx) => ({ kind: "console_user", adminUserId: ctx.user.id, label: ctx.user.email });
 
 /**
- * D276's indicator. An AGE — "3" is ignorable, "41 h ago" is not. Null today, and the sentence
- * says why instead of showing nothing: no requester can comment until P4.
+ * D276's indicator. An AGE — "3" is ignorable, "41 h ago" is not. Since P4 (D286) the clock has a
+ * writer: a requester's comment starts it and the desk's public reply stops it, so "none" means
+ * every requester comment has been answered, or none has arrived — and the sentence says both.
  */
 function unansweredLimit(oldest) {
   if (!oldest) {
-    return limit(html`<strong>Oldest unanswered requester comment: none.</strong> No requester can comment in this build — the panel has no ticket view and the hub has no comment route (P4, after D271). When one can, this line carries the <strong>age</strong> of the oldest comment nobody has answered, never a count.`);
+    return limit(html`<strong>Oldest unanswered requester comment: none.</strong> Every requester comment has been answered, or none has arrived. Requesters comment from their Matic Desk panel (P4, D286); this line carries the <strong>age</strong> of the oldest one nobody has answered, never a count.`);
   }
-  return limit(html`<strong>Oldest unanswered requester comment: ${ago(oldest.since)}</strong>, on <a class="mono" href="/admin/tickets/${oldest.reference}">${oldest.reference}</a> — waiting since ${when(oldest.since)}.`);
+  return limit(html`<strong>Oldest unanswered requester comment: ${ago(oldest.since)}</strong>, on <a class="mono" href="/admin/tickets/${oldest.reference}">${oldest.reference}</a> — waiting since ${when(oldest.since)}. Replying to the requester on that ticket clears it.`);
 }
 
 const KIND_WORDS = { work_note: "work note", state_change: "state change", comment: "comment", resolution: "resolution" };
 
 /**
+ * D287 — THE CONSOLE REPORTS DELIVERY, IT DOES NOT IMPLY IT. A public entry the desk wrote renders
+ * its own delivery state from the hub's two stamps: not yet handed to the requester's app; handed
+ * <ago>, not yet seen; seen <ago>. The requester's own entries are labelled as theirs. Nothing here
+ * says "sent" or "notified": the requester sees an entry only while their Matic Desk is open and
+ * polling, and this is not email (D86).
+ */
+function deliveryWords(e) {
+  if (e.authorKind === "requester") return html`<span>from the requester</span>`;
+  if (e.readByRequesterAt) return html`<span>seen by the requester ${ago(e.readByRequesterAt)}</span>`;
+  if (e.notifiedAt) return html`<span>handed to the requester's app ${ago(e.notifiedAt)} — not yet seen</span>`;
+  return html`<span>not yet handed to the requester's app — it shows when their Matic Desk next polls; this is not email</span>`;
+}
+
+/** The author, in words: a console user by email, the requester as the requester, the CLI as itself. */
+const authorWords = (e) => e.authorKind === "requester" ? "the requester" : (e.authorLabel ?? e.authorKind);
+
+/**
  * One timeline entry. The visibility is a LABEL IN WORDS on every row (plan §7.4: it has to survive
- * a screenshot); the pill colour is secondary. "public" is honest about what it means today.
+ * a screenshot); the pill colour is secondary. A public row carries its delivery state (D287).
  */
 function entryRow(e) {
   const vis = e.visibility === "internal"
     ? html`<span class="pill internal">internal</span> <span>the requester never sees this</span>`
-    : html`<span class="pill">public</span> <span>reaches nobody in this build (D86) — requester-visible once P4 delivers</span>`;
+    : html`<span class="pill">public</span> ${deliveryWords(e)}`;
   return html`<div class="entry">
-    <div class="entry-head">${vis} · ${KIND_WORDS[e.kind] ?? e.kind} · <span class="mono">${e.authorLabel ?? e.authorKind}</span> · <span title="${e.createdAt.toISOString()}">${when(e.createdAt)} (${ago(e.createdAt)})</span></div>
+    <div class="entry-head">${vis} · ${KIND_WORDS[e.kind] ?? e.kind} · <span class="mono">${authorWords(e)}</span> · <span title="${e.createdAt.toISOString()}">${when(e.createdAt)} (${ago(e.createdAt)})</span></div>
     <blockquote>${e.body}</blockquote>
   </div>`;
 }
 
 /**
- * The timeline panel: every entry newest LAST, then the ONE composer this build has.
+ * Plan v3 §3.1's substitute for a `pending_user` state: "awaiting the requester" is DERIVED from the
+ * timeline — the last public entry is the desk's and no requester entry follows it — on a live
+ * ticket. No schema, no second closure semantic; the timeline already carries the fact.
+ */
+export function awaitingRequester(entries, state) {
+  if (state === "closed") return false;
+  const pub = entries.filter((e) => e.visibility === "public");
+  const last = pub.at(-1);
+  return Boolean(last) && last.authorKind !== "requester" && (last.kind === "comment" || last.kind === "resolution");
+}
+
+/**
+ * The timeline panel: every entry newest LAST, then TWO composers — the reply the requester sees,
+ * and the work note they never do. Two forms, two actions, no visibility control: which one the
+ * operator is typing into is the whole choice, and the query layer decides the visibility from the
+ * kind (D275).
  *
- * NO "REPLY TO REQUESTER". Not an omission — a decision (D275, plan v3 §0 finding 8). Nothing can
- * deliver a requester-visible entry until P4, so a composer for one would be a control that reaches
- * nobody, three lines above a note saying so. It ships with the delivery path or not at all.
+ * "REPLY TO REQUESTER" EXISTS SINCE P4 (D287) and says what it is: in-app, while their app is open
+ * and polling — not email (D86). P1 refused to build this composer while nothing could deliver what
+ * it wrote; D282's credential and the endpoint's poll are what changed.
  */
 function timelinePanel(ctx, t, entries) {
+  const awaiting = awaitingRequester(entries, t.state);
   const composer = !ctx.permissions.has("tickets.write")
     ? html`<p class="muted">Your roles (${ctx.roles.join(", ")}) can read the timeline but not add to it.</p>`
-    : html`<form method="post" action="/admin/tickets/${t.reference}/worknote" style="margin-top:14px">
+    : html`<form method="post" action="/admin/tickets/${t.reference}/reply" style="margin-top:14px">
+    ${csrfField(ctx.csrf)}
+    <label for="reply">Reply to requester (public)</label>
+    <textarea id="reply" name="body" rows="3" maxlength="4000" placeholder="What you want the requester to read — plainly, in your own words." style="max-width:100%"></textarea>
+    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>The requester sees this only while their Matic Desk app is open and polling. This is not email</strong> (D86). Each public entry below says whether it has been handed over and seen (D287). Replying clears the "oldest unanswered" clock for this ticket.</p>
+    <div class="row">
+      <button class="primary" type="submit">Reply to requester</button>
+      <span class="muted" style="font-size:13px">Recorded in the audit log as who replied and when — never the words.</span>
+    </div>
+  </form>
+  <form method="post" action="/admin/tickets/${t.reference}/worknote" style="margin-top:14px">
     ${csrfField(ctx.csrf)}
     <label for="body">Add work note (internal)</label>
     <textarea id="body" name="body" rows="3" maxlength="4000" placeholder="What you did, found, or are waiting on — for the desk." style="max-width:100%"></textarea>
-    <p class="muted" style="font-size:13px;margin:4px 0 0">Internal: the requester never sees a work note. There is no reply-to-requester here on purpose — nothing can deliver one yet (P4, after D271).</p>
+    <p class="muted" style="font-size:13px;margin:4px 0 0">Internal: the requester never sees a work note. Two composers, two audiences — the visibility is the KIND's, never a control on this form.</p>
     <div class="row">
-      <button class="primary" type="submit">Add work note</button>
+      <button type="submit">Add work note</button>
       <span class="muted" style="font-size:13px">Recorded in the audit log as who wrote one and when — never the words.</span>
     </div>
   </form>`;
   return html`<div class="panel">
-  <h2>Timeline<span class="count">${entries.length}</span></h2>
-  ${entries.length ? entries.map(entryRow) : empty("Nothing yet. A state change writes an entry; so does a work note.")}
+  <h2>Timeline<span class="count">${entries.length}</span>${awaiting ? html` <span class="pill">awaiting the requester</span>` : ""}</h2>
+  ${awaiting ? html`<p class="muted" style="font-size:13px;margin:0 0 8px">The last public word is the desk's and the requester has not answered it. Derived from the timeline, not a state (plan v3 §3.1).</p>` : ""}
+  ${entries.length ? entries.map(entryRow) : empty("Nothing yet. A state change writes an entry; so does a reply or a work note.")}
   ${composer}
 </div>`;
 }
@@ -213,7 +263,7 @@ function resolveBlock(ctx, t, next) {
     </select>
     <label for="resolutionNotes">Resolution notes — for the requester (required)</label>
     <textarea id="resolutionNotes" name="resolutionNotes" rows="4" maxlength="4000" required placeholder="What was wrong and what was done, in words the person who reported it can read." style="max-width:100%"></textarea>
-    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>Requester-visible — and delivered to nobody in this build.</strong> Nothing carries these notes to the requester until P4 (after D271); they sit on the ticket and on its timeline as a public entry. Write them for the requester anyway.</p>
+    <p class="muted" style="font-size:13px;margin:4px 0 0"><strong>Requester-visible — shown in the requester's Matic Desk the next time it polls, while their app is open. This is not email</strong> (D86). The timeline below says when the hub handed them over and when they were seen (D287).</p>
     ${internalNoteField("-resolve")}
     <div class="row">
       <button class="primary" type="submit">Resolve ${t.reference}</button>
@@ -232,7 +282,7 @@ function resolutionBlock(t) {
     <dt>Code</dt><dd>${RESOLUTION_CODE_WORDS[t.resolutionCode] ?? t.resolutionCode} <span class="muted mono">${t.resolutionCode}</span></dd>
     <dt>Resolved</dt><dd>${when(t.resolvedAt)}${t.resolvedAt ? html` <span class="muted">(${ago(t.resolvedAt)})</span>` : ""}</dd>
   </dl>
-  <p class="muted" style="font-size:13px;margin:8px 0 4px">Resolution notes — <strong>requester-visible, delivered to nobody yet</strong> (P4).</p>
+  <p class="muted" style="font-size:13px;margin:8px 0 4px">Resolution notes — <strong>requester-visible; shown in their Matic Desk when it next polls</strong>, not emailed (D287).</p>
   <blockquote>${t.resolutionNotes}</blockquote>`;
 }
 
@@ -247,6 +297,7 @@ async function detailPage(ctx) {
   const flash = ctx.url.searchParams.get("changed");
   const noted = ctx.url.searchParams.get("noted");
   const workNoted = ctx.url.searchParams.get("worknote");
+  const replied = ctx.url.searchParams.get("reply");
   const resolvedNow = ctx.url.searchParams.get("resolved");
   // "all": this page is the one reader entitled to internal rows, and it says so in the call (D275).
   const [entries, oldest] = await Promise.all([
@@ -260,8 +311,9 @@ async function detailPage(ctx) {
 <p class="lede">Filed ${when(t.createdAt)} (${ago(t.createdAt)}) · updated ${when(t.updatedAt)}.</p>
 ${limit("Nobody has been emailed about this ticket (D86). Changing its state here tells no one; the queue is the only place it is visible.")}
 ${unansweredLimit(oldest)}
-${flash ? html`<div class="flash">${resolvedNow ? "Resolved. The requester has NOT been told — nothing delivers resolution notes in this build." : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
+${flash ? html`<div class="flash">${resolvedNow ? "Resolved. The requester's Matic Desk shows this the next time it polls while their app is open — nobody has been emailed (D86)." : `State changed to ${t.state}.`}${noted ? " Internal note recorded." : ""}</div>` : ""}
 ${workNoted ? html`<div class="flash">Work note added — internal, on the timeline below.</div>` : ""}
+${replied ? html`<div class="flash">Reply added — public. The requester's Matic Desk shows it when it next polls; this is not email. The timeline below says when it was handed over and seen.</div>` : ""}
 
 <div class="detail">
 <div>
@@ -277,7 +329,7 @@ ${workNoted ? html`<div class="flash">Work note added — internal, on the timel
   <p class="muted" style="font-size:13px;margin:0 0 4px">Written by whoever moved the ticket, for the desk's own record (D239). Internal: the requester never sees it. The requester-facing account is the resolution notes below, a different field (D278).</p>
   <blockquote>${t.internalResolutionNote ?? html`<span class="muted">none yet</span>`}</blockquote>
   <h2>Resolution</h2>
-  <p class="muted" style="font-size:13px;margin:0 0 4px">A code you can count and notes written for the requester (D278). Both are PUBLIC — requester-visible once P4 can deliver them; nobody sees them in this build.</p>
+  <p class="muted" style="font-size:13px;margin:0 0 4px">A code you can count and notes written for the requester (D278). Both are PUBLIC — shown in the requester's Matic Desk when it polls (P4, D287); nobody is emailed (D86).</p>
   ${resolutionBlock(t)}
   ${t.closedAt ? html`<p class="muted" style="font-size:13px">Closed ${when(t.closedAt)} by ${CLOSED_BY_WORDS[t.closedBy] ?? t.closedBy}.</p>` : ""}
 </div>
@@ -299,6 +351,7 @@ ${timelinePanel(ctx, t, entries)}
       <dt>Suggested owner</dt><dd>${t.suggestedOwner ? owner(t.suggestedOwner) : html`<span class="muted">none — the model would not guess, and that is allowed</span>`}</dd>
       <dt>Machine</dt><dd class="mono">${t.machineName ?? "-"}</dd>
       <dt>Session</dt><dd class="muted">${t.sessionId ?? "none — the endpoint creates no sessions yet (D75)"}</dd>
+      <dt>Follow-up to</dt><dd>${t.reopenedFrom ? html`<a class="mono" href="/admin/tickets/${t.reopenedFrom}">${t.reopenedFrom}</a> <span class="muted">— the requester raised this about a closed ticket (D286)</span>` : html`<span class="muted">none</span>`}</dd>
     </dl>
   </div>
   <div class="panel">
@@ -319,10 +372,10 @@ ${timelinePanel(ctx, t, entries)}
 </div>
 
 ${notYet({
-  heading: "Assignment, requester comments, attachments, notification",
-  missing: "This ticket cannot be assigned to a person, commented on by the requester, or sent anywhere. The work notes above are internal and reach nobody outside this console.",
-  why: "The store is create plus a four-state machine (B6-lite, D213) and, since 2026-09-12, an internal timeline (D275). OPEN-4's subset — assign, requester-visible comments (D69; P4, after D271), attachments, search — and D86's outbound email are not built, so a state change or a work note here tells nobody.",
-  arrives: "B6 proper; requester comments with P4's delivery path",
+  heading: "Assignment, attachments, email",
+  missing: "This ticket cannot be assigned to a person, carry an attachment, or be sent anywhere by email. A reply here reaches the requester's Matic Desk while their app is open and polling — and nowhere else.",
+  why: "The store is create plus a four-state machine (B6-lite, D213), an internal timeline (D275), a resolution (D278) and, since P4, requester comments and desk replies delivered in-app (D286/D287). OPEN-4's remainder — assign, attachments, search — and D86's outbound email are not built, so a requester whose app is closed learns nothing until it opens.",
+  arrives: "B6 proper; D86 email",
 })}`;
   await ctx.render(200, body, { title: t.reference, current: "/admin/tickets" });
 }
@@ -426,6 +479,24 @@ async function worknotePost(ctx) {
   ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?worknote=1`);
 }
 
+/**
+ * The reply composer's POST (D287). Public, always: `replyToRequester()` writes a `comment` in the
+ * console user's name and STOPS D276's clock in one transaction. Audited as `ticket.comment` with the
+ * entry's id and never its text.
+ */
+async function replyPost(ctx) {
+  const ref = ctx.params.ref;
+  const body = typeof ctx.form.body === "string" ? ctx.form.body.trim() : "";
+  if (!body) {
+    return ctx.render(400, html`<h1>A reply needs words</h1><p class="lede">Nothing was added to ${ref}, and the requester has not been told anything.</p><p><a href="/admin/tickets/${ref}">Back to ${ref}</a></p>`, { title: "Nothing to add", current: "/admin/tickets" });
+  }
+  const added = await replyToRequester(ctx.tenant.schemaName, ref, { body, author: consoleAuthor(ctx) });
+  if (!added) return ctx.render(404, html`<h1>No ticket ${ref}</h1>`, { title: "Not found", current: "/admin/tickets" });
+  await ctx.audit("ticket.comment", { subject: ref, detail: { entry: added.id } });
+  ctx.log(`[admin] ${ctx.user.email} replied to the requester on ${ref} - shown in their Matic Desk when it next polls; nobody emailed`);
+  ctx.redirect(`/admin/tickets/${encodeURIComponent(ref)}?reply=1`);
+}
+
 const REF = "(?<ref>MD-\\d{1,12})";
 export const ticketRoutes = [
   route("GET", /^\/admin\/tickets\/?$/, "tickets.read", listPage),
@@ -433,4 +504,5 @@ export const ticketRoutes = [
   route("POST", new RegExp(`^/admin/tickets/${REF}/state$`), "tickets.write", statePost),
   route("POST", new RegExp(`^/admin/tickets/${REF}/resolve$`), "tickets.write", resolvePost),
   route("POST", new RegExp(`^/admin/tickets/${REF}/worknote$`), "tickets.write", worknotePost),
+  route("POST", new RegExp(`^/admin/tickets/${REF}/reply$`), "tickets.write", replyPost),
 ];

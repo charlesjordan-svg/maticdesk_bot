@@ -1,0 +1,28 @@
+-- Tenant 009 — tickets.reopened_from: a NEW ticket that is about a CLOSED one, linked (D286; P4).
+--
+-- DECISION PROVENANCE (register §5.7b). Status is the status held WHEN THIS MIGRATION WAS WRITTEN.
+--   D286 (PROPOSED 2026-09-12) — a requester's comment is a transition, and on a CLOSED ticket it is
+--     refused: closed is terminal (D279) and a closed ticket is read-only. The way forward the
+--     refusal names is a new ticket ABOUT the closed one, and this column is the link — so the desk
+--     sees "follow-up to MD-1008" on the new row, and a recurrence is a fact on the record rather
+--     than a coincidence of two descriptions.
+--   D279 (PROPOSED 2026-09-12) — "a recurrence is a new ticket carrying reopened_from" was written
+--     into D279's row the day closed became terminal; this is that column, one phase later.
+--   D284 (PROPOSED 2026-09-12) — the link is accepted only from the credential that filed BOTH
+--     tickets: `POST /v1/ticket` with `reopenedFrom` resolves the reference under the requester's
+--     own device_id and requires the earlier ticket to be closed. A client cannot link to a ticket
+--     it did not file, and an unauthenticated filing cannot link at all.
+--   D269 (RATIFIED 2026-09-12) — writer: `createTicket()` (src/tickets/file.js); readers:
+--     `getTicket()` (joined to the earlier ticket's reference), the console's detail page
+--     ("Follow-up to") and `bin/tickets.mjs show`.
+--
+-- WHY A FOREIGN KEY HERE, WHEN device_id (008) HAS NONE. Both tickets live in the SAME tenant schema,
+-- so the reference points nowhere the control plane could follow and a tenant drop takes both rows.
+-- The FK is the database's copy of "the earlier ticket exists": a follow-up to a deleted ticket is a
+-- link to nothing, and an INSERT saying so should fail rather than land.
+--
+-- IDEMPOTENT: ADD COLUMN IF NOT EXISTS; CREATE INDEX IF NOT EXISTS. test/db.test.mjs §4 runs this
+-- file a second time against a migrated tenant and asserts the catalog did not move.
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reopened_from uuid REFERENCES tickets(id);
+-- "Which tickets followed this one" is the read a desk makes when a recurrence is suspected.
+CREATE INDEX IF NOT EXISTS tickets_reopened_from ON tickets (reopened_from) WHERE reopened_from IS NOT NULL;

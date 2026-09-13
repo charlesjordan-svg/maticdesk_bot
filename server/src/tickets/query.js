@@ -349,7 +349,7 @@ export async function countTicketsByCategory(schema) {
  *
  * @param {string} schema
  * @param {string} reference  e.g. MD-1000
- * @returns {Promise<(TicketRow & { id: string, description: string, summary: string, whatWasChecked: string|null, profileSource: string|null, sessionId: string|null, deviceId: string|null, internalResolutionNote: string|null, resolutionCode: string|null, resolutionNotes: string|null, resolvedAt: Date|null, closedAt: Date|null, closedBy: string|null })|null>}
+ * @returns {Promise<(TicketRow & { id: string, description: string, summary: string, whatWasChecked: string|null, profileSource: string|null, sessionId: string|null, deviceId: string|null, reopenedFrom: string|null, internalResolutionNote: string|null, resolutionCode: string|null, resolutionNotes: string|null, resolvedAt: Date|null, closedAt: Date|null, closedBy: string|null })|null>}
  */
 export async function getTicket(schema, reference) {
   return withTenant(schema, async (c) => {
@@ -358,8 +358,11 @@ export async function getTicket(schema, reference) {
     // scoped to the requester, and never this. Two functions rather than one narrower one: the
     // console needs `summary`, the checks and the internal note; the requester must never get them.
     const { rows } = await c.query(
-      `SELECT t.*, u.first_name, u.last_name, u.location, u.contact_id, u.os_username, u.profile_source
-         FROM tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.reference = $1`,
+      `SELECT t.*, u.first_name, u.last_name, u.location, u.contact_id, u.os_username, u.profile_source,
+              p.reference AS reopened_from_reference
+         FROM tickets t LEFT JOIN users u ON u.id = t.user_id
+              LEFT JOIN tickets p ON p.id = t.reopened_from
+        WHERE t.reference = $1`,
       [reference],
     );
     if (!rows.length) return null;
@@ -375,6 +378,9 @@ export async function getTicket(schema, reference) {
       // Which ENROLLMENT filed it (tenant/008, D284), or null: filed with no credential — a
       // loopback development hub, or before the column existed. Both readers say which.
       deviceId: t.device_id ?? null,
+      // The CLOSED ticket this one follows up (tenant/009, D286), by reference, or null. Both readers
+      // draw it as a link/line; the requester supplied it under their own credential (D284).
+      reopenedFrom: t.reopened_from_reference ?? null,
       // INTERNAL. Both readers label it so; a requester-facing route must never SELECT t.* —
       // it would ship this, `summary` (D214) and `what_was_checked` to the requester.
       internalResolutionNote: t.internal_resolution_note ?? null,
@@ -659,11 +665,11 @@ export async function confirmResolution(schema, reference, { deviceId } = {}) {
  *
  * @param {string} schema
  * @param {string} reference
- * @param {{ body: string, author: EntryAuthor }} r  author.kind must be console_user
+ * @param {{ body: string, author: EntryAuthor }} r  author.kind is console_user (the console) or system (the CLI, as the desk)
  * @returns {Promise<{ id: string, createdAt: Date }|null>}
  */
 export async function replyToRequester(schema, reference, { body, author }) {
-  if (author?.kind !== "console_user") throw new Error("replyToRequester() is the console's: author.kind must be console_user (a requester's comment is requesterComment(), a transition)");
+  if (author?.kind !== "console_user" && author?.kind !== "system") throw new Error("replyToRequester() is the DESK's reply: author.kind must be console_user (the console) or system (bin/tickets.mjs). A requester's comment is requesterComment(), a transition");
   return withTenant(schema, async (c) => {
     const { rows } = await c.query("SELECT id FROM tickets WHERE reference = $1 FOR UPDATE", [reference]);
     if (!rows.length) return null;

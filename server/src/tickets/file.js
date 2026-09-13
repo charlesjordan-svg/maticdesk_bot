@@ -134,6 +134,12 @@ export function checkTicketRequest(body) {
     return "sessionStartedAt, when present, must be an ISO timestamp string";
   }
 
+  // D286 (P4): a follow-up to a CLOSED ticket, by reference. Shape-checked here; resolved to the
+  // earlier ticket's id inside createTicket() under the SAME device_id, so a client cannot link to a
+  // ticket it did not file. Without a credential there is no device to check against -> refused.
+  if (body.reopenedFrom !== undefined && body.reopenedFrom !== null && !(typeof body.reopenedFrom === "string" && /^MD-\d{1,12}$/.test(body.reopenedFrom))) {
+    return "reopenedFrom, when present, must be a ticket reference (MD-…) that this enrollment filed and that is closed";
+  }
   const r = body.reporter;
   if (!r || typeof r !== "object") return "reporter must be an object";
   if (!str(r.osUsername)) return "reporter.osUsername must be a non-empty string";
@@ -157,12 +163,17 @@ export function checkTicketRequest(body) {
  * means filed with no credential (a loopback listener, where the credential is optional), and such
  * a ticket is readable by no requester route.
  *
+ * `reopenedFrom` (D286, tenant/009) is the REFERENCE of a closed ticket this same enrollment filed;
+ * it is resolved to an id here, under `deviceId`, and refused — a thrown Error the route turns into
+ * a 400 — when the earlier ticket is not this enrollment's or is not closed. Never accepted without a
+ * device: an unauthenticated filing has nothing to prove the link with.
+ *
  * @param {string} schema
  * @param {object} body
- * @param {{ deviceId?: string|null }} [opts]
- * @returns {Promise<{reference: string, ticketId: string, userId: string, createdAt: string}>}
+ * @param {{ deviceId?: string|null, reopenedFrom?: string|null }} [opts]
+ * @returns {Promise<{reference: string, ticketId: string, userId: string, createdAt: string, reopenedFrom: string|null}>}
  */
-export async function createTicket(schema, body, { deviceId = null } = {}) {
+export async function createTicket(schema, body, { deviceId = null, reopenedFrom = null } = {}) {
   const r = body.reporter;
   const displayName = [str(r.firstName), str(r.lastName)].filter(Boolean).join(" ") || null;
 
@@ -189,6 +200,16 @@ export async function createTicket(schema, body, { deviceId = null } = {}) {
     ]);
     const userId = userRes.rows[0].id;
 
+    // D286: the follow-up link, proven against THIS enrollment's own closed ticket.
+    let reopenedFromId = null;
+    if (reopenedFrom) {
+      if (!deviceId) throw new Error(`reopenedFrom needs the enrollment credential: only the enrollment that filed ${reopenedFrom} can file a follow-up to it (D284)`);
+      const { rows: prior } = await client.query("SELECT id, state FROM tickets WHERE reference = $1 AND device_id = $2::uuid", [reopenedFrom, deviceId]);
+      if (!prior.length) throw new Error(`reopenedFrom: no ticket ${reopenedFrom} is readable by this enrollment`);
+      if (prior[0].state !== "closed") throw new Error(`reopenedFrom: ${reopenedFrom} is ${prior[0].state}, not closed. A live ticket takes a comment (POST /v1/ticket/${reopenedFrom}/comment); a follow-up is for a closed one`);
+      reopenedFromId = prior[0].id;
+    }
+
     // THE SESSION BECOMES ESCALATED HERE, IN THIS TRANSACTION (D89: "escalated = a ticket was
     // created"; D239: set automatically, never asked, never sent by the client as an event). The
     // row is upserted first because the endpoint's `begin` is best-effort and may not have landed
@@ -210,9 +231,9 @@ export async function createTicket(schema, body, { deviceId = null } = {}) {
     // must never be reused, and a gap in MD-#### is meaningless to everyone who reads one.
     const ticketSql = `
       INSERT INTO tickets
-        (reference, user_id, session_id, description, summary, what_was_checked, machine_name, category, suggested_owner, device_id)
+        (reference, user_id, session_id, description, summary, what_was_checked, machine_name, category, suggested_owner, device_id, reopened_from)
       VALUES
-        ('MD-' || nextval('ticket_reference_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ('MD-' || nextval('ticket_reference_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id, reference, created_at`;
     const t = await client.query(ticketSql, [
       userId,
@@ -224,6 +245,7 @@ export async function createTicket(schema, body, { deviceId = null } = {}) {
       body.category,
       body.suggestedOwner ?? null,
       deviceId,
+      reopenedFromId,
     ]);
 
     return {
@@ -232,6 +254,7 @@ export async function createTicket(schema, body, { deviceId = null } = {}) {
       userId,
       sessionId,
       createdAt: t.rows[0].created_at.toISOString(),
+      reopenedFrom: reopenedFromId ? reopenedFrom : null,
     };
   });
 }
@@ -270,7 +293,7 @@ export function ticketHandler({ tenantSchema, log = () => {} }) {
     if (problem) return send(400, { ok: false, error: problem });
 
     try {
-      const filed = await createTicket(schema, parsed.value, { deviceId: device?.id ?? null });
+      const filed = await createTicket(schema, parsed.value, { deviceId: device?.id ?? null, reopenedFrom: parsed.value.reopenedFrom ?? null });
       log(`[hub] filed ${filed.reference} in ${schema} (category ${parsed.value.category}, owner ${parsed.value.suggestedOwner ?? "unrouted"})${device ? ` by device ${device.id}` : " - unauthenticated"}`);
       return send(201, {
         ok: true,
@@ -288,6 +311,8 @@ export function ticketHandler({ tenantSchema, log = () => {} }) {
           + "not a queue. Do not tell the user that IT has been notified.",
       });
     } catch (err) {
+      // D286: a refused follow-up link is the client's mistake, said back as a 400 — not a 500.
+      if (/^reopenedFrom/.test(err.message)) return send(400, { ok: false, error: err.message, filed: false });
       // The database being down must not look like the ticket being rejected.
       log(`[hub] ticket insert failed: ${err.stack ?? err.message}`);
       return send(500, {
