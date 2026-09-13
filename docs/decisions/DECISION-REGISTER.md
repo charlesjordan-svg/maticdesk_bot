@@ -3876,6 +3876,13 @@ at-least-once condition; the cancel hooks are marked in `requesterComment()` and
 assignment, email — the notYet block on the ticket page names all three. **The dev database is
 migrated** (tenant/009); no dev ticket moved.
 
+**5.58e — WATCHED, the same night (§10.3c).** 5.58c's item (3) is discharged: the band's hub branch, the
+transcript line, the ack round trip and the state words were all seen in the real window against the real
+hub, with a ticket filed through the model. Four copy findings, fixed in `e068161`: the band's note and the
+spoken answer now say which filed tickets the desk cannot match and why (a shared clause, pinned), a resolve
+produces one line not two, and a state change is glossed by its own target. The taskbar flash was not
+observed. Client 2056 after the fixes.
+
 **Server headless 695 across 7 files (was 674); db 625 across 3 (was 566); client 2038 across 26 (was
 1942 across 25; `ticket-watch.test.mjs` is new).**
 
@@ -3933,8 +3940,14 @@ means an auto-close can land up to ten minutes late after a restart.
 partial index exists for it); the requester being told AHEAD of the close by anything but the band's
 sentence; withdrawing queued jobs on OFF (5.59a.3). P6 (email) remains gated on D86.
 
+**5.59e — WATCHED, the same night (§10.3c).** The auto-close fired through the hub's OWN runner (the job
+made due by SQL) and reached the real app as *"closed on its own"* with the band at "Closed"; the resolved
+band row read *"closes on its own in about an hour unless you say otherwise"* at a 1-hour interval and *"in 3
+days"* at 72. 5.59c's item (3) is discharged for the CLIENT surfaces; the console's P5 pages were NOT watched
+(no sign-in was made) and remain Charles's.
+
 **Server headless 733 across 7 files (was 695); db 661 across 3 (was 625); client 2041 across 26 (was
-2038).**
+2038); 2056 after the click-through's fixes (§10.3c).**
 
 ## 6. Conflicts
 
@@ -4192,6 +4205,26 @@ how you can tell it is the app behaving and not the app broken.
 frame on launch, the todo card (it needs this machine genuinely offline), and the elevated half of a fix
 (§4.5, §7.2).
 
+
+### 10.3c Verified on a screen — P4 and P5 in the real Electron window, 2026-09-12 (night)
+
+Charles: *"run the electron click-through for p4 and p5"*. The third entry in this section and the second a
+session ran. The hub was restarted on the current code first (the one serving 8787 predated every P4 commit).
+Procedure and per-item results: `../../client/docs/PANEL-RENDERER-CHECK.md` §10 and §11; screenshots in
+`../handovers/screenshots/2026-09-13-p4-p5-click-through/`.
+
+| What | Result |
+|---|---|
+| **A REAL ticket, end to end, in the real app against the real hub and model** | Typed, offered, accepted, reviewed, sent: MD-1010, filed under the enrollment the app made at startup. The desk's reply, pick-up and resolution (the CLI, D224's same functions) each reached the transcript within one 30-second poll; the face stayed `idle`; the hub stamped every public entry `{seen}` after the app's ack. **The runner's auto-close fired through the hub's own runner** (job made due by SQL) and reached the app as *"closed on its own"* one second later |
+| **Four findings, all in words the headless suites had passed** | (1) the band's note described the POLL, not the ROWS — *"with what the service desk showed"* over four rows the desk cannot match; (2) the spoken answer had the same gap; (3) a resolve produced TWO transcript lines for one fact (D245) because the desk writes a state change and a resolution together; (4) a state change was glossed by the ticket's state after the batch, not its own target. **All four fixed in `e068161` and re-verified live** — the fix to (1)/(2) is a shared clause the band and the voice carry character for character, pinned the way D242 pinned the limit clause |
+| **Could not observe** | the taskbar flash (the protocol sees the page); anything HEARD; the console's P5 pages (no sign-in was made — a session may not create an account or enter a password; `admin-db` P5 reads their HTML) |
+| **Observed, not changed** | the bust's *escalating* badge right after filing under a rail reading "Nothing in progress" (D232, pre-P4); update lines landing under the boot greeting on the first-run scene (D262, correct) |
+| **A fact for the next session** | an ELEVATED agent on pre-P4 code was running the whole time, sharing `userData`; it is enrolled now without knowing it |
+
+**The tenth straight click-through found something, and this one found four — all copy, all of the
+same class**: a sentence true of the mechanism (the poll ran; the resolve happened) and false of the surface it
+sat on (the rows it described; the line beside it). No test that reads strings could have caught any of them,
+because every string was individually correct.
 
 ### 10.4 Verified 2026-09-03 (night) — the first-build-steps handover's Task 5, against primary sources
 

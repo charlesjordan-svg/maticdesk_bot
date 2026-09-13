@@ -95,6 +95,16 @@ NULL is the kill switch. D270's condition — the first handler proves at-least-
 
 ---
 
+## 3a. Run, the same night — ledger item 6 discharged for the client
+
+Register §10.3c; `client/docs/PANEL-RENDERER-CHECK.md` §11. With the dev tenant at a 1-hour interval the
+resolved band row read *"closes on its own in about an hour unless you say otherwise"*; the job was made due by
+SQL and **the hub's own runner** closed the ticket (`[jobs] ticket.autoclose 624: MD-1010 resolved -> closed
+(closed_by auto)`), and the app showed *"MD-1010 closed on its own: …"* with the band at "Closed" one second
+after noticing. Reopened and re-resolved at 72 h: *"in 3 days"*, the binding moved to the new job. **The
+console's Auto-close panel, the detail page's sentence and the Resolve form's clock were NOT watched** — no
+console sign-in was made — and stay Charles's. The interval was put back to 72.
+
 ## 4. What is next
 
 - **Ratify or revert D289** (and D286–D288 from P4, which stand on their own).

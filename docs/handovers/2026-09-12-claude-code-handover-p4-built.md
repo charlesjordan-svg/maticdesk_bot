@@ -135,6 +135,17 @@ console's "handed / seen" evidence with no writer.
 
 ---
 
+## 4a. Run, the same night — ledger item 1 discharged
+
+Charles: *"run the electron click-through for p4 and p5"*. Register §10.3c; `client/docs/PANEL-RENDERER-CHECK.md`
+§10; screenshots in `screenshots/2026-09-13-p4-p5-click-through/`. A real ticket (MD-1010) filed through the
+model and the review card; the reply, pick-up and resolution each on screen within one poll; the face idle
+throughout; every entry `{seen}` on the hub. **Four findings, all fixed in `e068161` and re-verified live:**
+the band's note and the spoken answer described the poll rather than the rows (tickets filed before the
+enrollment have no status, and nothing said why); a resolve produced two lines for one fact (D245); a state
+change was glossed by the batch's final state. Not observed: the taskbar flash, anything heard. Item 5 (D288's
+revision of D242) still awaits Charles.
+
 ## 5. What is next
 
 - **Ratify or revert D288's revision of D242** (and D286/D287, which stand on their own).

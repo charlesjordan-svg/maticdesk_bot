@@ -331,6 +331,65 @@ spooler, memory at 95%, and two drives in different states on purpose.
 | 8c.14 | Unplug the network, reopen the band | `Network` is marked. **`Network adapter` is NOT**, though it reads "None found" — marking both would say one fact twice (D245) |
 | 8c.15 | Open the developer log after opening the band | A `[band]` line naming the groups, the row count and which rows are marked. On a healthy machine it says *"nothing — a healthy machine carries no mark"* |
 
+## 10. The ticket comes back (D286–D288, P4) — **RUN 2026-09-12 (night, Pacific) over the DevTools Protocol**
+
+**How it was run.** The hub on the CURRENT code (`npm.cmd start` in `server/`; the one that had been
+serving 8787 since the afternoon predated every P4 commit and was stopped first). The app launched
+as `electron.cmd . --remote-debugging-port=9223` from `client/` with `MATIC_ENROLLMENT_TENANT=devco`,
+`MATIC_ENROLLMENT_SECRET=<a one-day secret minted by bin/devices.mjs>` and `MATIC_TICKET_POLL_MS=30000`
+(the floor) — `config.json` untouched, its secret still empty. Driven by `Runtime.evaluate` and
+`Page.captureScreenshot` over a plain `WebSocket` (Node 24 has one; no dependency). **The desk's half
+was the CLI** — `bin/tickets.mjs reply / state / resolve / autoclose` — which calls the same functions
+the console's forms call (D224); no console sign-in was made, so the console PAGES were not watched
+in this run (they are exercised by `admin-db` reading their HTML). Screenshots:
+`docs/handovers/screenshots/2026-09-13-p4-p5-click-through/` (the hub's clock reads 2026-09-13 UTC).
+
+**The ticket was REAL:** typed as *"my laptop screen is cracked and there is a big line down it"*, sent to
+the hub's model, offered, accepted, drafted, reviewed and filed by clicking *Send this to the service
+desk* — MD-1010, filed under the enrollment the app made at startup (`show` names the device id).
+
+| # | Do | Pass when | 2026-09-12 |
+|---|---|---|---|
+| 10.1 | Start the app with a secret in the environment; read the developer log | `[enroll] enrolled … as device …` on the first run; `[enroll] active (device …)` from disk on the second | **PASS.** Both, on the first and the relaunch |
+| 10.2 | Open the tickets band before the hub knows any of these tickets | Every row "Filed from here / Progress not visible" **and the note says why**, not that the desk showed something | **FAIL → FIXED.** The note read *"with what the service desk showed when I last checked"* over four rows the desk could not match (filed before the enrollment; D284 lists them under nobody). Finding 1. Now: *"…they were filed before this machine was enrolled with the service desk — so I can't see how they're getting on."* Re-verified live (shot-12) |
+| 10.3 | File a ticket through the review card, then wait one poll and re-open the band | The new row carries the hub's state — "At the desk / No update from the desk yet" — and the older rows do not change | **PASS.** Immediately after filing the row read "Filed from here" (the poll had not run); 30 s later "At the desk / No update from the desk yet" (shot-06) |
+| 10.4 | From the desk, `reply` to the ticket | Within one poll a transcript line quotes the desk's words in full, the reference in mono, and says replying from here is not built yet | **PASS.** 15 s. *"The service desk replied on MD-1010: “Thanks Charles. Desktop support will bring a loan laptop…” Replying from this window isn't built yet — quote MD-1010 if you follow it up."* (shot-07) |
+| 10.5 | Watch the face and listen while it arrives | **Nothing is spoken; the face does not change.** Show only (Charles) | **PASS** for the face (`idle` before and after, read off the element) and the log (*"shown, not spoken"*). **[CHARLES] for the ear** — a session cannot hear |
+| 10.6 | Read the hub's record of that entry after the line appeared | `{seen <time>}` on the CLI's timeline; `read_by_requester_at` stamped by the hub's clock | **PASS.** `{seen 2026-09-13 06:29}`; the developer log: *acknowledged 1 shown entry to the hub (D287)* |
+| 10.7 | From the desk, move it `new → open` | A line *"MD-1010 has moved on at the service desk: the desk is looking at it."*; the band row "Being looked at / Last update from the desk just now" | **PASS.** 8.5 s (shot-08) |
+| 10.8 | From the desk, `resolve` it | ONE line — the resolution, quoting the desk's note — and the band "Waiting on you" in the attention colour, with the auto-close clause | **FAIL → FIXED.** TWO lines three seconds apart: *"…has moved on…: the desk says it's fixed and is waiting to hear whether you agree."* and *"The service desk has marked MD-1010 as fixed. Their note: …"* — the desk's resolve writes a state change and a resolution in one transaction, and both were shown (D245). Finding 3. `updateLines()` folds the change into resolved into the resolution that came with it; re-verified with a closed → open → resolved batch: exactly two lines, "looking at it" and the resolution, all three entries acked (shot-14). The band half PASSED as written (shot-09) |
+| 10.9 | Ask *"what is the status of my ticket"* | The spoken answer carries the SAME status words as the band for the ticket the desk lists, and says why the others have none | **FAIL → FIXED.** MD-1010 carried *"the service desk says it's fixed and is waiting to hear whether you agree"* and the older four carried nothing — and nothing said why. Finding 2. Now: *"The ones without a status were filed before this machine was enrolled with the service desk, so it can't match them to me and I can't see how they're getting on."* — the band's clause, character for character. Re-verified live (shot-13) |
+| 10.10 | Two state changes handed over in one poll | Each is glossed by ITS target | **FAIL → FIXED.** Finding 4, found by reading the code while fixing 3: `updateWords` glossed a state change by the ticket's state after the batch. Now the target is read off the body (`was → next`). Re-verified: the `closed → open` change in the batch of 10.8 read "looking at it" while the ticket was resolved |
+| 10.11 | Have the window behind another when an update arrives | The taskbar button flashes; focus clears it | **COULD NOT OBSERVE.** The protocol sees the page, not the taskbar. Pinned headlessly (`ticket-watch.test` §10) |
+| 10.12 | Reload the renderer while the first-run scene is showing, then let an update arrive | The lines land under the boot greeting; the first-run scene STAYS (D262: only the user retires it) | **PASS, observed incidentally** (shot-14): both lines under the greeting, the three openers still showing |
+| 10.13 | Restart the app | The band shows what it last knew before the first poll (the snapshot), then the poll refreshes it | **PASS.** `tickets-seen.json` restored MD-1010 as closed; the first poll re-read it |
+
+## 11. Auto-close (D289, P5) — **RUN 2026-09-12 (night, Pacific), through the real runner**
+
+The dev tenant's interval was set to 1 hour for the run (`bin/tickets.mjs autoclose --hours 1`) and put
+back to 72 afterwards. To see the close without waiting an hour, `tickets.auto_close_at` and the job's
+`run_after` were moved a minute into the past by SQL; **the hub's own runner** (5 s poll) then claimed
+the job — not a test harness.
+
+| # | Do | Pass when | 2026-09-12 |
+|---|---|---|---|
+| 11.1 | `resolve` with a 1-hour interval; read the band | "Waiting on you" (attention colour) / *"The desk says it's fixed — closes on its own in about an hour unless you say otherwise"* | **PASS** (shot-09). With 72 h: *"…in 3 days…"* (shot-14) |
+| 11.2 | Read the CLI's `resolve` output and `show` | The instant, and "unless the requester confirms or comments first" | **PASS.** `closes automatically at 2026-09-13T07:30:24.801Z unless the requester confirms or comments first (D289)` |
+| 11.3 | Make the job due; watch the hub log | `[jobs] ticket.autoclose <id>: MD-x resolved -> closed (closed_by auto) …` | **PASS.** Job 624, within the runner's 5-second tick |
+| 11.4 | Watch the app | Within one poll: *"MD-1010 closed on its own: the service desk had marked it fixed and nobody said otherwise in time. If the problem is back, raise a new ticket about it — quote MD-1010."*; the band "Closed" (quiet colour) | **PASS.** 1 s after the close was noticed (shot-11) |
+| 11.5 | `show` the ticket | `closed … by auto (the auto-close job: …)`; the closing state change is a public entry by `auto-close`, `{seen …}` | **PASS.** All five public lines carry `{seen}` |
+| 11.6 | Reopen from the CLI (`state … open`) and resolve again with 72 h | A new job; the band says "in 3 days" | **PASS** (shot-14). The binding moved to the new job; the old one is `done` |
+| 11.7 | The console pages: the Auto-close panel, the detail page's sentence, the Resolve form's clock | — | **NOT WATCHED in this run** (no console sign-in was made; a session may not create an account or enter a password). They are exercised by `admin-db` P5 reading the rendered HTML. **[CHARLES]** |
+
+**Observed and not changed.** Right after filing, the bust shows the *escalating* badge (a ticket exists,
+D232) while the rail reads "Ready when you are / Nothing in progress"; it was back to plain idle by the
+time the reply arrived (shot-11). Pre-P4 behaviour, noted for the design conversation, not P4's.
+
+**Also running throughout:** an ELEVATED Matic Desk agent Charles started at 15:51 the same day, on the
+pre-P4 code, sharing the same `userData` — it cannot be stopped from a session. The run's instance wrote
+`enrollment.json` and `tickets-seen.json` there, so **the next time that agent is started on the current
+code it will already be enrolled** as device `cac7b851-…` and will poll for MD-1010.
+
 ## 9. What to write down
 
 For anything that fails: what you did, what you saw, and what you expected. A screenshot of the
