@@ -15,6 +15,7 @@ import { CloudClient } from "../agent/cloud-client.js";
 import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
 import { HubClient } from "../agent/hub-client.js";
 import { HubLink } from "../agent/hub-link.js";
+import { EnrollmentStore, ensureEnrolled, ENROLL_RETRY_MS } from "../agent/enrollment.js";
 import { Agent } from "../agent/agent.js";
 import { marksIn } from "../agent/machine-band.js";
 import { ProfileStore } from "../profile/profile.js";
@@ -39,6 +40,9 @@ let hubUrlForTickets = null;
 // D233. Always constructed - a build with no hub gets a link that reports `standalone`, so the
 // renderer's status pill has one shape to read whatever the provider is.
 let hubLink = null;
+// D282 (P3b). The enrollment record - device key, device id, credential - in per-user userData
+// beside the profile. null on a build with no hub provider.
+let enrollment = null;
 
 const log = (line) => {
   console.log(line);
@@ -143,6 +147,32 @@ app.whenReady().then(async () => {
     });
     cloud = new HubClient({ hubUrl, capabilities: broker.listCapabilities(), timeoutMs: hubTimeoutMs, onLog: log, link: hubLink });
     hubUrlForTickets = hubUrl;
+
+    // ---- enrollment at startup (D282, D285; P3b, 2026-09-12) - the client half of B3 ----
+    //
+    // The tenant and its enrollment secret come from config.json (`enrollment`), PLAINTEXT and
+    // per install - Charles's decision on 2026-09-12, because there is no installer to deliver it
+    // any other way (config.json's _enrollmentNote says the rest) - or from the environment for one
+    // run. The credential the hub returns ONCE is kept beside the profile in per-user userData,
+    // which is what makes it a per-OS-user enrollment of the software and not a machine identity.
+    // HubClient presents it on every request from the moment it lands; a turn that happens first
+    // goes unauthenticated, which a loopback hub accepts (D283).
+    //
+    // Nothing here blocks the window. A pending, throttled or unreachable outcome is retried on a
+    // timer; refused and held are not - their fix is a person's, and the log says which.
+    enrollment = new EnrollmentStore({ dir: app.getPath("userData"), onLog: log });
+    const enrollCfg = {
+      tenant: process.env.MATIC_ENROLLMENT_TENANT || config.enrollment?.tenant || null,
+      secret: process.env.MATIC_ENROLLMENT_SECRET || config.enrollment?.secret || null,
+    };
+    const hubClient = cloud;
+    const enroll = async () => {
+      const r = await ensureEnrolled({ store: enrollment, hubUrl, tenant: enrollCfg.tenant, secret: enrollCfg.secret, onLog: log });
+      if (r.credential) hubClient.setCredential(r.credential);
+      log(`[enroll] ${r.state}${r.deviceId ? ` (device ${r.deviceId})` : ""}${r.why ? ` - ${r.why}` : ""}`);
+      if (r.retry) setTimeout(enroll, ENROLL_RETRY_MS).unref();
+    };
+    void enroll();
     log(`[hub] giving the hub up to ${Math.round(hubTimeoutMs / 1000)}s to answer - a cold model load can take over a minute, and giving up early falls back to machine state, which answers the wrong question confidently`);
     log(`[hub] provider "hub" -> ${hubUrl} - sentences that tier-0 cannot resolve go to the hub; where the hub sends them next is the hub's claim`);
   } else if (provider === "local") {

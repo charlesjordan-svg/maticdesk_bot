@@ -17,6 +17,15 @@
  * `source: "hub"` and `hubProvider`: the endpoint KNOWS the sentence went to the hub. Everything the
  * hub says about where it went next is the hub's claim, recorded as such (broker.d.ts).
  *
+ * SINCE 2026-09-12 EVERY REQUEST CARRIES THE ENROLLMENT CREDENTIAL when this endpoint has one
+ * (D282, P3b): `Authorization: Bearer mdc_…`, set by main.js from src/agent/enrollment.js after
+ * startup enrollment, presented by `#headers()` on /v1/turn, /v1/ask, /v1/ticket and the two
+ * requester reads below. On a loopback hub the credential is optional (D283) and the endpoint works
+ * without one exactly as before; on a LAN hub every route but health and enroll refuses without it,
+ * and the hub's 401 sentence — which this class logs verbatim — says what to do. `listTickets()` and
+ * `ticket()` are the requester's own tickets (D284): they make NO request without a credential,
+ * because the hub would answer nothing and the reason is known here already.
+ *
  * TIER-0 NEVER ROUTES THROUGH HERE (D46b). The agent runs the deterministic router before any
  * provider is consulted; this class is only reached when tier-0 has nothing confident. Pinned by
  * test/hub-client.test.mjs against a hub that is not running.
@@ -56,8 +65,10 @@ export class HubClient {
    * physical-damage report is a non-sequitur whatever the timeout is, and that is a separate
    * defect in `routeByState` that is NOT addressed here.
    */
-  constructor({ hubUrl, capabilities, timeoutMs = 300000, onLog = () => {}, fetchImpl, link = null }) {
+  constructor({ hubUrl, capabilities, timeoutMs = 300000, onLog = () => {}, fetchImpl, link = null, credential = null }) {
     this.hubUrl = String(hubUrl ?? "").replace(/\/+$/, "");
+    // D282. The enrollment credential, or null. Never logged; presented on every request via #headers().
+    this.credential = typeof credential === "string" && credential ? credential : null;
     this.capabilities = capabilities;
     this.timeoutMs = timeoutMs;
     this.onLog = onLog;
@@ -76,11 +87,25 @@ export class HubClient {
     this.available = Boolean(this.hubUrl);
   }
 
+  /**
+   * Set (or clear) the enrollment credential. main.js calls this when startup enrollment lands,
+   * which may be after the first turn — so it is a setter, not a constructor-only value.
+   * @param {string|null} credential
+   */
+  setCredential(credential) {
+    this.credential = typeof credential === "string" && credential ? credential : null;
+  }
+
+  /** The headers every hub request carries: JSON, and the credential when this endpoint holds one (D282). */
+  #headers() {
+    return { "content-type": "application/json", ...(this.credential ? { authorization: `Bearer ${this.credential}` } : {}) };
+  }
+
   /** One POST /v1/turn. Throws only on transport failure; HTTP errors are returned. */
   async #turn(body) {
     const res = await this.fetch(`${this.hubUrl}/v1/turn`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: this.#headers(),
       signal: AbortSignal.timeout(this.timeoutMs),
       body: JSON.stringify(body),
     });
@@ -235,7 +260,7 @@ export class HubClient {
       // become the tenancy model by default.
       const res = await this.fetch(`${this.hubUrl}/v1/ask`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: this.#headers(),
         signal: AbortSignal.timeout(this.timeoutMs),
         body: JSON.stringify({ text, probe: withPlatform }),
       });
@@ -329,7 +354,7 @@ export class HubClient {
     try {
       const res = await this.fetch(`${this.hubUrl}/v1/ticket`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: this.#headers(),
         signal: AbortSignal.timeout(this.timeoutMs),
         body: JSON.stringify(draft),
       });
@@ -364,6 +389,49 @@ export class HubClient {
           ? `POST ${this.hubUrl}/v1/ticket timed out after ${Math.round(this.timeoutMs / 1000)}s; it may or may not have been stored`
           : `POST ${this.hubUrl}/v1/ticket failed: ${err.message}`,
       };
+    }
+  }
+
+  /**
+   * THE REQUESTER'S OWN TICKETS — GET /v1/tickets (D284, P3b). Everything this enrollment filed,
+   * requester-safe columns only (D281), with the hub's `identity` field saying what the credential
+   * proves and does not. Without a credential NO request is made: the hub would answer 401 and the
+   * reason is already known here. Never throws; the shape says what happened.
+   *
+   * NOT WIRED TO A SURFACE IN THIS BUILD. The tickets band (D242) still answers from the egress
+   * record and says status lookup is not built; the panel view and its polling interval are P4's.
+   * This method exists so P4 wires a call, not a request.
+   *
+   * @returns {Promise<{ ok: true, tickets: object[], identity: object, note?: string } | { ok: false, reason: "no-credential"|"no-hub"|"refused"|"unreachable", status?: number, detail: string }>}
+   */
+  async listTickets() {
+    return this.#read("/v1/tickets", (body) => ({ ok: true, tickets: body.tickets ?? [], identity: body.identity ?? null, note: body.note }));
+  }
+
+  /**
+   * One of the requester's own tickets with its PUBLIC timeline — GET /v1/tickets/:reference
+   * (D284). Another enrollment's reference is the hub's 404, returned here as `refused`.
+   * @param {string} reference
+   */
+  async ticket(reference) {
+    return this.#read(`/v1/tickets/${encodeURIComponent(String(reference))}`, (body) => ({ ok: true, ticket: body.ticket, entries: body.entries ?? [], identity: body.identity ?? null, note: body.note }));
+  }
+
+  /** The two requester reads share one transport. */
+  async #read(path, shape) {
+    if (!this.available) return { ok: false, reason: "no-hub", detail: "no hub URL is configured on this build" };
+    if (!this.credential) return { ok: false, reason: "no-credential", detail: "this endpoint holds no enrollment credential, so the hub would return nothing: no request was made (D284). See [enroll] in the log" };
+    try {
+      const res = await this.fetch(`${this.hubUrl}${path}`, { method: "GET", headers: this.#headers(), signal: AbortSignal.timeout(this.timeoutMs) });
+      this.link?.noteSuccess();
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 200 && body?.ok) return shape(body);
+      const detail = `GET ${this.hubUrl}${path} -> HTTP ${res.status}: ${body?.error ?? "no reason given"}`;
+      this.onLog(`[hub] ${detail}`);
+      return { ok: false, reason: "refused", status: res.status, detail };
+    } catch (err) {
+      this.link?.noteFailure(`GET ${path}: ${err.name}`);
+      return { ok: false, reason: "unreachable", detail: `GET ${this.hubUrl}${path} failed: ${err.message}` };
     }
   }
 
