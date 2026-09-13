@@ -675,7 +675,7 @@ check("…and \"Progress not visible\" beside it", /el\("span", "", "Progress no
 check("…as one matched pair in the same element, in the else branch", /\} else \{\s*stat\.append\(el\("b", "", "Filed from here"\), el\("span", "", "Progress not visible"\)\);/.test(rendererCode));
 check("a row WITH a hub view draws stateWords/stateClass/stateDetail from src/ticket/state-words.js and nothing inline (D288)",
   /el\("b", stateClass\(h\.state\), stateWords\(h\.state\)\)/.test(rendererCode) && /el\("span", "", stateDetail\(h\)\)/.test(rendererCode)
-  && /import \{ stateWords, stateClass, stateDetail, updateWords \} from "\.\.\/ticket\/state-words\.js";/.test(rendererJs));
+  && /import \{ stateWords, stateClass, stateDetail, updateLines \} from "\.\.\/ticket\/state-words\.js";/.test(rendererJs));
 check("…and the spoken answer imports its state words from the SAME module, so the band and the voice cannot describe one ticket two ways",
   /import \{ stateSpoken, agoWords \} from "\.\.\/ticket\/state-words\.js";/.test(readFileSync(join(RENDERER, "..", "router", "social.js"), "utf8")));
 check("…the renderer never glosses a hub state by name itself", !/"resolved"\s*\?|=== "resolved"|=== "closed"|case "open"/.test(rendererCode.slice(rendererCode.indexOf("function renderTickets"), rendererCode.indexOf("function applyTicketUpdate"))));
@@ -694,7 +694,8 @@ check("…the renderer never glosses a hub state by name itself", !/"resolved"\s
     "if this fails, the band and the voice have started describing one ticket two ways");
   // The other half of the pairing: the band must not invent a second vocabulary for the same fact.
   check("…and the band does not also say it a second, different way",
-    (rendererJs.match(/can't see how they're getting on/g) ?? []).length === 1);
+    (rendererJs.match(/can't see how they're getting on/g) ?? []).length === 3,
+    "three since 2026-09-13: the not-known note, and the two notes for rows the desk cannot match - all the SAME words, which persona.tickets.notListed/noneListed also use");
 }
 
 // (3) THE LOOKUP EXISTS NOW (D284/D288) AND IS KEYED ON THE CREDENTIAL, NOT THE OS USERNAME. What
@@ -721,7 +722,7 @@ check("the preload's ticket channels are file, filed and ack - and ack carries e
 {
   const fn = rendererCode.slice(rendererCode.indexOf("async function applyTicketUpdate"), rendererCode.indexOf("window.matic.onTicketUpdate"));
   check("applyTicketUpdate() exists and is registered on the push", fn.length > 50 && /window\.matic\.onTicketUpdate\(applyTicketUpdate\);/.test(rendererCode));
-  check("…it shows (note) and never speaks (no say/setState) - show only", /note\(updateWords\(e, u\.reference, u\.state\), \{ label: "Just now", ref: u\.reference \}\)/.test(fn) && !/\bsay\(|setState\(/.test(fn));
+  check("…it shows (note) and never speaks (no say/setState) - show only; the LINES come from updateLines(), which folds a state change into the resolution that explains it (D245, 2026-09-13 finding)", /for \(const line of updateLines\(u\.entries, u\.reference, u\.state\)\)/.test(fn) && /note\(line, \{ label: "Just now", ref: u\.reference \}\)/.test(fn) && !/\bsay\(|setState\(/.test(fn));
   check("…and it acknowledges exactly the entries it showed, then redraws the band", /ackTicketEntries\(u\.entries\.map\(\(e\) => e\.id\)\)/.test(fn) && (fn.match(/renderTickets\(await window\.matic\.ticketsFiled\(\)\)/g) ?? []).length === 2);
 }
 
@@ -731,7 +732,7 @@ check("the preload's ticket channels are file, filed and ack - and ack carries e
 {
   const note = rendererCode.match(/ticketsNote\.textContent =[\s\S]*?;/)?.[0] ?? "";
   const branches = [...note.matchAll(/"([^"]{30,})"/g)].map((m) => m[1]);
-  check(`the note has four distinct branches (${branches.length} found) - D288 added the one for when the hub's view is known`, branches.length === 4);
+  check(`the note has six distinct branches (${branches.length} found) - D288 added the known one; the 2026-09-13 Electron run added two more, for when the hub lists only SOME or NONE of the filed rows`, branches.length === 6);
   check("…and none of them is a duplicate", new Set(branches).size === branches.length);
   check("…the cannot-file one says there is nothing to look up",
     branches.some((b) => /nothing to look up/.test(b)));
@@ -739,9 +740,17 @@ check("the preload's ticket channels are file, filed and ack - and ack carries e
     branches.some((b) => /won't show here/.test(b)));
   check("…the known one says when it was checked, how often, and that nothing is emailed (D86)",
     branches.some((b) => /when I last checked/.test(b) && /every minute or so while I'm on screen/.test(b) && /nothing is sent to you by email/.test(b)));
-  check("…the known one is chosen by `known`, the not-known one by its absence",
-    /: known\s*\? "This is what I sent from this machine, with what the service desk showed/.test(note));
-  check("…and none of the four claims a status the hub did not say",
+  check("…the fully-known one is chosen by `known && listed === filed.length`, the mixed one by `listed > 0`, the none-listed one by `known` alone, the not-known one by its absence - so the note describes the ROWS it sits under, not the poll that ran (2026-09-13 finding)",
+    /: known && listed === filed\.length\s*\? "This is what I sent from this machine, with what the service desk showed/.test(note) && /: known && listed > 0\s*\? "This is what I sent from this machine\. The ones with a status/.test(note) && /: known\s*\? "This is what I sent from this machine\. The service desk can't match any of these/.test(note)
+    && /const listed = known \? filed\.filter\(\(t\) => known\[t\.reference\]\)\.length : 0;/.test(rendererCode));
+  {
+    // The clause the band and the VOICE share for a ticket the desk cannot match - D242's pairing
+    // rule applied to the new fact, the same way the limit clause is matched below.
+    const shared = "filed before this machine was enrolled with the service desk";
+    check("the persona's notListed and noneListed lines carry the shared clause", (persona.tickets?.notListed ?? "").includes(shared) && (persona.tickets?.noneListed ?? "").includes(shared));
+    check("…and the band's mixed and none-listed notes carry THE SAME clause, character for character", branches.filter((b) => b.includes(shared)).length === 2);
+  }
+  check("…and none of the six claims a status the hub did not say",
     !branches.some((b) => /\b(in progress|being worked|assigned|open|closed|resolved)\b/i.test(b)), branches.join(" | "));
 }
 

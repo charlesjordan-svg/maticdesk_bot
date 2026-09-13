@@ -93,12 +93,13 @@ const socialLines = [
   // D246: the filing failures are spoken by the avatar, so they are subject to both rules below
   // like every other spoken line. `$comment` is documentation and is not one of them.
   ...Object.entries(persona.filing).filter(([k]) => k !== "$comment").map(([, v]) => v),
-  persona.tickets.some, persona.tickets.none, persona.tickets.unavailable, persona.tickets.someKnown, persona.tickets.unseen,
+  persona.tickets.some, persona.tickets.none, persona.tickets.unavailable, persona.tickets.someKnown, persona.tickets.unseen, persona.tickets.notListed, persona.tickets.noneListed,
 ];
 check("tickets.some/none/unavailable/item exist (D235)", ["some", "none", "unavailable", "item"].every((k) => typeof persona.tickets[k] === "string"));
 check("every NOT-KNOWN tickets line says status lookup is not built, in some words (they are still the lines for no credential / hub unreachable)", [persona.tickets.some, persona.tickets.none, persona.tickets.unavailable].every((l) => /isn't built|isn't something I can do|can't check|can't look up|can't see/.test(l)));
 // D288 (P4). The KNOWN lines exist beside them, chosen by the poll's outcome, never mixed.
-check("tickets.someKnown/itemKnown/unseen exist (D288)", ["someKnown", "itemKnown", "unseen"].every((k) => typeof persona.tickets[k] === "string"));
+check("tickets.someKnown/itemKnown/unseen exist (D288), and notListed/noneListed (the 2026-09-13 Electron finding)", ["someKnown", "itemKnown", "unseen", "notListed", "noneListed"].every((k) => typeof persona.tickets[k] === "string"));
+check("someKnown carries {notListed}; notListed and noneListed share one clause with the band and say 'can't see how they're getting on' without claiming the desk showed anything", /\{notListed\}/.test(persona.tickets.someKnown) && [persona.tickets.notListed, persona.tickets.noneListed].every((l) => /filed before this machine was enrolled with the service desk/.test(l) && /can't see how they're getting on/.test(l) && !/showed/.test(l)));
 check("someKnown does NOT say status is unavailable; it says when the desk was checked and how often", !/isn't built|isn't something I can do|can't see/.test(persona.tickets.someKnown) && /\{checked\}/.test(persona.tickets.someKnown) && /every minute or so/.test(persona.tickets.someKnown) && /\{unseen\}/.test(persona.tickets.someKnown));
 check("itemKnown carries {status}, filled from src/ticket/state-words.js and never a state name", /\{status\}/.test(persona.tickets.itemKnown) && !/\b(resolved|closed|open)\b/.test(persona.tickets.itemKnown));
 check("unseen names the count and says where to look; none of the known lines says notified or email", /\{n\}/.test(persona.tickets.unseen) && /tickets list/.test(persona.tickets.unseen) && [persona.tickets.someKnown, persona.tickets.itemKnown, persona.tickets.unseen].every((l) => !/notified|email/i.test(l)));

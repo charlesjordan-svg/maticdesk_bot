@@ -37,7 +37,7 @@ import { proseSegments, plainProse } from "./model-prose.js";
 import { serviceWords } from "../agent/machine-band.js";
 // D288: the words for what the hub says about a ticket - shared with the spoken answer in
 // src/router/social.js, so the band and the voice cannot describe one ticket two ways.
-import { stateWords, stateClass, stateDetail, updateWords } from "../ticket/state-words.js";
+import { stateWords, stateClass, stateDetail, updateLines } from "../ticket/state-words.js";
 // D262. WHICH boot line, out of which set. Pure and separate for the reason spoken-form.js is:
 // renderer.js touches `document` at module scope, so nothing in it can be reached by a headless
 // test, and the state-precedence rule is exactly the part that needs one.
@@ -354,6 +354,11 @@ function renderTickets(status) {
   const hub = status?.hub ?? null;
   // The hub's view, or null when the last poll had none. `basis` is the poll's own verdict.
   const known = hub && hub.basis === "ok" && hub.tickets ? hub.tickets : null;
+  // Which of THESE rows the hub actually lists. Found by the 2026-09-13 Electron run: the poll saw
+  // the hub, so the note said "with what the service desk showed", while every row still read
+  // "Progress not visible" - the tickets predate the enrollment and the hub lists none of them
+  // under it (D284). The note has to describe the rows it sits under, not the poll that ran.
+  const listed = known ? filed.filter((t) => known[t.reference]).length : 0;
 
   ticketCount.textContent = filed.length ? String(filed.length) : "";
   ticketRows.replaceChildren();
@@ -390,9 +395,13 @@ function renderTickets(status) {
     ? "This machine isn't connected to a service desk, so there is nothing to file from here and nothing to look up."
     : filed.length === 0
       ? "I haven't filed any tickets from this machine. Tickets raised anywhere else won't show here - looking those up isn't built yet."
-      : known
+      : known && listed === filed.length
         ? "This is what I sent from this machine, with what the service desk showed when I last checked. I check every minute or so while I'm on screen, and nothing is sent to you by email. Quote the reference if you follow one up."
-        : "This is what I sent from this machine. I can't see how they're getting on - checking a ticket's progress with the service desk isn't something I can do in this build - so quote the reference if you follow one up.";
+        : known && listed > 0
+          ? "This is what I sent from this machine. The ones with a status are what the service desk showed when I last checked - I check every minute or so while I'm on screen, and nothing is sent to you by email. The rest were filed before this machine was enrolled with the service desk, so it can't match them to me and I can't see how they're getting on. Quote the reference if you follow one up."
+          : known
+            ? "This is what I sent from this machine. The service desk can't match any of these to this machine - they were filed before this machine was enrolled with the service desk - so I can't see how they're getting on. Anything I file from now on, I can follow here. Quote the reference if you follow one up."
+            : "This is what I sent from this machine. I can't see how they're getting on - checking a ticket's progress with the service desk isn't something I can do in this build - so quote the reference if you follow one up.";
 }
 
 /**
@@ -411,8 +420,10 @@ function renderTickets(status) {
  */
 async function applyTicketUpdate(u) {
   if (!u || !Array.isArray(u.entries) || !u.entries.length) return;
-  for (const e of u.entries) {
-    note(updateWords(e, u.reference, u.state), { label: "Just now", ref: u.reference });
+  // One fact once (D245): the lines are decided in the word module - a state change into resolved
+  // is folded into the resolution that arrived with it. Every entry is still acknowledged below.
+  for (const line of updateLines(u.entries, u.reference, u.state)) {
+    note(line, { label: "Just now", ref: u.reference });
   }
   devlog(`[tickets] ${u.reference}: ${u.entries.length} entr${u.entries.length === 1 ? "y" : "ies"} from the desk shown (${u.entries.map((e) => e.kind).join(", ")}) - acknowledging to the hub`);
   try {

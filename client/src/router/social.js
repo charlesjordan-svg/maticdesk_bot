@@ -152,11 +152,17 @@ export function ticketStatusReply(filed, { now = new Date(), hub = null } = {}) 
   });
   const more = filed.length > 3 ? ` and ${filed.length - 3} more before that` : "";
   if (!known) return T.some.replace("{list}", andList(items) + more);
+  // Which FILED tickets the hub lists under this enrollment. Tickets filed before the machine
+  // enrolled have no device_id on the hub (D284) and never will; the answer says so rather than
+  // letting "that's what the service desk showed" cover rows it could not see (2026-09-13 run).
+  const listed = filed.filter((f) => known[f.reference]).length;
+  if (listed === 0) return T.noneListed.replace("{list}", andList(items) + more);
   const unseen = Object.values(known).reduce((n, r) => n + (r.unseen ?? 0), 0);
   return T.someKnown
     .replace("{list}", andList(items) + more)
     .replace("{checked}", agoWords(hub.checkedAt, now) || "just now")
-    .replace("{unseen}", unseen ? T.unseen.replace("{n}", unseen === 1 ? "one update" : `${unseen} updates`) : "");
+    .replace("{unseen}", unseen ? T.unseen.replace("{n}", unseen === 1 ? "one update" : `${unseen} updates`) : "")
+    .replace("{notListed}", listed < filed.length ? T.notListed : "");
 }
 
 /** "today at 9:14", "yesterday at 16:02", "on Saturday 6 September" - spoken, not ISO. */

@@ -139,8 +139,11 @@ console.log("\n=== 5. D288: with the watch's snapshot the reply says what the de
   for (const basis of ["no-credential", "unreachable", "never", "refused"]) {
     check(`basis ${basis} -> the pre-P4 reply, word for word`, ticketStatusReply(filed, { now, hub: { ...hubOk, basis } }) === ticketStatusReply(filed, { now }));
   }
-  check("a ticket the hub does not list (filed before enrollment, no device_id) keeps the plain item while the others carry a status",
-    (() => { const r = ticketStatusReply(filed, { now, hub: { ...hubOk, tickets: { "MD-1042": hubOk.tickets["MD-1042"] } } }); return /MD-1042[^.]*looking at it/.test(r) && /MD-1006, [^—]*screen is cracked(?! —)/.test(r); })());
+  check("a ticket the hub does not list (filed before enrollment, no device_id) keeps the plain item while the others carry a status - AND the reply says why the plain ones have none (2026-09-13 Electron finding)",
+    (() => { const r = ticketStatusReply(filed, { now, hub: { ...hubOk, tickets: { "MD-1042": hubOk.tickets["MD-1042"] } } }); return /MD-1042[^.]*looking at it/.test(r) && /MD-1006, [^—]*screen is cracked(?! —)/.test(r) && /The ones without a status were filed before this machine was enrolled with the service desk/.test(r); })());
+  check("…and when the hub lists NONE of the filed tickets, the reply says the desk can't match any of them - never 'that's what the service desk showed'",
+    (() => { const r = ticketStatusReply(filed, { now, hub: { ...hubOk, tickets: {} } }); return /can't match any of them to this machine/.test(r) && /filed before this machine was enrolled/.test(r) && !/what the service desk showed/.test(r) && !/isn't something I can do in this build/.test(r) && /MD-1042/.test(r); })());
+  check("…and when every filed ticket is listed, no such clause appears", !/without a status|can't match/.test(known));
 
   // The agent hands the snapshot over and reports canQueryHub as the poll's truth.
   const watch = { status: () => hubOk };

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TicketWatch, POLL_DEFAULT_MS, POLL_FLOOR_MS, SNAPSHOT_FILENAME } from "../src/agent/ticket-watch.js";
-import { stateWords, stateClass, stateDetail, stateSpoken, updateWords, agoWords, untilWords } from "../src/ticket/state-words.js";
+import { stateWords, stateClass, stateDetail, stateSpoken, updateWords, updateLines, agoWords, untilWords } from "../src/ticket/state-words.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -199,9 +199,20 @@ console.log("\n=== 9. the words: one vocabulary, no enum on the surface, nothing
   const auto = updateWords({ kind: "state_change", body: "resolved → closed", authorKind: "system", authorLabel: "auto-close" }, "MD-7", "closed");
   const byDesk = updateWords({ kind: "state_change", body: "resolved → closed", authorKind: "console_user", authorLabel: "desk@devco.example" }, "MD-7", "closed");
   check("D289: a state change labelled auto-close says the ticket closed ON ITS OWN and what to do if the problem is back; the same change by a person does not", /MD-7 closed on its own/.test(auto) && /nobody said otherwise in time/.test(auto) && /raise a new ticket/.test(auto) && !/on its own/.test(byDesk) && /it's closed/.test(byDesk), auto);
+  // D245, found on screen 2026-09-13: the desk's resolve writes "open → resolved" AND the resolution
+  // in one transaction, and the first Electron run showed both as lines, three seconds apart.
+  const batch = [
+    { id: "s", kind: "state_change", body: "open → resolved", authorKind: "console_user" },
+    { id: "r", kind: "resolution", body: "Reinstalled the driver", authorKind: "console_user" },
+  ];
+  const lines = updateLines(batch, "MD-7", "resolved");
+  check("a resolution and its state change in one batch produce ONE line - the resolution's", lines.length === 1 && /marked MD-7 as fixed/.test(lines[0]), JSON.stringify(lines));
+  check("a state change WITHOUT a resolution in the batch is still shown (new → open; the auto-close)", updateLines([batch[0]], "MD-7", "resolved").length === 1 && updateLines([{ kind: "state_change", body: "new → open" }, { kind: "comment", body: "hi" }], "MD-7", "open").length === 2 && updateLines([{ kind: "state_change", body: "resolved → closed", authorKind: "system", authorLabel: "auto-close" }], "MD-7", "closed").length === 1);
+  check("updateLines tolerates a non-array", updateLines(null, "MD-7", "open").length === 0);
   check("untilWords is coarse and forward-looking", untilWords("2026-09-12T12:01:00.000Z", at) === "any time now" && untilWords("2026-09-12T12:40:00.000Z", at) === "in 40 minutes" && untilWords("2026-09-12T15:00:00.000Z", at) === "in about 3 hours" && untilWords("2026-09-13T13:00:00.000Z", at) === "tomorrow" && untilWords("2026-09-16T12:00:00.000Z", at) === "in 4 days" && untilWords(null) === "");
   check("a comment is quoted in full with the reference, and says replying here isn't built", /replied on MD-7: “Try turning the printer off and on\.”/.test(reply) && /Replying from this window isn't built yet/.test(reply));
   check("a resolution says fixed, quotes the note, and says reopening here isn't built", /marked MD-7 as fixed/.test(fixed) && /“Reinstalled the driver”/.test(fixed) && /reopened — from this window that isn't built yet/.test(fixed));
+  check("a state change is glossed by ITS OWN target, read off the body, not by the ticket's state after the batch (two changes in one poll, 2026-09-13)", /the desk is looking at it/.test(updateWords({ kind: "state_change", body: "new → open" }, "MD-7", "resolved")) && /it's closed/.test(updateWords({ kind: "state_change", body: "resolved → closed", authorKind: "console_user" }, "MD-7", "open")) && /I can't see how it's getting on/.test(updateWords({ kind: "state_change", body: "garbage" }, "MD-7", undefined)));
   check("a state change is glossed, never the arrow body", /MD-7 has moved on at the service desk: the desk is looking at it\./.test(moved) && !/→|new → open/.test(moved), moved);
   const all = [...states.flatMap((s) => [stateWords(s), stateSpoken(s), stateDetail({ state: s, unseen: 0 })]), reply, fixed, moved, auto, stateDetail({ state: "resolved", unseen: 0, autoCloseAt: "2026-09-15T12:00:00.000Z" }, at)];
   check("no surface word says sent, notified, emailed, or names the hub", all.every((s) => !/\b(sent|notified|email|emailed|hub)\b/i.test(s)), all.find((s) => /\b(sent|notified|email|emailed|hub)\b/i.test(s)));

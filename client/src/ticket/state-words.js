@@ -98,9 +98,37 @@ export function updateWords(entry, reference, state) {
     return `The service desk replied on ${reference}: “${words}” Replying from this window isn't built yet — quote ${reference} if you follow it up.`;
   }
   if (entry.kind === "state_change") {
-    return `${reference} has moved on at the service desk: ${stateSpoken(state).replace(/^the service desk/, "the desk")}.`;
+    // The change is glossed by ITS target, read off the body the hub writes (`was → next`), not by
+    // the ticket's state after the whole batch: two changes handed over in one poll would otherwise
+    // both describe the last one (2026-09-13 run). The ticket's state is the fallback only.
+    const target = /→\s*([a-z_]+)\s*$/.exec(words)?.[1] ?? state;
+    return `${reference} has moved on at the service desk: ${stateSpoken(target).replace(/^the service desk/, "the desk")}.`;
   }
   return `${reference} has an update from the service desk: “${words}”`;
+}
+
+/**
+ * THE LINES ONE UPDATE BATCH PRODUCES (D245, found by the 2026-09-13 click-through). The desk's
+ * resolve writes TWO public entries in one transaction - a state change "open → resolved" and the
+ * resolution itself - and the first Electron run showed both as transcript lines, three seconds
+ * apart: "MD-1010 has moved on at the service desk: the desk says it's fixed and is waiting to
+ * hear whether you agree." and then "The service desk has marked MD-1010 as fixed. Their note: …".
+ * One fact, two wordings, adjacent - the defect D245 names. So the state change INTO resolved is
+ * not shown when the same batch carries the resolution that explains it; every entry is still
+ * acknowledged to the hub (the caller acks the ids, not the lines), because it WAS handed over and
+ * its content is on the screen in the resolution's words.
+ *
+ * @param {Array<{ id?: string, kind: string, body: string, authorKind?: string, authorLabel?: string|null }>} entries
+ * @param {string} reference
+ * @param {string|null|undefined} state  the ticket's state after the batch
+ * @returns {string[]}
+ */
+export function updateLines(entries, reference, state) {
+  const list = Array.isArray(entries) ? entries : [];
+  const hasResolution = list.some((e) => e.kind === "resolution");
+  return list
+    .filter((e) => !(hasResolution && e.kind === "state_change" && /→\s*resolved$/.test(String(e.body ?? "").trim())))
+    .map((e) => updateWords(e, reference, state));
 }
 
 /**
