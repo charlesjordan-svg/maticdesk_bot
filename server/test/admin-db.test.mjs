@@ -1763,7 +1763,16 @@ try {
     const cliShow1 = cliRun("show", ref);
     check("bin/tickets.mjs show prints the auto-close instant", cliShow1.status === 0 && /auto-close\s+\d{4}-.*unless the requester confirms or comments first/.test(cliShow1.stdout), cliShow1.stdout.slice(0, 400));
     const mine = await (await asDevice(`/v1/tickets/${ref}`)).json();
-    check("the requester's read carries autoCloseAt (the date) and NOT the job id", typeof mine.ticket?.autoCloseAt === "string" && new Date(mine.ticket.autoCloseAt).getTime() === t1.auto_close_at.getTime() && !JSON.stringify(mine).includes(j1[0].id) && !("autoCloseJobId" in mine.ticket));
+    // The job id must not reach the requester as a VALUE — leaf equality, not a substring of the
+    // whole response. A bigserial id like 665 appears inside a uuid or a millisecond field often
+    // enough to fail a green run (it did, 2026-09-13), and a test that fails at random is a test
+    // nobody reads. Equality over every leaf covers the same leak and cannot fire by coincidence.
+    const jobIdLeaks = (v, path = "") => typeof v === "object" && v !== null
+      ? Object.entries(v).flatMap(([k, x]) => jobIdLeaks(x, path ? `${path}.${k}` : k))
+      : String(v) === String(j1[0].id) ? [path] : [];
+    const leaked = jobIdLeaks(mine);
+    const jobKeys = Object.keys(mine.ticket ?? {}).filter((k) => /job/i.test(k));
+    check("the requester's read carries autoCloseAt (the date) and NOT the job id", typeof mine.ticket?.autoCloseAt === "string" && new Date(mine.ticket.autoCloseAt).getTime() === t1.auto_close_at.getTime() && leaked.length === 0 && jobKeys.length === 0, `job ${j1[0].id} at ${JSON.stringify(leaked)}; job-ish keys ${JSON.stringify(jobKeys)}`);
 
     // ---- 2. the requester comments: reopened, the job WITHDRAWN, the binding cleared
     const c1 = await (await post(`/v1/ticket/${ref}/comment`, { body: "Still asking. Twice this morning." })).json();
