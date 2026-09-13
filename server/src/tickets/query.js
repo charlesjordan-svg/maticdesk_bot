@@ -23,6 +23,13 @@
  * property of the KIND and is decided in KIND_VISIBILITY below — no caller passes one — and
  * `listEntries()` takes a REQUIRED visibility with no default, because a default is how an
  * internal work note reaches a requester's screen eighteen months from now.
+ *
+ * SINCE 2026-09-12 THE REQUESTER'S READERS ARE HERE TOO (D281, P3a): `getTicketForRequester()` and
+ * `listEntriesForRequester()` — named columns only, scoped to the requester's OS username, the
+ * public timeline with the argument fixed. Built before the route that will call them (P3b, gated
+ * on D271) because `getTicket()`'s `SELECT t.*` would ship the case note to a requester whoever
+ * the caller turns out to be. Nothing calls them in this build; test/admin-static.test.mjs §5f
+ * says so and fails the day something does before D271 is answered.
  */
 import { withTenant } from "../db/tenant.js";
 
@@ -333,6 +340,10 @@ export async function countTicketsByCategory(schema) {
  */
 export async function getTicket(schema, reference) {
   return withTenant(schema, async (c) => {
+    // THE CONSOLE'S SHAPE — every column, because the console and the CLI are entitled to every
+    // column. A requester-facing caller uses getTicketForRequester() below (D281): named columns,
+    // scoped to the requester, and never this. Two functions rather than one narrower one: the
+    // console needs `summary`, the checks and the internal note; the requester must never get them.
     const { rows } = await c.query(
       `SELECT t.*, u.first_name, u.last_name, u.location, u.contact_id, u.os_username, u.profile_source
          FROM tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.reference = $1`,
@@ -360,6 +371,106 @@ export async function getTicket(schema, reference) {
       closedBy: t.closed_by ?? null,
     };
   });
+}
+
+/**
+ * @typedef {object} RequesterTicket  — the eleven fields a requester may receive; nothing else
+ * @property {string} reference
+ * @property {string} state
+ * @property {string} category
+ * @property {string|null} machineName
+ * @property {Date} createdAt
+ * @property {Date} updatedAt
+ * @property {string|null} resolutionCode   glossed by the renderer (D244), never shown raw
+ * @property {string|null} resolutionNotes  written FOR the requester (D278)
+ * @property {Date|null} resolvedAt
+ * @property {Date|null} closedAt
+ * @property {string|null} closedBy         a kind, not a person: requester, auto, console_user, system
+ */
+
+/**
+ * One ticket AS THE REQUESTER MAY SEE IT (D281) — named columns only, scoped to the requester.
+ *
+ * WHY A SECOND FUNCTION. `getTicket()` above does `SELECT t.*` for the console, which is entitled
+ * to every column. A requester-facing route built on that shape ships `summary` — the model's
+ * case note, written for the assignee, which 003-tickets.sql says is never shown to the user and
+ * which D214 exists because on 2026-09-04 the avatar read it aloud to one — plus
+ * `what_was_checked` and `internal_resolution_note` (D269). That hazard is independent of who may
+ * call the route and of where the hub runs (D271), so this shape and its test were built before
+ * the gate opened: D269's ratified condition — the test first, seen failing — discharged by P3a.
+ * The fix is a second function, not a narrower `getTicket()`: the console needs those fields.
+ *
+ * NAMED COLUMNS. NEVER `SELECT t.*`, NEVER A SPREAD OF A ROW. test/admin-static.test.mjs §5f pins
+ * the returned keys to an allow-list with a reason per field and reads this SELECT to check the
+ * SQL agrees; test/admin-db.test.mjs §5e classifies every column information_schema lists for
+ * `tickets` as visible or hidden, so a column added later and put on neither list FAILS rather
+ * than leaks — an allow-list fails closed where a denylist of names would have admitted it.
+ *
+ * SCOPED IN SQL. `WHERE t.reference = $1 AND u.os_username = $2`: a reference filed by another OS
+ * user returns null — the same null as no such ticket, so this layer is not an existence oracle.
+ * The identity is per OS user because the profile is (D215: Electron's per-user `userData`, which
+ * is what makes "kept locally for each user" true on a shared machine); P3b's credential resolves
+ * to one and passes it here. It is REQUIRED with no default, for the reason `listEntries()` has
+ * no default visibility. THERE IS NO `deviceKeyId` ARGUMENT, though the P3a handover drafted one:
+ * tickets carry no device column to match (D75 — `session_id` is nullable and the endpoint has no
+ * session), so the parameter would have matched nothing, and a check that cannot fire is the
+ * shape D267's guard 2 was found in. When P3b gives a ticket a device to match, add the column
+ * and the clause together.
+ *
+ * CALLED BY NOTHING IN THIS BUILD. The route (`GET /v1/tickets`) is P3b's and P3b waits on D271.
+ * admin-static §5f fails if a caller appears before then, and says what to do about it.
+ *
+ * @param {string} schema
+ * @param {string} reference  e.g. MD-1000
+ * @param {{ osUsername: string }} identity  REQUIRED — no default requester
+ * @returns {Promise<RequesterTicket|null>}  null for no such ticket AND for someone else's
+ */
+export async function getTicketForRequester(schema, reference, { osUsername } = {}) {
+  if (typeof osUsername !== "string" || !osUsername.trim()) throw new Error("getTicketForRequester needs identity.osUsername — no default requester, on purpose (D281)");
+  return withTenant(schema, async (c) => {
+    const { rows } = await c.query(
+      `SELECT t.reference, t.state, t.category, t.machine_name, t.created_at, t.updated_at,
+              t.resolution_code, t.resolution_notes, t.resolved_at, t.closed_at, t.closed_by
+         FROM tickets t JOIN users u ON u.id = t.user_id
+        WHERE t.reference = $1 AND u.os_username = $2`,
+      [reference, osUsername],
+    );
+    if (!rows.length) return null;
+    const t = rows[0];
+    return {
+      reference: t.reference,
+      state: t.state,
+      category: t.category,
+      machineName: t.machine_name ?? null,
+      createdAt: t.created_at,
+      updatedAt: t.updated_at,
+      resolutionCode: t.resolution_code ?? null,
+      resolutionNotes: t.resolution_notes ?? null,
+      resolvedAt: t.resolved_at ?? null,
+      closedAt: t.closed_at ?? null,
+      closedBy: t.closed_by ?? null,
+    };
+  });
+}
+
+/**
+ * One ticket's PUBLIC timeline, for the requester, and only if the ticket is theirs (D281).
+ *
+ * This is `listEntries(…, { visibility: "public" })` with the argument FIXED — not passed
+ * through. A requester path with a visibility parameter is a requester path that can be called
+ * wrong; this one has nothing to call wrong. The ownership check is `getTicketForRequester()`'s,
+ * so another user's reference yields [] — not even the public rows, because "public" means
+ * visible to the ticket's requester, not to every requester. Two round trips; the second is the
+ * shared reader, which is the point (D224). Called by nothing in this build (P3b, D271).
+ *
+ * @param {string} schema
+ * @param {string} reference
+ * @param {{ osUsername: string }} identity  REQUIRED, as above
+ * @returns {Promise<TicketEntry[]>}  [] when no such ticket, someone else's ticket, or no entries
+ */
+export async function listEntriesForRequester(schema, reference, identity) {
+  if (!(await getTicketForRequester(schema, reference, identity))) return [];
+  return listEntries(schema, reference, { visibility: "public" });
 }
 
 /**
