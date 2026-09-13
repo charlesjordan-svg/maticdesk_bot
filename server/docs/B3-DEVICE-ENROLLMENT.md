@@ -3,6 +3,25 @@
 **Built 2026-09-10.** Register: [`../../docs/decisions/DECISION-REGISTER.md`](../../docs/decisions/DECISION-REGISTER.md) §5.26, D231.
 Phase-1 plan: [`../../docs/2026-03-03-phase1-plan.md`](../../docs/2026-03-03-phase1-plan.md) §3 (B3 row), sized by an external review at 6–8 engineer-weeks.
 
+> ## STATUS, 2026-09-12 (P3b, register §5.57) — ENROLLMENT CREDENTIAL AUTHENTICATION IS BUILT. HARDWARE-BOUND DEVICE IDENTITY AND USER ATTESTATION ARE NOT.
+>
+> D271 was answered (production on the customer's LAN/WAN) and P3b built on it. A device that becomes
+> active holds ONE credential — minted once, shown once, stored as a hash (`control/008`) — and presents
+> it as `Authorization: Bearer mdc_…` on every /v1 request; `authenticateDeviceCredential()` checks it
+> by hash, refuses a revoked device on its NEXT request, and is `last_seen_at`'s real writer (**D282**).
+> A LAN listener exists only over TLS and requires the credential on every route but enroll and health;
+> on a loopback listener it is optional but checked when presented (**D283**). Tickets carry the
+> enrollment that filed them and a requester reads only those (**D284**, `GET /v1/tickets`). **The
+> client enrolls itself at startup** from the secret in `client/config.json` (**D285**), so the sentence
+> two blocks below — *"no real device has enrolled"* — is history from that day.
+>
+> **What it is, in one line:** a per-OS-user enrollment of the software — not a machine, not hardware,
+> not a person. **What it is not:** D60's TPM-backed key, D61's signed assertion and token exchange,
+> D63/D64's custody. The credential is the weaker step on D61's path; the routes do not move when the
+> assertion arrives. The 2026-09-10 status block below is kept as the record of what B3 first built.
+>
+> `npm.cmd test` **674**, `npm.cmd run test:db` **566**, client **1942**. Both suites green.
+
 > ## STATUS — THE ENROLLMENT MECHANISM IS BUILT. DEVICE AUTHENTICATION IS NOT.
 >
 > A device can now ask a tenant to join, present a secret, wait in a queue or be auto-approved,
@@ -150,7 +169,11 @@ membership (D66), so a device that was told no can ask again with nothing lost.
   file header and startup banner. A device on the Agents page is *known*, not *proven*.
 - **No real device has enrolled.** Every enrollment in development and in the test suite came from
   `curl`, `bin/devices.mjs enroll`, or the test suite calling `POST /v1/enroll` directly — nothing
-  in `client/` generates a key or calls this endpoint yet.
+  in `client/` generates a key or calls this endpoint yet. **2026-09-12: no longer true —
+  `client/src/agent/enrollment.js` calls it at startup (D285). Still true: nothing generates a key;
+  the device key is a random string, and the credential is a bearer secret, not a signature.**
+- **Nothing is authenticated — no longer true from 2026-09-12 either (D282):** a presented credential IS
+  checked on every request. What is still not authenticated is the machine, the hardware and the person.
 - **D83's "anomaly detection" is a volume counter**, not statistical or behavioural anomaly
   detection. It is named that way deliberately rather than dressed up.
 - **The timing side-channel between "unknown tenant" and "wrong secret" is not closed**, and B3-2's
