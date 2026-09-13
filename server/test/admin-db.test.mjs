@@ -626,6 +626,96 @@ try {
     }
   }
 
+  console.log("\n=== 5e. the requester-safe read shape, live: every column classified, the requester's own ticket only, no internal row (D281; D269's condition) ===");
+  {
+    // THE COLUMN CLASSIFICATION IS THE FEATURE. Every column information_schema lists for
+    // `tickets` must be on exactly one of these two lists. A column added later and put on
+    // neither FAILS here — the allow-list fails closed where a denylist of names would have
+    // admitted it silently. The FIELD half (what getTicketForRequester() returns, by name, with a
+    // reason per field) is admin-static §5f and runs headless; this half is what the migrations
+    // actually produced, joined to what the function actually returned, on a ticket that has every
+    // internal field POPULATED — not one where they happen to be null.
+    /** column -> the field getTicketForRequester() returns it as. Reasons are in admin-static §5f. */
+    const REQUESTER_VISIBLE = {
+      reference: "reference", state: "state", category: "category", machine_name: "machineName",
+      created_at: "createdAt", updated_at: "updatedAt",
+      resolution_code: "resolutionCode", resolution_notes: "resolutionNotes", resolved_at: "resolvedAt",
+      closed_at: "closedAt", closed_by: "closedBy",
+    };
+    /** Columns the requester never receives. One line, one reason. */
+    const REQUESTER_HIDDEN = {
+      id: "the join key; the requester holds `reference` (D213)",
+      user_id: "the reporter's row id — the requester IS the reporter; echoing their profile back is P4's decision, not this shape's",
+      session_id: "D75's link to a session the endpoint does not have yet",
+      description: "the requester's own words — theirs already; the P3a handover's draft omits it, and P4's view decides whether to show what they typed",
+      summary: "THE CASE NOTE — written for the assignee, never shown to the user (003-tickets.sql; D214: read aloud to one on 2026-09-04)",
+      what_was_checked: "the model's checks, written for the assignee (D214)",
+      suggested_owner: "routing is internal",
+      internal_resolution_note: "INTERNAL by name (D269): the desk's account, the KB draft loop's input",
+      awaiting_agent_since: "D276's indicator — the desk's queue age, not the requester's",
+    };
+    const cols = (await getPool().query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'tickets' ORDER BY ordinal_position", [schema],
+    )).rows.map((r) => r.column_name);
+    const unclassified = cols.filter((c) => !(c in REQUESTER_VISIBLE) && !(c in REQUESTER_HIDDEN));
+    check(`tickets: every one of its ${cols.length} columns is on the requester-visible list or the hidden list — a column on neither FAILS (the allow-list fails closed)`,
+      cols.length >= 15 && unclassified.length === 0, `unclassified: ${unclassified.join(", ")}`);
+    const gone = [...Object.keys(REQUESTER_VISIBLE), ...Object.keys(REQUESTER_HIDDEN)].filter((c) => !cols.includes(c));
+    check("…both lists name only columns that exist", gone.length === 0, `gone: ${gone.join(", ")}`);
+    const onBoth = Object.keys(REQUESTER_VISIBLE).filter((c) => c in REQUESTER_HIDDEN);
+    check("…and no column is on both", onBoth.length === 0, onBoth.join(","));
+
+    // Imported here rather than at the top so a missing export fails THESE checks and not the file.
+    const q = await import("../src/tickets/query.js");
+    const exists = typeof q.getTicketForRequester === "function" && typeof q.listEntriesForRequester === "function";
+    check("getTicketForRequester() and listEntriesForRequester() exist in src/tickets/query.js", exists);
+    if (exists) {
+      // The sentinel words appear nowhere else in this suite, so a wire-level search is decisive.
+      const SUMMARY = "CASE-NOTE-SENTINEL the user reports a dock that flickers";
+      const CHECKED = "CHECKED-SENTINEL the dock was power-cycled";
+      const INOTE = "INTERNAL-NOTE-SENTINEL swapped it from the spares cupboard";
+      const WNOTE = "WORK-NOTE-SENTINEL rang the user, no answer";
+      const RES = "Your dock has been replaced. Please try it again and tell us if it still flickers.";
+      const desk = { kind: "console_user", adminUserId: made.owner.id, label: made.owner.email };
+      const { reference: rref } = await createTicket(schema, {
+        description: "my dock keeps flickering", summary: SUMMARY, whatWasChecked: CHECKED, machineName: "LAPTOP-P3A",
+        category: "hardware", suggestedOwner: "desktop_support",
+        reporter: { osUsername: "p3a.requester", firstName: "Pat", lastName: "Requester", location: "Floor 3", contactId: "pat@example.test" },
+      });
+      await setTicketState(schema, rref, "open", { from: "new", note: INOTE, author: desk });
+      await addEntry(schema, rref, { kind: "work_note", body: WNOTE, author: desk });
+      await resolveTicket(schema, rref, { code: "fixed", notes: RES, from: "open", author: desk });
+      const full = await getTicket(schema, rref);
+      check("(fixture) the console's getTicket() carries summary, whatWasChecked and the internal note, ALL POPULATED, and the resolution",
+        Boolean(full) && full.summary === SUMMARY && full.whatWasChecked === CHECKED && full.internalResolutionNote === INOTE && full.resolutionCode === "fixed" && full.suggestedOwner === "desktop_support");
+
+      const mine = await q.getTicketForRequester(schema, rref, { osUsername: "p3a.requester" });
+      check("the requester's own ticket comes back: reference, state, the code, the notes written for them, their machine",
+        Boolean(mine) && mine.reference === rref && mine.state === "resolved" && mine.resolutionCode === "fixed" && mine.resolutionNotes === RES && mine.machineName === "LAPTOP-P3A" && mine.resolvedAt instanceof Date, JSON.stringify(mine));
+      check("its keys are EXACTLY the requester-visible list's fields — nothing more, nothing less",
+        Boolean(mine) && Object.keys(mine).sort().join(",") === Object.values(REQUESTER_VISIBLE).sort().join(","), mine ? Object.keys(mine).join(",") : "null");
+      const wire = JSON.stringify(mine);
+      check("ON THE WIRE (JSON): not the case note, not the checks, not the internal note — for a ticket that HAS all three", Boolean(mine) && !wire.includes("SENTINEL"), wire);
+      check("…nor the reporter's profile echoed back, nor the routing, nor the session or the uuid", Boolean(mine) && !/Pat|Requester|Floor 3|pat@example|desktop_support|p3a\.requester/.test(wire) && !("suggestedOwner" in mine) && !("sessionId" in mine) && !("id" in mine), wire);
+      check("another OS user's reference returns null — the same null as no such ticket (this layer is not an existence oracle)", (await q.getTicketForRequester(schema, rref, { osUsername: "somebody.else" })) === null);
+      check("an unknown reference returns null", (await q.getTicketForRequester(schema, "MD-0", { osUsername: "p3a.requester" })) === null);
+      check("no identity THROWS — there is no default requester, as there is no default visibility", await q.getTicketForRequester(schema, rref, {}).then(() => false, (e) => /osUsername/.test(e.message)));
+      check("…and so does a blank one", await q.getTicketForRequester(schema, rref, { osUsername: "  " }).then(() => false, (e) => /osUsername/.test(e.message)));
+
+      const all = await listEntries(schema, rref, { visibility: "all" });
+      check("(fixture) the ticket has an INTERNAL entry — the work note — among four", all.length === 4 && all.some((e) => e.visibility === "internal" && e.body === WNOTE));
+      const theirs = await q.listEntriesForRequester(schema, rref, { osUsername: "p3a.requester" });
+      check("listEntriesForRequester() CANNOT return the internal row: three public entries (two state changes, the resolution), no work note, no sentinel on the wire",
+        theirs.length === 3 && theirs.every((e) => e.visibility === "public") && !theirs.some((e) => e.kind === "work_note") && !JSON.stringify(theirs).includes("SENTINEL"), JSON.stringify(theirs));
+      check("…the resolution entry carries the notes written for them", theirs.some((e) => e.kind === "resolution" && e.body === RES));
+      check("…another OS user gets [] for the same reference — public rows included; 'public' means the ticket's requester, not every requester", (await q.listEntriesForRequester(schema, rref, { osUsername: "somebody.else" })).length === 0);
+      check("…and it has no visibility argument: passing one changes nothing", (await q.listEntriesForRequester(schema, rref, { osUsername: "p3a.requester", visibility: "all" })).length === 3);
+      check("…and no identity throws here too", await q.listEntriesForRequester(schema, rref, {}).then(() => false, (e) => /osUsername/.test(e.message)));
+    } else {
+      check("the live checks ran against the requester shape", false, "getTicketForRequester()/listEntriesForRequester() do not exist yet — D269's condition: this is the red run");
+    }
+  }
+
   console.log("\n=== KB-1. a pasted bundle lands, and the page's counts equal bin/kb.mjs status ===");
   {
     const before = await corpusStatus();

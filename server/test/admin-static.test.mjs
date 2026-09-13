@@ -240,6 +240,83 @@ console.log("\n=== 5e. resolution means something: refused without code and note
   check("the CLI has resolve (--code, --resolution), refuses through the same function, and says the requester has not been told", /cmd === "resolve"/.test(cliCode) && /flag\("code"\), notes = flag\("resolution"\)/.test(cliCode) && /THE REQUESTER HAS NOT BEEN TOLD/.test(cli) && /"refused" in moved\) die/.test(cliCode));
 }
 
+console.log("\n=== 5f. the requester-safe read shape: an allow-list, not whatever getTicket() returns (D281; D269's condition) ===");
+{
+  // WHY THIS EXISTS. getTicket() does SELECT t.* — the console's reader, and the right shape for
+  // it. Any requester-facing route built on that shape ships `summary` (the model's case note,
+  // written for the assignee; 003-tickets.sql says "never shown to the user", and D214 exists
+  // because on 2026-09-04 the avatar read it aloud to one), `what_was_checked`, and the internal
+  // resolution note (D269). That hazard does not depend on who may call the route or on where the
+  // hub runs (D271), so the safe shape and this test are built BEFORE the gate opens. D269's
+  // ratified condition: this test is written first and seen failing before any requester route
+  // exists — its first run failed on the missing export (the commit message has the output).
+  //
+  // ALLOW-LIST, NOT DENYLIST. A denylist of field names silently admits every column added after
+  // it is written; an allow-list fails closed. Same shape as §5c's RESERVED_FIELDS and admin-db
+  // §5c's RESERVED_COLUMNS: one line, one reason. The live half — every COLUMN of `tickets` is on
+  // this list or on admin-db §5e's HIDDEN list, from information_schema — is what makes a column
+  // added tomorrow fail rather than slip through.
+  const REQUESTER_VISIBLE = {
+    reference: "the key the requester was told and quotes back (D213)",
+    state: "where their ticket is — the one fact a requester view exists to show",
+    category: "the escalation category the endpoint itself chose and said aloud at filing time",
+    machineName: "the requester's own machine, read by the endpoint they were sitting at",
+    createdAt: "when it was filed",
+    updatedAt: "when it last moved",
+    resolutionCode: "the six-code outcome (D278); glossed by the renderer, never shown raw (D244)",
+    resolutionNotes: "written FOR the requester (D278) — this shape is the first reader allowed to carry them",
+    resolvedAt: "when it was resolved",
+    closedAt: "when it was closed",
+    closedBy: "by what kind of actor — requester, auto, console_user, system (D278); glossed by the renderer",
+  };
+  const q = read("src/tickets/query.js"), qCode = jsCode(q);
+  const mod = await import("../src/tickets/query.js");
+  check("getTicketForRequester() is exported from the one query layer (D224)", typeof mod.getTicketForRequester === "function");
+  check("listEntriesForRequester() is exported beside it", typeof mod.listEntriesForRequester === "function");
+
+  const fnStart = qCode.indexOf("export async function getTicketForRequester");
+  const fn = fnStart < 0 ? "" : qCode.slice(fnStart, qCode.indexOf("\n}\n", fnStart));
+  const retStart = fn.indexOf("return {");
+  const returned = retStart < 0 ? "" : fn.slice(retStart, fn.indexOf("};", retStart));
+  const fields = [...returned.matchAll(/^\s+([a-zA-Z]+):/gm)].map((m) => m[1]);
+  check("the extraction found the requester shape (a broken extraction must fail, not pass vacuously)", fields.length >= 8, fields.join(","));
+  check("the requester shape returns EXACTLY the allow-list — every field named here with a reason, and nothing else",
+    fields.length > 0 && fields.slice().sort().join(",") === Object.keys(REQUESTER_VISIBLE).sort().join(","), `returns: ${fields.join(",")}`);
+  check("the returned object never names summary, whatWasChecked, internalResolutionNote, suggestedOwner, sessionId, description, or the reporter's profile",
+    returned.length > 0 && !/summary|what_was_checked|whatWasChecked|internal_resolution_note|internalResolutionNote|suggested_owner|suggestedOwner|session_id|sessionId|reporter|first_name|last_name|location|contact_id|contactId|os_username|osUsername|profile_source|profileSource|description|user_id|\bid\b/.test(returned), returned);
+  check("its SELECT names columns — never `t.*`, and never a spread of a row (…shapeRow(t), …t)", fn.length > 0 && !/\bt\.\*/.test(fn) && !/\.\.\.\s*(shapeRow|t\b|rows)/.test(fn));
+  check("the SELECT carries no column that is not on the allow-list (the SQL and the object agree)", fn.length > 0 && (() => {
+    const sel = fn.slice(fn.indexOf("SELECT"), fn.indexOf("FROM"));
+    const cols = [...sel.matchAll(/\bt\.([a-z_]+)/g)].map((m) => m[1]);
+    const camel = (c) => c.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
+    return cols.length === Object.keys(REQUESTER_VISIBLE).length && cols.every((c) => camel(c) in REQUESTER_VISIBLE);
+  })());
+  check("the read is scoped to the requester IN SQL — WHERE t.reference = $1 AND u.os_username = $2 — so another user's reference is the same null as no ticket", /WHERE t\.reference = \$1 AND u\.os_username = \$2/.test(fn));
+  check("it takes the identity explicitly and throws without one — no default requester, as listEntries() has no default visibility", /export async function getTicketForRequester\(schema, reference, \{ osUsername \}/.test(qCode) && /if \(typeof osUsername !== "string" \|\| !osUsername\.trim\(\)\) throw new Error\("getTicketForRequester needs identity\.osUsername/.test(qCode));
+  const header = fnStart < 0 ? "" : q.slice(q.lastIndexOf("/**", q.indexOf("export async function getTicketForRequester")), q.indexOf("export async function getTicketForRequester"));
+  check("it takes NO device argument — tickets carry no device column to match, and a parameter that matches nothing is the shape D267's guard 2 was found in; the header says so", fn.length > 0 && !/device/i.test(fn) && /deviceKeyId/.test(header));
+
+  const leStart = qCode.indexOf("export async function listEntriesForRequester");
+  const le = leStart < 0 ? "" : qCode.slice(leStart, qCode.indexOf("\n}\n", leStart));
+  check("listEntriesForRequester() takes NO visibility parameter — a requester path with one is a requester path that can be called wrong", le.length > 0 && !/^export async function listEntriesForRequester\([^)]*visibility/.test(le));
+  check("…and calls listEntries() with the argument FIXED to \"public\" — never passed through", /listEntries\(schema, reference, \{ visibility: "public" \}\)/.test(le) && !/visibility: visibility|\{ visibility \}\)/.test(le));
+  check("…and only after getTicketForRequester() says the ticket is theirs — someone else's public rows are not this requester's", /await getTicketForRequester\(schema, reference, identity\)/.test(le));
+
+  // getTicket() keeps SELECT t.* — the console is entitled to every column. The fix is a SECOND
+  // function, not a narrower one, and getTicket() says where the requester's is.
+  const gtStart = q.indexOf("export async function getTicket(");
+  const gt = q.slice(gtStart, q.indexOf("\n}\n", gtStart));
+  check("getTicket() still does SELECT t.* for the console, and points at getTicketForRequester() in words", /SELECT t\.\*/.test(gt) && /getTicketForRequester/.test(gt) && /D281/.test(gt));
+
+  // CALLED BY NOTHING, ON PURPOSE. The route is P3b's and P3b is gated on D271 (deployment
+  // topology, the founder's). When D271 opens and GET /v1/tickets is built on this reader, this
+  // assertion is retired IN THE SAME COMMIT and P3a's exit criterion — the allow-list still holds
+  // against the live route — takes its place. Until then a caller here is a route built before
+  // the decision it depends on.
+  const callers = allSrc.filter((f) => rel(f) !== "src/tickets/query.js" && /getTicketForRequester|listEntriesForRequester/.test(jsCode(readFileSync(f, "utf8"))));
+  check("nothing calls either function yet — the route is P3b's and P3b waits on D271 (retire this line in the commit that adds the route)", callers.length === 0, `callers: ${callers.map(rel).join(", ")}`);
+}
+
 console.log("\n=== 5b. one query layer for devices (D224's pattern, B3) ===");
 {
   const deviceWriters = ["src/devices/enrollment.js"];
