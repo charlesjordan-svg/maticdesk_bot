@@ -168,3 +168,33 @@ review estimates an afternoon to demonstrate against a stub `NamedPipeBroker`, a
 a reasoned finding into a regression test. Adversary capabilities are assumptions; A1's assumed
 inability to elevate depends on the fleet having no local admin, which is single-source from one
 design partner.
+
+
+---
+
+## Addendum — 2026-11-16: the live persona's open microphone
+
+**This is an addendum, not a re-analysis.** The model above predates v2 and is otherwise unchanged; the
+adversaries A1–A11 and gaps G1–G10 keep their numbers. Register §5.62; handback
+`docs/handovers/2026-11-16-claude-code-handover-nuance-live-persona-first-pass.md`.
+
+**What changed.** In the connected case the assistant's face becomes a third-party real-time video
+persona (Nuance Live, over WebRTC). For as long as the microphone is on, **audio from the user's
+surroundings leaves the machine continuously** to that third party. Until now the only personal data
+that left the endpoint was a ticket the user had read on a review card and approved (D217).
+
+**G11 (new) — ambient audio egress with no payload to review.** A microphone hears what the user did
+not mean to send: a colleague, a phone call, a password read aloud. There is no card, because nobody
+reviews a sentence before saying it, and no `summary` to keep a name out of.
+
+| | |
+|---|---|
+| What is built | The microphone is OFF by default and only a user gesture with a visible window turns it on; hiding the window turns it off (D303, `client/src/nuance/mic-policy.js`). The egress record logs that a session opened, how long it ran and for how long audio was sent — never content (`client/src/ticket/egress-audit.js`). The camera is off in every session the hub mints (`server/src/nuance/route.js`). |
+| What is NOT built | Any of it wired to a real session: there is no session code yet. The local audio track is not stopped at the source — a mute is a request to the service. No control in the panel. |
+| What is not known | **How long the third party keeps audio or transcripts.** Its documentation exposes a per-conversation transcript endpoint and states no retention period. `I do not have a verified source for this.` An enterprise security review will ask this first. |
+| What the control cannot do | It cannot stop a user saying something sensitive with the microphone on. The persona's own acceptable-use rules refuse to *collect* passwords and codes; that is the vendor's control, on the vendor's side, and is not ours to rely on. |
+
+**Also new, smaller.** The hub now holds a credential that can spend money (the API key, in its
+environment). It reaches no endpoint and no log (`server/test/nuance.test.mjs`). And the renderer, which
+has no CSP, would gain its first outbound real-time media connection when the session code is built —
+to be raised deliberately at that point, not discovered.
