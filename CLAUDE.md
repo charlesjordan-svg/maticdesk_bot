@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D305 onward**, as of D304, register §5.62, 2026-11-16; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D307 onward**, as of D306, register §5.62d, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -147,7 +147,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 2253 assertions across 28 files (2026-11-16).
+#                            headless, no key, no admin, no hub: 2334 assertions across 29 files (2026-11-17).
 #                            node eval/run-spoken-bakeoff.mjs is the v2 TRANSCRIPT bakeoff (no model): spoken forms of
 #                            the 40 cases through routeTier0() + classify(). --asr <file> reads real ASR output made
 #                            by py -3 eval/asr-roundtrip.py (Piper -> faster-whisper, ~15 min). Numbers and limits:
@@ -934,7 +934,18 @@ These are in the register, but the register is not what a session reads first. E
 ## v2 — the Nuance Live persona (2026-11-16, branch `v2-nuance-persona`, register §5.62)
 
 **Read `docs/handovers/2026-11-16-claude-code-handover-nuance-live-persona-first-pass.md` first.** The persona mode in the client is NOT
-built, and its specification — the functional analysis — **is not on disk** (D304). Do not reconstruct it.
+built. Its specification, `docs/handovers/2026-11-16-v2-functional-analysis-persona-optimization.md`,
+arrived on 2026-11-17 (D304 discharged) and two pieces of it ARE built, both pure and called by nothing:
+the surface split (D305) and the prompt (D306).
+
+- **Never** build a `response.create` anywhere but `client/src/nuance/surface-split.js`'s `personaTurn()`
+  (D305). The session code sends what it is handed. A new line in `persona.json` needs an entry in
+  `SURFACES` or `test/surface-split.test.mjs` fails; an unclassified surface is PINNED, never spoken.
+  Do not move a `tickets.*`, `capability.*`, `fallback.*` or `filing.*` line to `persona` to make the
+  persona "sound more helpful" — that is the rephrase Decision D exists to prevent.
+- **Never** retype the persona prompt. `server/src/nuance/persona-prompt.txt` is extracted from the
+  functional analysis's §6 and a test compares them (D306); change the document and re-extract, and
+  remember every change is a new setup for Nuance to review.
 
 - **Never** put the Nuance API key anywhere but the hub's environment (`MATIC_NUANCE_API_KEY`), or in a
   response, a log line or a ledger row. `server/test/nuance.test.mjs` plants a canary and looks.

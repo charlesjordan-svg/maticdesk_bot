@@ -228,3 +228,114 @@ side.** For how long: `I do not have a verified source for this.`
 session, and a wake word that one of two recognisers could not spell. Neither is a kill criterion as
 written, and stopping remains cheap — every commit on this branch either stands alone (D297, the egress
 record) or is inert without a key and a prompt.
+
+
+---
+
+# Second pass — 2026-11-17: the functional analysis arrived
+
+**What changed since §1.** `docs/handovers/2026-11-16-v2-functional-analysis-persona-optimization.md` is on disk — saved and committed (`1103a3c`) by the Cowork session
+that wrote it, at this session's request — and was read in full. §1's table is now history: nothing in it
+is blocked on a missing document any more. Two commits follow it on the branch.
+
+## A. What it unblocked, and what was built from it
+
+| File | What |
+|---|---|
+| `client/src/nuance/surface-split.js` | **D305.** The §2.1 table in code, the one builder of `response.create`, the consent floor hold, and the pre-emptive close before a network-dropping capability |
+| `client/test/surface-split.test.mjs` | 81 assertions. **This is the enforcement test for Decision D** the handover asks for |
+| `server/src/nuance/persona-prompt.txt` | **D306.** The §6 draft, extracted from the document by script, not retyped |
+| `server/test/nuance.test.mjs` §8 | 9 assertions pinning the file to the document |
+| `server/src/index.js` | The hub uses the shipped prompt unless `MATIC_NUANCE_PROMPT_FILE` overrides it |
+
+Client **2334 assertions across 29 files**; server headless **838 across 8**. All green.
+
+**How the Decision D test works.** Every line in `persona.json` (the test finds them; it holds no list)
+must have an entry in `SURFACES`, and a new line with none fails rather than defaulting to speech. Each
+pinned, silent or degraded line is then driven through `personaTurn()` and the output is searched for
+any six-word run of it. `response.create` may be written once, in that file, and the test looks for it
+in the renderer, the main process and the agent too. Six mutations were tried — pinned text sent,
+`filing.timeout` given a pointer, a ticket line handed over, the unknown-surface default flipped, the
+floor hold removed, `reset_adapter` left off the close list — and **all six were caught**, one of them
+at first by crashing the test rather than failing an assertion (fixed, so it now fails properly). A
+seventh, harmless edit was run as a control and passed.
+
+## B. Where I argued with the analysis (handover §3.1 invites it)
+
+- **`social.offtopic` stays pinned — I agree with the table.** The handover calls this one arguable.
+  The argument for pinning is in the repo: D260 exists because one rephrased scope line taught a
+  narrower scope than the truth.
+- **The result of an executed change is pinned. The table does not list it; I added it.** "I restarted
+  the Print Spooler service" is an outcome claim, and by the analysis's own §2.3 test it is panel text.
+  The prompt's CLAIMS block says the same thing from the other side.
+- **A long answer is not truncated.** `response.create` takes 2,000 characters. An answer that does not
+  fit goes to the screen whole and the persona points at it; half an answer is a wrong answer.
+- **`boot` is handed over**, which the table also does not list. Decision A retired the recorded
+  greetings from the live channel, so there is nothing pinned left to protect — but this retires D262's
+  debugged rotation from the live path, which the plan's §11.3 says deserves to be explicit. It is now.
+- **§2.2 says "fall back to the panel and text" after a pre-emptive close. Decision C says the v7
+  avatar and Piper.** The two documents disagree and Decision C is later and the founder's:
+  `beforeExecute()` returns `degradeTo: "local"`.
+- **An unknown capability closes the session.** Not in either document. Unknown is never the
+  permissive branch here (D267's rule).
+
+## C. One real mint — observed 2026-11-17
+
+Through the route's own handler, with the supplied key, `mira`, the shipped prompt and a throwaway
+enrollment id: **HTTP 201, `warnings: []`**. `GET /usage` read `used: 4` before and after. The token was
+not used and expired a minute later; **no conversation was started and no credit was spent.**
+
+What that establishes: the request body the route sends is one the live API accepts (it had only been
+written from documentation), `mira` is a valid id, and the prompt was not refused at mint.
+What it does not: `[VERIFY]` whether the setup review can still hold or refuse it — the docs list
+`app_review_held` as its own outcome — or how the persona behaves under the prompt, which nobody has
+heard. The functional analysis's §9 row "the draft prompt clearing AUP review: untested" moves to
+"accepted at one mint", not to "cleared".
+
+## D. Decisions — additions to §4
+
+| ID | Decision | Status |
+|---|---|---|
+| **D304** | §5.3 waits for the functional analysis | **discharged 2026-11-17** |
+| **D305** | The surface split: one table, one builder, unknown is pinned | proposed |
+| **D306** | The prompt is extracted from the document and pinned to it | proposed |
+
+Next free: **D307**.
+
+## E. The ledger, updated
+
+**Now built that §7 listed as not built:** the surface split and its test; the consent floor hold and
+the pre-emptive close, *as decisions a function returns*; the persona prompt.
+
+**Still not built — and this is most of §5.3:**
+
+- **The session.** No LiveKit vendored, no `nuance-session.js`, no `POST /conversation`, no event
+  bus, no `<video>`. Nothing calls `personaTurn()`, `micStep()` or `beforeExecute()`.
+- **Barge-in**, the **degraded switch** with history intact, the **mic control in the panel**, and
+  **echo cancellation on speakers**.
+- The **durable mint ledger** (D300) and **per-tenant prompt assembly**.
+
+**Why it stops here.** What remains is the part that cannot be verified by a headless test: a WebRTC
+room inside Electron's renderer, a face on a screen, a voice in a room. This repo's rule is that bugs
+are found by running the thing, and eleven straight click-throughs have each found something. Vendoring
+the largest dependency the client has ever taken into a signed binary, and wiring it to a window nobody
+watches, would be the opposite of that. **It needs a session that can drive the Electron window, and
+Charles for anything heard.**
+
+**Not run in this pass either:** the database suite (PostgreSQL still down), the hub over a socket,
+anything in Electron.
+
+**A lapse to record.** The surface-split test was written before the module but was **not run red
+first** — the module was written straight after it. The six mutations are the evidence that the test
+can fail; they are not the same thing as having watched it fail first.
+
+## F. Verification register — additions
+
+| Claim | How known |
+|---|---|
+| The route's request body is accepted by the live API; `mira` is valid | **Observed** — one mint, 2026-11-17, HTTP 201 |
+| The prompt is not refused at mint | **Observed** — same call, `warnings: []`. Review outcome beyond mint: **not known** |
+| A mint spends no credit | **Observed** — `used: 4` before and after. One call |
+| No pinned persona line reaches `response.create` | **Tested** — `surface-split.test.mjs` §2, with six mutations caught |
+| That the persona would soften `filing.timeout` | Still the analysis's **judgement**. It is why the line is silent; it has not been tried |
+| How the persona behaves under the prompt | **Not known** — nobody has heard it |
