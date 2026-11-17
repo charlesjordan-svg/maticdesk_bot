@@ -339,3 +339,102 @@ can fail; they are not the same thing as having watched it fail first.
 | No pinned persona line reaches `response.create` | **Tested** — `surface-split.test.mjs` §2, with six mutations caught |
 | That the persona would soften `filing.timeout` | Still the analysis's **judgement**. It is why the line is silent; it has not been tried |
 | How the persona behaves under the prompt | **Not known** — nobody has heard it |
+
+
+---
+
+# Third pass — 2026-11-17: the session, built and run
+
+Charles: *"Build the session."* Three commits (`470e6ac`, `3196ce3`, and the fix that follows it).
+Register **D307**; next free **D308**. Click-through: `client/docs/PERSONA-RENDERER-CHECK.md`.
+
+## A. What was built
+
+| File | What |
+|---|---|
+| `client/src/nuance/nuance-session.js` | Main process. Hub mint → `POST /conversation` → events until admitted. Every failure is `{ degrade: true }`, never a throw |
+| `client/src/main/main.js`, `preload.cjs` | Four IPC calls and one event. Main applies `mic-policy.js`, writes the egress lines, and **ends the session itself** on hide, reload, crash or quit |
+| `client/src/renderer/persona-stage.js` | The room, the face, the event channel. Glue: sends what `personaTurn()` and main hand it |
+| `client/src/renderer/persona-ui.js` | Summon button, microphone button, size button |
+| `client/src/renderer/renderer.js` | One block in `say()`; `forPersona()` naming the surface above ten call sites |
+| `client/src/renderer/vendor/livekit-client.esm.mjs` | 2.24.1, one file, 1.47 MB, Apache-2.0, sha256 pinned |
+| `client/src/agent/hub-client.js` | `mintNuanceToken()` |
+| `client/config.json` | `persona: { enabled: false, maxSessionSeconds: 600 }` |
+| `client/test/nuance-session.test.mjs` | 39 assertions |
+
+Client **2373 / 30**. Server headless **838 / 8**.
+
+## B. What the run found
+
+Three real sessions with `mira`: one driven by this session with a synthetic microphone, one started by
+Charles in the same window (he took it for a live test — it was, and it found the defect), one short
+one for the larger face.
+
+1. **It works.** Click → face in a few seconds → greeting in her own words → microphone off and
+   confirmed off by the service → on with one click → *"Hello Matic. How are you today"* transcribed,
+   routed through Matic's own classifier as `social.howareyou`, answered → end → the bust.
+2. **A closed window left a session with no ending** (§C).
+3. **Under `delegation: client` the persona did not answer on its own.** Four reply requests, four
+   replies, across two spoken turns. This was the largest unknown going in — the docs do not say —
+   and it is what makes "Matic's router is the brain" true in practice. One session. `[VERIFY]`
+4. **The name survived.** "Matic", twice. Synthetic voice; the bakeoff's worry (§3 of the first pass)
+   is not borne out on this recogniser *so far*.
+5. **The service draws its own AI mark in the picture**, lower centre. That is the plan's Q5,
+   answered by looking: a green-screen composite would have to keep it.
+6. **Credits.** `used` read 4 before, 7 after a 160-second session, 8 after Charles's, 9 after an
+   11-second one. **Consistent with one credit a minute rounded up; not a rate.** At 60 a day that
+   would be about an hour of face per day for the whole organisation, on a plan with one concurrent
+   session — which is a demo allowance.
+7. **The restart advice rode on a spoken turn** and, being untagged, came out as "it's on the
+   screen". Correct by the rule; worth hearing before deciding it is right.
+8. **One fact, two wordings.** For a handed-over surface the panel prints the template's sentence
+   while she says her own. D245's shape, and a design question nobody has answered.
+
+## C. The defect, and three guards that fired
+
+**No closing line.** Charles closed the window at 03:50 with a session open. The microphone's stretch
+was closed in the record (`reason: window-hidden`) and nothing else was: no `persona.closed`, no
+duration. Main had asked the renderer to end the session and waited to be told, and a hidden
+renderer is the last thing to rely on for stopping a clock. Main now closes the record and ends the
+conversation itself, then tells the renderer. **Pinned by a structural test; not re-watched.**
+
+**Guards that fired while wiring it — respected, not loosened:**
+
+- Five tests pin the text of `say(...)` calls. The surface is named on its own line above.
+- `restart-signal.test` forbids "microphone" in `renderer.js` (D256: the consent store). The control
+  is in `persona-ui.js`, whose header says why that is not a dodge.
+- `enrollment.test` pinned "four writes share `#act`". The mint is the fifth; the count and label
+  changed. **That one is a test edited to pass, and it is said here so it is not found later.**
+
+## D. Charles asked, mid-run
+
+*"Is there any way to make the … face to face avatar bigger."* **Make the video bigger** (or a click
+on the face): the rail widens to 500 px for a 460 × 418 face and the conversation narrows, so
+nothing is ever behind it. Remembered across launches. Screenshot `04-larger-face.png`.
+
+## E. The ledger
+
+**Not run — most of the click-through's hard rows:** the capability answer by voice, the consent
+hold, the pre-emptive close before a network change, barge-in. Each is built and each is a decision
+a tested function returns; **none has been seen with a live face.**
+
+**Not heard.** No person spoke to it through a real microphone in this session's own runs, and
+whether the persona hears itself through speakers is unknown.
+
+**Not verified:** the hide fix in a window; that the persona never answers unprompted beyond one
+session; what she says under the prompt on anything but a greeting.
+
+**The database suite ran for the first time and is RED:** `kb.test` 52 of 52; `db.test` 87 passed, 21
+failed; `admin-db.test` failed. The failures read are in job-claim and time-window assertions, in code
+this branch does not touch, against a database that had been off for nine weeks. **That it is stale
+data and not this branch is an inference; it was not investigated.**
+
+**Mistakes of mine in this pass.** A diagnostic line inserted with a broken newline made
+`persona-stage.js` unloadable for one test run, which then did nothing and looked like a mystery. A
+`sed` wrote real line breaks into a regex in `server/src/nuance/route.js` and **that went into commit
+`3196ce3`**; the next commit repairs it. For several minutes Charles's own clicks were read as a
+phantom caller of the microphone — the policy has none.
+
+**Left running on this machine:** the hub on 8787 with the key in its environment, PostgreSQL in
+Docker, and a second Matic Desk on a scratch profile with the persona on. Charles's own tray
+instance was not touched.
