@@ -62,6 +62,38 @@ import { randomBytes } from "node:crypto";
 
 export const ENROLLMENT_FILENAME = "enrollment.json";
 
+/**
+ * WHERE THE ENROLLMENT WAS LOOKED FOR, AND BY WHOM - one block, printed once at startup (2026-11-17).
+ *
+ * On 2026-11-17 the app started from the v2 launcher said `enrollment.json NOT FOUND` while a valid
+ * file sat in a profile folder, and every launch after that enrolled afresh: three device rows in
+ * two hours, each with its own key, and today's tickets filed under enrollments the newest one
+ * cannot read (P3b/D284 scopes a requester to the enrollment that filed). Every plausible cause -
+ * a different userData per launch, an elevated launch resolving another profile, a second launch
+ * handing over to the tray instance so the new environment tested the old process, a read racing a
+ * write, a folder-protection product refusing the read - produces the identical one-line symptom
+ * and is told apart by facts the process already has. So the facts are printed, in one line with
+ * fixed field names, and the launcher prints the same fields from outside BEFORE it starts the app,
+ * so the two can be put side by side. Measure, then fix: D256 and D258 were both found that way.
+ *
+ * Pure: it formats what it is handed and reads nothing itself. Values are printed as given, with
+ * `unknown` for what the caller could not establish, so an absent fact is never shown as a value.
+ *
+ * @param {{ userData?: unknown, name?: unknown, packaged?: unknown, exec?: unknown, cwd?: unknown, user?: unknown, elevated?: unknown, path?: unknown, exists?: unknown, read?: unknown, mtime?: unknown, pid?: unknown, started?: unknown }} facts
+ * @returns {string}  two lines, both prefixed `[enroll]`
+ */
+export function startupReport(facts = {}) {
+  const v = (x) => (x === undefined || x === null || x === "" ? "unknown" : String(x));
+  const f = /** @type {Record<string, unknown>} */ (facts);
+  return [
+    `[enroll] userData=${v(f.userData)} name=${v(f.name)} packaged=${v(f.packaged)} exec=${v(f.exec)} cwd=${v(f.cwd)} user=${v(f.user)} elevated=${v(f.elevated)}`,
+    `[enroll] path=${v(f.path)} exists=${v(f.exists)} read=${v(f.read)} mtime=${v(f.mtime)} pid=${v(f.pid)} started=${v(f.started)}`,
+  ].join("\n");
+}
+
+/** The field names `startupReport()` prints, in order - the launcher prints the same names. */
+export const STARTUP_REPORT_FIELDS = Object.freeze(["userData", "name", "packaged", "exec", "cwd", "user", "elevated", "path", "exists", "read", "mtime", "pid", "started"]);
+
 /** How long after a pending, locked or unreachable outcome the app tries again. */
 export const ENROLL_RETRY_MS = 5 * 60_000;
 

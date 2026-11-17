@@ -33,7 +33,7 @@ import { spokenTurnRoute } from "../nuance/turn-routing.js";
  * }} deps
  * @returns {{ readonly live: boolean, speak: (turn: { surface?: string, text?: string }) => Promise<any>, releaseFloor: () => void, beforeExecute: (capabilityId: string) => Promise<boolean> }}
  */
-export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit, stopLocalVoice, showSpoken = () => {}, showHers = () => {} }) {
+export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit, stopLocalVoice, showSpoken = () => {}, showHers = () => {}, showAnswer = async () => {} }) {
   const els = {
     stage: /** @type {HTMLElement} */ (document.getElementById("persona-stage")),
     video: /** @type {HTMLVideoElement} */ (document.getElementById("persona-video")),
@@ -84,13 +84,52 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       try { info = (await bridge.spokenInfo?.(next)) ?? {}; } catch { /* treated as conversation unless she hands it off */ }
       let route = spokenTurnRoute({ awaitingAnswer: info.awaiting, kind: info.kind, subkind: info.subkind });
       if (route === "hers" && stage && (await stage.waitForHandOff(5000))) route = "route";
+      // D325: a QUESTION goes to the knowledge base and nowhere else. A hand-off she has ALREADY
+      // made wins (D318: she decided it is work), and is not waited for - the round trip is long
+      // enough already, and the floor is held so she does not answer from world knowledge meanwhile.
+      if (route === "ask" && stage && (await stage.waitForHandOff(0))) route = "route";
+      let asked = null;
+      if (route === "ask") {
+        stage?.holdForLookup();
+        try { asked = (await bridge.askKnowledge?.(next)) ?? null; } catch { asked = null; }
+        stage?.releaseLookup();
+        const outcome = asked?.ok ? (asked.answered ? "answered" : "declined") : "unreachable";
+        // THE NUMBER (handover 2026-11-17 §2.5): one line per spoken question, kind and outcome and
+        // nothing said, so "how often did a question stay hers" is read from audit/app.log and not
+        // from memory. scripts/spoken-turns.mjs counts them.
+        void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=ask outcome=${outcome}`);
+        if (outcome === "answered" && asked.reply) {
+          devlog("[persona] a spoken question, answered from the knowledge base - shown and said; her own line, if any, stands first");
+          showSpoken(next);
+          for (const line of heldHers.splice(0)) showHers(line);
+          deciding = false;
+          if (stage) stage.spokenTurn = true;
+          try { await showAnswer(asked); } catch (err) { devlog(`[persona] the answer could not be shown: ${err?.message ?? err}`); }
+          finally { if (stage) stage.spokenTurn = false; }
+          return;
+        }
+        // Declined, or the hub could not be reached: NOTHING. No ticket offer, no escalation line,
+        // no proposal. Her conversational answer stands - that is what keeps D318 intact.
+        // ...unless she handed it off while the hub was being asked: then she is waiting for a
+        // result, and D318 says a hand-off is routed whatever it says. The typed path answers her.
+        if (stage && (await stage.waitForHandOff(0))) { devlog(`[persona] the knowledge base ${outcome} it, and she handed it off meanwhile - routed as her hand-off`); route = "route"; }
+        else {
+          devlog(`[persona] a spoken question the knowledge base ${outcome} - nothing added; her answer stands (D325)`);
+          showSpoken(next);
+          for (const line of heldHers.splice(0)) showHers(line);
+          deciding = false;
+          return;
+        }
+      }
       if (route === "hers") {
         devlog("[persona] a spoken turn she is answering herself - conversation, not routed");
+        void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=hers outcome=hers`);
         showSpoken(next);
         for (const line of heldHers.splice(0)) showHers(line);
         deciding = false;
         return;
       }
+      void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=route outcome=${info.awaiting ? "answer" : "work"}`);
       // Routed: what she said while handing it over ("I'll look into that") is not the answer and
       // is not put on the panel beside the one that is.
       heldHers.length = 0;

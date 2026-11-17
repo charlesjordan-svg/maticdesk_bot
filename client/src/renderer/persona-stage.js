@@ -29,7 +29,7 @@
  * kept this thin. `client/docs/PERSONA-RENDERER-CHECK.md` is its click-through.
  */
 import { Room, RoomEvent } from "./vendor/livekit-client.esm.mjs";
-import { personaTurn, consentRelease, beforeExecute, isRepeatPointer, asHandOffResult } from "../nuance/surface-split.js";
+import { personaTurn, consentRelease, beforeExecute, isRepeatPointer, asHandOffResult, lookupHold, lookupRelease } from "../nuance/surface-split.js";
 import { greetingGuard } from "../nuance/mic-policy.js";
 
 const TOPIC = "nuance_live";
@@ -392,6 +392,10 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     start, stop, speak, toggleMic,
     /** The consent card was approved or dismissed. */
     releaseFloor() { if (phase === "live") send(consentRelease()); },
+    /** D325: the knowledge base is being asked about what the user just said; she waits rather than answering from world knowledge. */
+    holdForLookup() { if (phase === "live") send(lookupHold()); },
+    /** …and it has answered or declined. Either way the floor is hers again. */
+    releaseLookup() { if (phase === "live") send(lookupRelease()); },
     /** The user started typing or pressed stop: cut the persona off. */
     interrupt() { if (phase === "live") send({ type: "session.output_audio.interrupt" }); },
     /**

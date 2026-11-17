@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { EnrollmentStore, ensureEnrolled, newDeviceKeyId, ENROLLMENT_FILENAME, ENROLL_RETRY_MS } from "../src/agent/enrollment.js";
+import { EnrollmentStore, ensureEnrolled, newDeviceKeyId, ENROLLMENT_FILENAME, ENROLL_RETRY_MS, startupReport, STARTUP_REPORT_FIELDS } from "../src/agent/enrollment.js";
 import { HubClient } from "../src/agent/hub-client.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -194,6 +194,24 @@ try {
     const enrollSrc = jsCode(readFileSync(join(ROOT, "src/agent/enrollment.js"), "utf8"));
     check("client/src now names POST /v1/enroll in code — the premise the Agents page's D272/D273 copy rested on has ended, and the server's detector (admin-static §6a) is what says so", /\/v1\/enroll\b/.test(enrollSrc));
     check("the enrollment module generates NO key: no crypto beyond randomBytes for an opaque id (D60/D63/D64 are not built, and the header says so)", !/generateKeyPair|createSign|createPrivateKey|subtle/.test(enrollSrc) && /randomBytes\(16\)/.test(enrollSrc) && /NOT a\s+cryptographic key/.test(readFileSync(join(ROOT, "src/agent/enrollment.js"), "utf8").replace(/\n \* /g, " ")));
+  }
+
+  console.log("\n=== 7. where the enrollment was looked for, and by whom - said once, in fields the launcher prints too (2026-11-17) ===");
+  {
+    // Three device rows in two hours, one per launch: every launch said NOT FOUND, enrolled afresh,
+    // and orphaned the tickets filed under the enrollment before it. The one-line log said neither
+    // WHICH process looked nor WHERE. This block does, and the launcher prints the same fields from
+    // outside, so a launch can be read side by side with what started it.
+    const line = startupReport({ userData: "C:\\u\\AppData\\Roaming\\x", name: "matic-desk-demo", packaged: false, exec: "C:\\e.exe", cwd: "C:\\c", user: "charles", elevated: true, path: "C:\\u\\AppData\\Roaming\\x\\enrollment.json", exists: true, read: "ok", mtime: "2026-11-17T05:00:00.000Z", pid: 1234, started: "2026-11-17T05:29:00.000Z" });
+    check("every field is printed by name, in order, on two [enroll] lines", STARTUP_REPORT_FIELDS.every((f) => new RegExp(`(^|\\s)${f}=`).test(line)) && line.split("\n").length === 2 && line.split("\n").every((l) => l.startsWith("[enroll] ")), line);
+    check("the fields are the thirteen that separate the candidate causes (userData per launch, elevation, the tray hand-over, a read racing a write, a blocked read)", STARTUP_REPORT_FIELDS.join() === "userData,name,packaged,exec,cwd,user,elevated,path,exists,read,mtime,pid,started");
+    check("a fact the caller could not establish prints as unknown, never as a value", /elevated=unknown/.test(startupReport({})) && /mtime=unknown/.test(startupReport({ mtime: null })) && /exists=false/.test(startupReport({ exists: false })));
+    check("it is pure: formats what it is handed and reads nothing", !/readFileSync|statSync|process\.|app\./.test(jsCode(readFileSync(join(ROOT, "src/agent/enrollment.js"), "utf8")).split("export function startupReport")[1].split("export const STARTUP_REPORT_FIELDS")[0]));
+    const main = jsCode(readFileSync(join(ROOT, "src/main/main.js"), "utf8"));
+    check("main.js prints it at startup from the real facts: userData, the app name, packaged, the exe, cwd, the OS user, elevation, the store's path, exists, a READ (not only existsSync), mtime, pid and the process start", /startupReport\(\{/.test(main) && /userData: app\.getPath\("userData"\)/.test(main) && /name: app\.getName\(\)/.test(main) && /packaged: app\.isPackaged/.test(main) && /exec: process\.execPath/.test(main) && /cwd: process\.cwd\(\)/.test(main) && /userInfo\(\)/.test(main) && /elevated:/.test(main) && /path: enrollment\.path/.test(main) && /exists: existsSync\(enrollment\.path\)/.test(main) && /read:/.test(main) && /mtime:/.test(main) && /pid: process\.pid/.test(main) && /started:/.test(main));
+    const launcher = readFileSync(join(ROOT, "../tools/launchers/start-v2.ps1"), "utf8");
+    check("the v2 launcher prints the same field names from OUTSIDE the app, before it starts it, so the two blocks can be diffed", ["userData=", "name=", "user=", "elevated=", "path=", "exists=", "mtime=", "pid="].every((k) => launcher.includes(k)) && /\[enroll\]/.test(launcher));
+    check("the launcher no longer mints a secret per launch: enrolling afresh every start was the thing orphaning tickets", !/create-secret/.test(launcher.replace(/^\s*#.*$/gm, "")) || /-Enroll/.test(launcher));
   }
 } finally {
   rmSync(dir, { recursive: true, force: true });

@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld("matic", {
   // D318: what the local classifier makes of a SPOKEN sentence, and whether Matic is waiting on an
   // answer - so the window can tell conversation (hers) from work (routed). No model, no network.
   spokenInfo: (text) => ipcRenderer.invoke("agent:spoken", text),
+  // D325: a SPOKEN question goes to the hub's knowledge base and NOWHERE ELSE - no proposal, no
+  // escalation, no ticket offer. The answer, or a decline that the window keeps silent.
+  askKnowledge: (text) => ipcRenderer.invoke("agent:ask", text),
   // D310: a consent card answered by VOICE is written down, with the words heard. The broker's own
   // audit line cannot say how the button was pressed - it sees a nonce and nothing else.
   recordVoiceConsent: (decision) => ipcRenderer.invoke("consent:voice", decision),

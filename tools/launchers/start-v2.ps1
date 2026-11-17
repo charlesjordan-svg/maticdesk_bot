@@ -26,6 +26,15 @@
   Do not stop a Matic Desk that is already running. The launch will then hand over to it and
   nothing new will start - useful only to see that happen.
 
+.PARAMETER Enroll
+  Mint a ONE-DAY enrollment secret for the tenant in client\config.json and hand it to the app for
+  this launch, so an endpoint with NO stored enrollment can enroll once. Off by default since
+  2026-11-17: this launcher used to mint one on EVERY launch, and an app that could not find its
+  enrollment.json then enrolled afresh each time - three device rows in two hours, each with its
+  own key, and the day's tickets filed under enrollments the newest one cannot read (D284 scopes
+  a requester to the enrollment that filed). Pass it on purpose, once, when the [enroll] block
+  below says there is no enrollment at the path the app will read.
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\launchers\start-v2.ps1 -KeyFile "C:\path\to\Nuance Key.txt"
 #>
@@ -33,8 +42,10 @@
 param(
   [string]$KeyFile = $env:MATIC_NUANCE_KEY_FILE,
   [switch]$NoStopExisting,
-  # Start the hub WITHOUT allowing the camera. With it allowed, the user still turns it on.
-  [switch]$NoCamera
+  # Start the hub WITHOUT allowing the camera. With it allowed, it is on only from the user's click
+  # on "Talk face to face" (D324).
+  [switch]$NoCamera,
+  [switch]$Enroll
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,30 +124,62 @@ $running = Get-CimInstance Win32_Process -Filter "Name='electron.exe'" |
   Where-Object { $_.CommandLine -match $clientPattern -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '--user-data-dir' }
 if ($running -and -not $NoStopExisting) {
   Say '      (closing the Matic Desk already running - it was started without the live persona)'
-  $running | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -Confirm:$false }
+  $running | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -Confirm:$false -ErrorAction Stop } catch { Say "      (could not stop pid $($_.ProcessId): $($_.Exception.Message))" } }
   Start-Sleep -Seconds 2
+  # A second `npm.cmd start` HANDS OVER to a Matic Desk already in the tray and exits (single
+  # instance), so a launch that could not stop the old one - an ELEVATED one, from this window -
+  # would silently test the old process with the old environment. Say so and stop instead.
+  $still = Get-CimInstance Win32_Process -Filter "Name='electron.exe'" |
+    Where-Object { $_.CommandLine -match $clientPattern -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '--user-data-dir' }
+  if ($still) {
+    $pids = ($still | ForEach-Object { $_.ProcessId }) -join ', '
+    Fail "a Matic Desk is still running (pid $pids) and could not be stopped from this window - it is probably elevated. Quit it from its tray icon (right-click, Quit), then run this again. Starting now would hand over to it and nothing new would start."
+  }
 }
 
-# ---- 3b. an enrollment secret for this launch ------------------------------------------------
+# ---- 3b. where the app will look for its enrollment, printed from OUTSIDE the app -----------------
+# The app prints the same fields on its first line ([enroll] in client\audit\app.log and the
+# developer log; `startupReport()` in client\src\agent\enrollment.js). Put the two side by side: a
+# launch that says NOT FOUND while this says exists=True is reading a different path or a different
+# profile, and the fields say which. Measured, not reasoned - D256 and D258 were found this way.
+$appName = (Get-Content -LiteralPath (Join-Path $client 'package.json') -Raw | ConvertFrom-Json).name
+$expectedUserData = Join-Path $env:APPDATA $appName
+$enrollPath = Join-Path $expectedUserData 'enrollment.json'
+$enrollExists = Test-Path -LiteralPath $enrollPath
+$enrollMtime = if ($enrollExists) { (Get-Item -LiteralPath $enrollPath).LastWriteTimeUtc.ToString('o') } else { 'unknown' }
+$isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$electronPids = (Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object { $_.CommandLine -match $clientPattern -and $_.CommandLine -notmatch '--type=' } | ForEach-Object { "$($_.ProcessId)@$($_.CreationDate.ToUniversalTime().ToString('o'))" }) -join ','
+if (-not $electronPids) { $electronPids = 'none' }
+Say "[enroll] userData=$expectedUserData name=$appName user=$env:USERNAME elevated=$isElevated (this window)"
+Say "[enroll] path=$enrollPath exists=$enrollExists mtime=$enrollMtime pid=$electronPids (electron already running, pid@started)"
+Say '      Compare with the app''s own [enroll] lines in client\audit\app.log after it starts.'
+
+# ---- 3c. an enrollment secret, ONLY when asked (-Enroll) ---------------------------------------
 # A live session needs the app to hold an enrollment credential: the hub mints a session for an
-# ENROLLED endpoint and for nobody else. On 2026-11-17 the app started from this launcher came up
-# with "[enroll] disabled" - no stored credential found, and no secret to enroll with, because the
-# repository's config.json keeps its secret empty on purpose (D285) - and every click on "Talk face
-# to face" failed without reaching the hub. So the launcher mints a ONE-DAY secret for the tenant
-# in client\config.json and hands it to the app for this one launch, the way MATIC_ENROLLMENT_SECRET
-# is meant to be used. An app that already holds a credential ignores it.
+# ENROLLED endpoint and for nobody else. From 2026-11-17 until this change the launcher minted a
+# one-day secret on EVERY launch; an app that could not find its enrollment.json then enrolled
+# afresh each time and orphaned the tickets filed before it. Now a secret is minted only when the
+# operator says so, for an endpoint that has none.
 $enrollSecret = $null
-try {
-  $tenant = (Get-Content -LiteralPath (Join-Path $client 'config.json') -Raw | ConvertFrom-Json).enrollment.tenant
-  if ($tenant) {
-    Push-Location -LiteralPath $server
-    try { $minted = & node bin/devices.mjs create-secret $tenant --ttl-days 1 2>&1 | Out-String } finally { Pop-Location }
-    $m = [regex]::Match($minted, '(?m)^\s*secret\s+(\S+)\s*$')
-    if ($m.Success) { $enrollSecret = $m.Groups[1].Value }
+if ($Enroll) {
+  if ($enrollExists) { Say '      (-Enroll passed, but an enrollment already exists at the path above - not minting; delete the file first if you mean to re-enroll)' }
+  else {
+    try {
+      $tenant = (Get-Content -LiteralPath (Join-Path $client 'config.json') -Raw | ConvertFrom-Json).enrollment.tenant
+      if ($tenant) {
+        Push-Location -LiteralPath $server
+        try { $minted = & node bin/devices.mjs create-secret $tenant --ttl-days 1 2>&1 | Out-String } finally { Pop-Location }
+        $m = [regex]::Match($minted, '(?m)^\s*secret\s+(\S+)\s*$')
+        if ($m.Success) { $enrollSecret = $m.Groups[1].Value }
+      }
+    } catch { $enrollSecret = $null }
+    if ($enrollSecret) { Say '      (-Enroll: a one-day enrollment secret is ready; the app enrolls ONCE and keeps the credential)' }
+    else { Say '      (-Enroll: no secret could be minted - is the hub''s database up?)' }
   }
-} catch { $enrollSecret = $null }
-if ($enrollSecret) { Say '      (a one-day enrollment secret is ready for this launch)' }
-else { Say '      (no enrollment secret could be minted - the app will use the credential it already holds, if it holds one)' }
+} elseif (-not $enrollExists) {
+  Say '      NO ENROLLMENT at the path above. The app will say so too. If that path is the one the app reads,'
+  Say '      run this launcher once with -Enroll; if the app reads another path, that difference is the finding.'
+}
 
 # ---- 4. the app ------------------------------------------------------------------------------
 $env:MATIC_PERSONA = '1'
@@ -151,7 +194,7 @@ try {
 Say '[4/4] Matic Desk is starting.'
 Say ''
 Say 'In the Matic Desk window: click "Talk face to face" under the avatar.'
-Say 'The microphone starts OFF - click "Microphone off" to turn it on.'
+Say 'That click is the only thing that turns the microphone and the camera on (D320, D324); their buttons turn them off.'
 Say 'Credits run from the moment the face appears until you click "End live video".'
 Say ''
 Start-Sleep -Seconds 6

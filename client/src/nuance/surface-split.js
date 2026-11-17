@@ -309,6 +309,24 @@ export function consentRelease() {
 }
 
 /**
+ * The floor, held while the knowledge base is asked about a SPOKEN question (D325, PROPOSED).
+ *
+ * Without it she fills the round trip by answering from world knowledge - the thing being fixed.
+ * `ends_on_speech: false`: the user talking over the wait does not hand her the floor back; the
+ * answer or the decline does, through `lookupRelease()`. The reason is short and in plain words,
+ * and it is a reason for the SERVICE, not a line she is told to say. Built here and not in the
+ * stage so the stage keeps writing no floor event of its own (the consent card's hold is here too).
+ */
+export function lookupHold() {
+  return { type: "session.floor.hold", reason: "looking that up", ends_on_speech: false };
+}
+
+/** The lookup is over - answered or declined - and the floor is hers again. The same event as a consent release. */
+export function lookupRelease() {
+  return consentRelease();
+}
+
+/**
  * The capabilities whose own consent notice says the network drops. Running one kills the WebRTC
  * session, and a persona that vanishes mid-sentence while the user watches their network die reads
  * as the assistant having broken the machine.

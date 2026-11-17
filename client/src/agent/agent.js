@@ -151,6 +151,29 @@ export class Agent {
    * Produce a validated proposal for what the user described.
    * @returns {Promise<object>}
    */
+  /**
+   * A SPOKEN question, to the knowledge base and NOWHERE ELSE (D325, PROPOSED, 2026-11-17).
+   *
+   * `propose()` below is the whole turn: intake, tier-0, the knowledge base, then the model and a
+   * proposal or an escalation. A spoken question must not reach the last two - on the voice path a
+   * decline is kept SILENT (turn-routing.js says why) and nothing may volunteer a ticket - so this
+   * is a separate entry that reaches `ask()` on the hub client and nothing else. It never
+   * proposes, never touches the broker, and never escalates; a test counts what it calls.
+   *
+   * The same gate as the typed path: a provider with no `ask` has no knowledge base to ask.
+   *
+   * @param {string} text
+   * @returns {Promise<{ ok: boolean, answered?: boolean, reply?: string, citedArticleIds?: string[], retrieval?: object|null, error?: string }>}
+   */
+  async askKnowledge(text) {
+    if (typeof this.cloud?.ask !== "function") return { ok: false, error: "this provider has no knowledge base to ask" };
+    const { probe } = this.diagnose();
+    this.onLog("[router] a spoken question - asking the knowledge base only; a decline stays silent on the voice path (D325)");
+    const asked = await this.cloud.ask(text, { probe });
+    if (!asked.ok) return { ok: false, error: asked.error ?? "the knowledge base could not be reached" };
+    return { ok: true, answered: asked.answered === true, reply: asked.reply, citedArticleIds: asked.citedArticleIds ?? [], retrieval: asked.retrieval ?? null };
+  }
+
   async propose(text) {
     const { probe, summary, panel } = this.diagnose();
 

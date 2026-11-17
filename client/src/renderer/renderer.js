@@ -1242,6 +1242,31 @@ function askConsent(request, proposal) {
 
 // ═══ the turn ═════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * An ANSWER from the knowledge base, shown and said. One function for the two paths that have one:
+ * the typed turn (D211, inside handleTurn) and the spoken question (D325, from persona-ui, where a
+ * decline never reaches here because a decline on the voice path produces nothing).
+ *
+ * THE CITATION IS ATTRIBUTED CHROME, NOT THE AVATAR'S VOICE (H5). It is shown as a source block
+ * under the reply and is deliberately NOT spoken and NOT concatenated into it: "according to
+ * keyboard-shortcuts-windows, press Win+Shift+S" said aloud is the avatar claiming provenance,
+ * where a separate block is the UI attributing it.
+ */
+async function knowledgeAnswered(replyText, citedArticleIds) {
+  forPersona("@answer");
+  await say(replyText, "idle");
+  if (citedArticleIds.length) {
+    const cite = el("div", "citation");
+    cite.append(el("span", "from", "From your company's IT guidance"));
+    const src = el("div", "src");
+    src.append(el("span", "", citedArticleIds.join(", ")));
+    cite.append(src);
+    turn().append(cite);
+    scrollDown();
+  }
+  setState("idle");
+}
+
 async function handleTurn(text) {
   openTurn();
   stampInspector();
@@ -1465,22 +1490,7 @@ async function handleTurn(text) {
     setState("thinking");
 
     if (answered) {
-      // THE CITATION IS ATTRIBUTED CHROME, NOT THE AVATAR'S VOICE (H5). It is shown as a source
-      // block under the reply and is deliberately NOT spoken and NOT concatenated into it:
-      // "according to keyboard-shortcuts-windows, press Win+Shift+S" said aloud is the avatar
-      // claiming provenance, where a separate block is the UI attributing it.
-      forPersona("@answer");
-      await say(res.reply, "idle");
-      if (citedArticleIds.length) {
-        const cite = el("div", "citation");
-        cite.append(el("span", "from", "From your company's IT guidance"));
-        const src = el("div", "src");
-        src.append(el("span", "", citedArticleIds.join(", ")));
-        cite.append(src);
-        turn().append(cite);
-        scrollDown();
-      }
-      setState("idle");
+      await knowledgeAnswered(res.reply, citedArticleIds);
       return;
     }
 
@@ -1732,6 +1742,15 @@ personaUi = mountPersonaUi({
   // hers - and it goes nowhere else: no router, no hub, no proposal.
   showSpoken: (text) => { openTurn(); said(text); },
   showHers: (text) => { reply(text); },
+  // D325: a spoken question the knowledge base ANSWERED. The inspector says where it came from and
+  // that nothing changed, then the answer is shown and said exactly as a typed one is. A decline
+  // never arrives here: on the voice path it produces nothing.
+  showAnswer: async (r) => {
+    proposed("Nothing. This turn was answered from your company's written guidance.", { answeredFromKnowledgeBase: true, citedArticleIds: r.citedArticleIds ?? [], retrieval: r.retrieval ?? null, spoken: true });
+    checked("Not applicable — no capability was proposed. A question changes nothing on this machine.", "not applicable");
+    done("Nothing has been changed — this was a question, not an action.", { executed: false, changes: [] });
+    await knowledgeAnswered(r.reply, r.citedArticleIds ?? []);
+  },
 });
 
 // ═══ input ════════════════════════════════════════════════════════════════════════════════════

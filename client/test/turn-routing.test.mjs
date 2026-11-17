@@ -9,13 +9,12 @@
  * here is that conversation stays hers, and that nothing true is lost by it: a question this
  * machine can answer from its own records is routed whether or not she hands it off.
  */
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spokenTurnRoute } from "../src/nuance/turn-routing.js";
 import { classify } from "../src/router/classify.js";
-import { cameraWords } from "../src/nuance/mic-policy.js";
 import { EgressAudit, EGRESS_EVENTS } from "../src/ticket/egress-audit.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +35,6 @@ console.log("=== 1. conversation is hers ===");
     "It's a beautiful day. How are you doing?",            // the sentence that got a ticket offer
     "Hello, can you hear me now?",
     "I'm good.",
-    "what's the capital of France",
     "did you see the game last night",
     "thank you so much",
     "tell me something interesting",
@@ -97,32 +95,19 @@ console.log("\n=== 3. the wiring ===");
 }
 
 // ==============================================================================================
-console.log("\n=== 4. the camera, on the microphone's terms (D319) ===");
+console.log("\n=== 4. the camera (D319, D324) ===");
 {
-  const on = cameraWords(true), off = cameraWords(false);
-  check("two labels that differ in words", on.label === "Camera on" && off.label === "Camera off");
-  check("on says the picture LEAVES this PC; off says nothing is sent", /being sent from this PC/.test(on.detail) && /nothing from your camera is being sent/.test(off.detail));
-  check("none of our vocabulary at the user", !/hub|nuance|livekit|webrtc|track|egress/i.test(`${on.label} ${on.detail} ${off.label} ${off.detail}`));
+  // Since D324 the camera has a policy file of its own, and test/camera-policy.test.mjs is where
+  // its four rules and main.js's wiring are pinned. What stays here is the record: the fact, never
+  // the picture.
   check("the two camera events are in the record's vocabulary", ["persona.video.on", "persona.video.off"].every((e) => EGRESS_EVENTS.includes(e)));
-
   const dir = mkdtempSync(join(tmpdir(), "matic-camera-"));
   const egress = new EgressAudit({ path: join(dir, "egress.jsonl") });
   egress.persona("persona.video.on", { sessionRef: "s1", frame: "PICTURE-CANARY", image: "PICTURE-CANARY" });
-  egress.persona("persona.video.off", { sessionRef: "s1", reason: "user" });
+  egress.persona("persona.video.off", { sessionRef: "s1", reason: "user", videoSentMs: 1500 });
   const raw = readFileSync(join(dir, "egress.jsonl"), "utf8");
-  check("the record says the camera went on and off - and holds no picture", raw.trim().split("\n").length === 2 && !raw.includes("CANARY"));
-
-  const main = strip(read("../src/main/main.js"));
-  const cam = main.slice(main.indexOf('ipcMain.handle("persona:camera"'), main.indexOf('ipcMain.handle("agent:spoken"'));
-  check("main turns it on only for a session the hub allowed a camera for", /!liveSession \|\| !liveSession\.cameraAllowed/.test(cam));
-  check("…only with a visible window (D293)", /event === "user\.on"[\s\S]{0,80}if \(!windowVisible\(\)\) return/.test(cam));
-  check("…and writes the line at the moment the picture starts leaving", /liveSession\.cameraOn = true; egress\?\.persona\("persona\.video\.on"/.test(cam));
-  // D323 (the founder's) reversed "starts with the camera off": it starts ON when the hub allowed one,
-  // config says so and the window is visible - and the line is written at that moment.
-  check("a session starts with the camera on only when the hub allowed it, config says so and the window is visible (D323)", /if \(liveSession\.cameraAllowed && personaConfig\.startWithCamera && windowVisible\(\)\) \{\s*liveSession\.cameraOn = true;\s*egress\?\.persona\("persona\.video\.on"/.test(main));
-  check("…and what the window is told matches what main decided", /camera: liveSession\.cameraAllowed \? \{ on: liveSession\.cameraOn, words: cameraWords\(liveSession\.cameraOn\) \} : null/.test(main));
-  check("a session that ends with the camera on closes that in the record too", /if \(p\.cameraOn\) egress\?\.persona\("persona\.video\.off"/.test(main));
-  check("the launcher is where the camera is allowed - the repository's config does not turn it on", !/"camera"\s*:\s*true/.test(read("../config.json")));
+  check("the record says the camera went on and off, for how long - and holds no picture", raw.trim().split("\n").length === 2 && !raw.includes("CANARY") && /"videoSentMs":1500/.test(raw));
+  check("the camera's policy lives in its own file, and this test no longer pins main.js's inline conditions", existsSync(join(HERE, "../src/nuance/camera-policy.js")) && existsSync(join(HERE, "camera-policy.test.mjs")));
 }
 
 // ==============================================================================================
@@ -146,6 +131,49 @@ console.log("\n=== 6. one size, and it is the large one (D323) ===");
   check("there is no size button and no size toggle", !/persona-size/.test(read("../src/renderer/index.html")) && !/toggleSize|matic\.persona\.large/.test(ui));
   check("the rail is large whenever a session is live", /rail\?\.classList\.toggle\("persona-large", live\)/.test(ui));
   check("clicking the face does nothing", !/els\.stage\.onclick/.test(ui));
+}
+
+// ==============================================================================================
+console.log("\n=== 7. a spoken QUESTION asks the knowledge base, and a decline is silent (D325) ===");
+{
+  // Until this, `question` fell through to "hers": "how do I take a screenshot?" was answered
+  // from world knowledge while the knowledge base held the article. Now it is ASKED - the hub's
+  // /v1/ask and nothing else - and a decline produces nothing, so D318's defect (Matic
+  // volunteering an offer for a pleasantry) cannot come back through this door.
+  for (const t of ["How do I take a screenshot?", "What's our policy on expensing a taxi?", "what's the capital of France"]) {
+    check(`"${t}" -> ask (the knowledge base only)`, routeOf(t) === "ask", routeOf(t));
+  }
+  check("a question Matic is waiting on an answer to is the ANSWER, not a lookup", routeOf("How do I take a screenshot?", { awaitingAnswer: true }) === "route");
+  check("a question she handed off is routed, whatever it says (D318 wins)", routeOf("How do I take a screenshot?", { handedOff: true }) === "route");
+  check("tickets, the machine and capabilities still route ahead of the lookup", routeOf("where is my ticket") === "route" && routeOf("how is my computer doing") === "route" && routeOf("what can you do") === "route");
+  check("`action` is NOT asked and NOT routed: the classifier's default for every unrecognised sentence stays hers (Charles's call, open)", routeOf("my screen is flickering") === "hers" && routeOf("restart the spooler") === "hers" && routeOf("It's a beautiful day. How are you doing?") === "hers");
+  check("the pure function returns exactly three answers", new Set(["route", "ask", "hers"]).has(spokenTurnRoute({ kind: "question" })) && spokenTurnRoute({ kind: "question" }) === "ask");
+
+  const { lookupHold, lookupRelease } = await import("../src/nuance/surface-split.js");
+  const hold = lookupHold();
+  check("the floor is held while the hub is asked, with a short reason, and the user talking does NOT end the hold", hold.type === "session.floor.hold" && typeof hold.reason === "string" && hold.reason.length <= 200 && hold.ends_on_speech === false);
+  check("…and released afterwards, answered or declined", lookupRelease().type === "session.floor.release");
+
+  const ui = strip(read("../src/renderer/persona-ui.js"));
+  const askBranch = ui.slice(ui.indexOf('if (route === "ask") {'), ui.indexOf('if (route === "hers") {'));
+  check("the window asks through askKnowledge() with the floor held BEFORE and released AFTER", /stage\?\.holdForLookup\(\);[\s\S]*bridge\.askKnowledge\?\.\(next\)[\s\S]*stage\?\.releaseLookup\(\);/.test(askBranch));
+  check("an answer is shown and said through showAnswer(); the branch never calls submit() itself", /await showAnswer\(asked\)/.test(askBranch) && !/submit\(/.test(askBranch));
+  check("a decline or an unreachable hub adds NOTHING: no offer, no escalation, no proposal - her answer stands", !/attachOffer|escalat|propose\(/.test(askBranch) && /nothing added; her answer stands/.test(askBranch));
+  check("…unless she handed it off meanwhile, in which case D318 wins and it is routed", /waitForHandOff\(0\)[\s\S]{0,200}route = "route"/.test(askBranch));
+  check("a hand-off ALREADY open wins before the lookup starts, and is not waited for", /if \(route === "ask" && stage && \(await stage\.waitForHandOff\(0\)\)\) route = "route";/.test(ui));
+  check("every spoken turn writes one [spoken] line - kind, route, outcome, never words - so §2.5's number can be read from audit/app.log", (ui.match(/personaLog\?\.\(`\[spoken\] kind=\$\{info\.kind \?\? "\?"\} route=/g) ?? []).length === 3 && !/personaLog\?\.\([^)]*next/.test(ui));
+
+  const stage = strip(read("../src/renderer/persona-stage.js"));
+  check("the stage sends the hold and the release it is handed and writes no floor event of its own", /holdForLookup\(\) \{ if \(phase === "live"\) send\(lookupHold\(\)\); \}/.test(stage) && /releaseLookup\(\) \{ if \(phase === "live"\) send\(lookupRelease\(\)\); \}/.test(stage) && !/session\.floor\.hold/.test(stage));
+  const agent = strip(read("../src/agent/agent.js"));
+  const ask = agent.slice(agent.indexOf("async askKnowledge(text)"), agent.indexOf("async propose(text)"));
+  check("agent.askKnowledge() reaches ask() on the hub client and nothing else: no propose, no broker, no escalation, no intake", /this\.cloud\.ask\(text, \{ probe \}\)/.test(ask) && !/propose|broker|escalat|intake/.test(ask));
+  check("…gated as the typed path is: a provider with no ask() has no knowledge base", /typeof this\.cloud\?\.ask !== "function"/.test(ask));
+  const main = strip(read("../src/main/main.js"));
+  check("main.js exposes it as agent:ask, caught, and the preload names it askKnowledge", /ipcMain\.handle\("agent:ask"/.test(main) && /agent\.askKnowledge\(String\(text \?\? ""\)\)/.test(main) && /askKnowledge: \(text\) => ipcRenderer\.invoke\("agent:ask", text\)/.test(read("../src/main/preload.cjs")));
+  const r = strip(read("../src/renderer/renderer.js"));
+  check("the renderer's showAnswer says it came from the company's written guidance and shows and says it as a typed answer is", /showAnswer: async \(r\) => \{[\s\S]*answered from your company's written guidance[\s\S]*await knowledgeAnswered\(r\.reply/.test(r) && (r.match(/await knowledgeAnswered\(/g) ?? []).length === 2);
+  check("typed turns are untouched: handleTurn still asks the agent through propose() and still offers on a decline", /const res = await window\.matic\.propose\(text\);/.test(r) && /No company guidance covers this — nothing was filed\./.test(read("../src/renderer/renderer.js")));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

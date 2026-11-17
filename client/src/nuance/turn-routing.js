@@ -30,18 +30,38 @@
  * recognises is answered by HER model, which has no access to this machine. Her prompt tells her
  * to hand every such thing over. A prompt is a request.
  *
+ *   ASK the knowledge base, and nothing else, when (D325, PROPOSED, 2026-11-17)
+ *     - the classifier says it is a QUESTION. Until this, `question` fell through to "hers" and
+ *       the company's written guidance was reachable from a spoken turn only through her hand-off:
+ *       "how do I take a screenshot?" was answered from world knowledge while the knowledge base
+ *       held the article. The sentence goes to POST /v1/ask ONLY - never the proposal path, never
+ *       an escalation - and a DECLINE PRODUCES NOTHING: no ticket offer, no escalation line, no
+ *       proposal. Her own answer stands. That is what keeps D318 intact: D318's defect was Matic
+ *       VOLUNTEERING an offer for a pleasantry, and a silent decline cannot volunteer anything.
+ *       The floor is held while the hub is asked, so she does not fill the round trip from world
+ *       knowledge - which is the failure being fixed.
+ *     The cost: a hub round trip, with a model call on the hub's side, on every spoken question.
+ *     The typed path is untouched and still offers the ticket on a decline.
+ *
+ *   `action` is NOT asked and NOT routed here. The classifier defaults every unrecognised sentence
+ *   to `action` (classify.js), so routing it is "route everything", which is pre-D318. Routing
+ *   only an explicit ACTION_VERB match ("restart the spooler") would change what she may be
+ *   interrupted for, and that is Charles's call, not a session's - put to him in the 2026-11-17
+ *   handover and open as of this file.
+ *
  * Typed turns are not touched by any of this: a sentence typed into the box always goes to Matic.
- * Pure. `test/voice-consent.test.mjs` §9.
+ * Pure. `test/turn-routing.test.mjs`.
  */
 
 /**
  * @param {{ awaitingAnswer?: boolean, handedOff?: boolean, kind?: string, subkind?: string }} t
- * @returns {"route" | "hers"}
+ * @returns {"route" | "ask" | "hers"}
  */
 export function spokenTurnRoute({ awaitingAnswer = false, handedOff = false, kind = "", subkind = "" } = {}) {
   if (awaitingAnswer === true) return "route";
   if (handedOff === true) return "route";
   if (kind === "tickets" || kind === "machine") return "route";
   if (kind === "social" && subkind === "capability") return "route";
+  if (kind === "question") return "ask";
   return "hers";
 }

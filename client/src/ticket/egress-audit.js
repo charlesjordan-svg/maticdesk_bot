@@ -91,11 +91,13 @@ const PERSONA_EVENTS = Object.freeze(["persona.opened", "persona.audio.on", "per
  *   microphone   the state the microphone STARTED in. "off", unless a founder decision changes it
  *   durationMs   how long the session ran, on the closing line
  *   audioSentMs  how long audio was being sent - one stretch on `audio.off`, the total on `closed`
+ *   videoSentMs  how long the camera's picture was being sent - one stretch on `video.off`, the
+ *                total on `closed` (D324, 2026-11-17; the camera lines carried no duration before)
  *   reason       why a stretch or a session ended, as a short code
  *
  * `test/persona-egress.test.mjs` fails if a name that could hold content is added here.
  */
-export const PERSONA_EGRESS_FIELDS = Object.freeze(["sessionRef", "persona", "host", "microphone", "durationMs", "audioSentMs", "reason"]);
+export const PERSONA_EGRESS_FIELDS = Object.freeze(["sessionRef", "persona", "host", "microphone", "durationMs", "audioSentMs", "videoSentMs", "reason"]);
 
 export class EgressAudit {
   /** @param {{ path: string, onLog?: (s: string) => void }} deps */
@@ -197,7 +199,10 @@ export class EgressAudit {
    *
    * Never throws; same degradation as `filedFromThisMachine()`.
    *
-   * @returns {Array<{ sessionRef: string, persona: string|null, host: string|null, microphoneStartedAs: string|null, openedAt: string|null, closedAt: string|null, durationMs: number|null, audioWasSent: boolean, audioSentMs: number|null, reason: string|null }>}
+   * The camera reads the same way (D324): `videoWasSent` is true from the `video.on` line, and
+   * `videoSentMs` is the closing line's total or null when there is no closing line.
+   *
+   * @returns {Array<{ sessionRef: string, persona: string|null, host: string|null, microphoneStartedAs: string|null, openedAt: string|null, closedAt: string|null, durationMs: number|null, audioWasSent: boolean, audioSentMs: number|null, videoWasSent: boolean, videoSentMs: number|null, reason: string|null }>}
    */
   personaSessions() {
     let text;
@@ -206,7 +211,7 @@ export class EgressAudit {
     const byRef = new Map();
     const get = (ref) => {
       if (!byRef.has(ref)) {
-        byRef.set(ref, { sessionRef: ref, persona: null, host: null, microphoneStartedAs: null, openedAt: null, closedAt: null, durationMs: null, audioWasSent: false, audioSentMs: null, reason: null });
+        byRef.set(ref, { sessionRef: ref, persona: null, host: null, microphoneStartedAs: null, openedAt: null, closedAt: null, durationMs: null, audioWasSent: false, audioSentMs: null, videoWasSent: false, videoSentMs: null, reason: null });
       }
       return byRef.get(ref);
     };
@@ -223,11 +228,15 @@ export class EgressAudit {
         s.microphoneStartedAs = line.microphone ?? null;
       } else if (line.event === "persona.audio.on" || line.event === "persona.audio.off") {
         s.audioWasSent = true;
+      } else if (line.event === "persona.video.on" || line.event === "persona.video.off") {
+        s.videoWasSent = true;
       } else if (line.event === "persona.closed") {
         s.closedAt = line.at ?? null;
         s.durationMs = typeof line.durationMs === "number" ? line.durationMs : null;
         s.audioSentMs = typeof line.audioSentMs === "number" ? line.audioSentMs : null;
         if (s.audioSentMs !== null && s.audioSentMs > 0) s.audioWasSent = true;
+        s.videoSentMs = typeof line.videoSentMs === "number" ? line.videoSentMs : null;
+        if (s.videoSentMs !== null && s.videoSentMs > 0) s.videoWasSent = true;
         s.reason = line.reason ?? null;
       }
     }

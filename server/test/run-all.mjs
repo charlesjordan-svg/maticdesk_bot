@@ -69,6 +69,17 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// THE DATABASE SUITE IS PREFLIGHTED (2026-11-17). A long-dormant container wakes up behind on its
+// migrations or with stale rows, and the assertions that break on exactly that - job claims, time
+// windows - read like a regression: the handover before this one carried "21 failing, not
+// investigated" for what was nothing. db-preflight.mjs checks the database is reachable and
+// migrated to head, prints how old it is, and stops the run HERE with the fix, before a single
+// suite file is spawned. Not a test file itself, so it is not discovered above.
+if (onlyExcluded) {
+  const pre = spawnSync(process.execPath, [join(HERE, "db-preflight.mjs")], { stdio: "inherit" });
+  if (pre.status !== 0) process.exit(pre.status ?? 1);
+}
+
 /** @type {{ file: string, code: number }[]} */
 const results = [];
 for (const f of files) {

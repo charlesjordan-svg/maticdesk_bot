@@ -973,8 +973,29 @@ the surface split (D305) and the prompt (D306).
   when `turn-routing.js` says so: it answers Matic's question, she handed it off, or it is about tickets,
   this machine or capabilities. **Never** route every spoken sentence again - small talk came back as a
   ticket offer. **Never** send a spoken sentence to the hub's model because nothing else claimed it.
-- **The camera is allowed per hub and off until the user clicks it (D319).** Never turn it on from code,
-  never record a picture, and never set `MATIC_NUANCE_CAMERA` in a repository file.
+- **The camera is allowed per hub and comes on ONLY from the user's click (D319, D324 - the founder's:
+  "Camera only comes on when user clicks talk face to face").** `client/src/nuance/camera-policy.js` is
+  pure and holds the rule in the microphone's shape; its live state is written ONCE and
+  `test/camera-policy.test.mjs` counts it. **Never** write `cameraOn = true` in `main.js`, never turn it
+  on from a session event, a reconnect or a timer, never record a picture, and never set
+  `MATIC_NUANCE_CAMERA` in a repository file. `config.json`'s key is `cameraOnSummon`, not "start with".
+  Every stretch of picture has a `videoSentMs` in the egress record.
+- **A spoken QUESTION asks the knowledge base and a decline is SILENT (D325, proposed).** `turn-routing.js`
+  returns `ask`; the window holds the floor, calls `askKnowledge` (which reaches `ask()` and nothing
+  else), shows and says an answer, and on a decline adds NOTHING - no ticket offer, no escalation.
+  **Never** route `question` to the proposal path on the voice path, and **never** route `action`
+  without Charles: the classifier defaults every unrecognised sentence to `action`.
+  `client/scripts/spoken-turns.mjs` counts the `[spoken]` lines in `audit/app.log` (kind, route,
+  outcome - never words): that is the D318 regression number's denominator.
+- **`start-v2.ps1` mints NO enrollment secret unless `-Enroll` is passed.** It used to mint one per launch,
+  and an app that could not find `enrollment.json` enrolled afresh every start (nine device rows; the
+  day's tickets on superseded enrollments, invisible to the newest). The app prints an `[enroll]` block
+  of thirteen named fields at startup (`startupReport()`), the launcher prints the same fields from
+  outside: diff them before guessing the cause. The launcher also STOPS rather than hand over to a
+  Matic Desk it could not kill (an elevated one).
+- **`npm run test:db` is preflighted** (`server/test/db-preflight.mjs`): unreachable or behind, and the
+  run stops with the fix. Twenty-one red job-claim and time-window assertions on a dormant container
+  are the environment, not a regression.
 - **An `import` inside a comment passes `node --check` and every regex test.** It cost a build in which no
   spoken turn worked. After touching a renderer file: RUN IT IN THE WINDOW and read the developer log.
 - **The account has ONE concurrent session. Before any live test, read `GET /usage` and do not start one
@@ -984,7 +1005,7 @@ the surface split (D305) and the prompt (D306).
   (D321).** Both reverse earlier defaults on his word. Do not widen either rule: no session starts
   without the user's click, and "yes" alone still sends and approves nothing.
 - **A session starts with the microphone AND the camera on, and the video is one size (D320, D323 - the
-  founder's).** The stage's own log - event types, microphone levels, device names - is in
+  founder's), and the summoning click is the ONLY thing that turns either on (D324).** The stage's own log - event types, microphone levels, device names - is in
   `client/audit/app.log`: when she "can't hear", read it first, then the service's transcript.
 - **To start v2:** `tools\launchers\start-v2.cmd -KeyFile "<file holding the Nuance key>"` - database, hub with
   the key, closes an older tray instance, starts the app with the persona on. Not yet run end to end.

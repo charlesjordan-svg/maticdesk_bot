@@ -23,7 +23,7 @@ import { CloudClient } from "../agent/cloud-client.js";
 import { OpenAICompatibleClient } from "../agent/openai-compatible-client.js";
 import { HubClient } from "../agent/hub-client.js";
 import { HubLink } from "../agent/hub-link.js";
-import { EnrollmentStore, ensureEnrolled, ENROLL_RETRY_MS } from "../agent/enrollment.js";
+import { EnrollmentStore, ensureEnrolled, ENROLL_RETRY_MS, startupReport } from "../agent/enrollment.js";
 import { TicketWatch, POLL_DEFAULT_MS } from "../agent/ticket-watch.js";
 import { Agent } from "../agent/agent.js";
 import { marksIn } from "../agent/machine-band.js";
@@ -31,10 +31,15 @@ import { ProfileStore } from "../profile/profile.js";
 import { TicketIntake } from "../ticket/intake.js";
 import { EgressAudit } from "../ticket/egress-audit.js";
 import { openConversation, endConversation } from "../nuance/nuance-session.js";
-import { initialMic, micStep, micWords, cameraWords } from "../nuance/mic-policy.js";
+import { initialMic, micStep, micWords } from "../nuance/mic-policy.js";
+import { initialCamera, cameraStep, cameraWords } from "../nuance/camera-policy.js";
 import { classify as classifySpoken } from "../router/classify.js";
 import { randomUUID as personaRef } from "node:crypto";
-import { appendFileSync as appendVoiceConsent, mkdirSync as makeAuditDir, existsSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync as appendVoiceConsent, mkdirSync as makeAuditDir, existsSync, statSync, writeFileSync, readFileSync } from "node:fs";
+import { userInfo } from "node:os";
+import { createRequire } from "node:module";
+// The broker's own binding (win32/net.js, scm.js), used here for ONE read-only call: is this process elevated.
+const koffi = createRequire(import.meta.url)("koffi");
 // The two ways this handler can refuse a ticket are both SPOKEN by the avatar, so their wording is
 // persona data (D234/D246) and the reason they failed travels beside it as `detail`.
 import persona from "../router/persona.json" with { type: "json" };
@@ -69,7 +74,7 @@ let egress = null;
 // The live persona (D307). `personaHub` is the hub client when there is one; `personaConfig` is
 // config.json's block; `liveSession` is the ONE session this process may have, or null.
 let personaHub = null;
-let personaConfig = { enabled: false, maxSessionSeconds: 600, startUnmuted: true, startWithCamera: true };
+let personaConfig = { enabled: false, maxSessionSeconds: 600, startUnmuted: true, cameraOnSummon: true };
 /** @type {null | { ref: string, conversationId: string, sessionToken: string, openedAtMs: number, mic: any, name: string|null, host: string|null }} */
 let liveSession = null;
 let hubUrlForTickets = null;
@@ -128,6 +133,20 @@ function personaMicEvent(type, extra = {}) {
   return { state: step.mic.state, words: micWords(step.mic.state), commands: step.commands, ...(step.refused ? { refused: step.refused } : {}) };
 }
 
+/**
+ * One camera event through camera-policy.js (D324), with its egress lines written. Returns what the
+ * renderer applies to the local track. The same shape as `personaMicEvent`, for the same reason.
+ */
+function personaCameraEvent(type, extra = {}) {
+  if (!liveSession) return { on: false, words: null, refused: "there is no live session" };
+  const step = cameraStep(liveSession.camera, { type, nowMs: Date.now(), windowVisible: windowVisible(), ...extra });
+  liveSession.camera = step.camera;
+  for (const line of step.egress) egress?.persona(line.event, { sessionRef: liveSession.ref, ...line.detail });
+  if (step.refused) log(`[persona] camera: ${step.refused}`);
+  const on = step.camera.state === "live";
+  return { on, words: liveSession.cameraAllowed ? cameraWords(on) : null, ...(step.refused ? { refused: step.refused } : {}) };
+}
+
 /** The session is over, for whatever reason. Idempotent. Writes the closing line and ends the conversation. */
 function personaOver(reason) {
   if (!liveSession) return;
@@ -135,10 +154,12 @@ function personaOver(reason) {
   const nowMs = Date.now();
   const step = micStep(p.mic, { type: "session.closed", nowMs, reason });
   for (const line of step.egress) egress?.persona(line.event, { sessionRef: p.ref, ...line.detail });
-  if (p.cameraOn) egress?.persona("persona.video.off", { sessionRef: p.ref, reason: `session-closed:${String(reason ?? "unknown").slice(0, 60)}` });
-  egress?.persona("persona.closed", { sessionRef: p.ref, durationMs: Math.max(0, nowMs - p.openedAtMs), audioSentMs: step.mic.audioSentMs, reason: String(reason ?? "unknown").slice(0, 80) });
+  // The camera's stretch, if one is open, closes the same way and the total goes on the closing line.
+  const cam = cameraStep(p.camera, { type: "session.closed", nowMs, reason });
+  for (const line of cam.egress) egress?.persona(line.event, { sessionRef: p.ref, ...line.detail });
+  egress?.persona("persona.closed", { sessionRef: p.ref, durationMs: Math.max(0, nowMs - p.openedAtMs), audioSentMs: step.mic.audioSentMs, videoSentMs: cam.camera.videoSentMs, reason: String(reason ?? "unknown").slice(0, 80) });
   liveSession = null;
-  log(`[persona] session ${p.ref} over (${reason}) after ${Math.round((nowMs - p.openedAtMs) / 1000)} s; audio was sent for ${Math.round(step.mic.audioSentMs / 1000)} s`);
+  log(`[persona] session ${p.ref} over (${reason}) after ${Math.round((nowMs - p.openedAtMs) / 1000)} s; audio was sent for ${Math.round(step.mic.audioSentMs / 1000)} s; the camera's picture for ${Math.round(cam.camera.videoSentMs / 1000)} s`);
   // Best effort, and not awaited: the service ends it on its own too, this just stops the clock sooner.
   void endConversation({ conversationId: p.conversationId, end: (id) => personaHub.endNuanceConversation(id) }).then((r) => { if (!r.ok) log(`[persona] the hub could not end conversation ${p.conversationId}: ${r.detail ?? "no reason"}`); });
 }
@@ -273,6 +294,10 @@ function onWindowHidden() {
   // metered clock and an open microphone. So the record is closed and the conversation ended
   // HERE, and the renderer is told afterwards so it can drop the room and put the face away.
   if (liveSession) {
+    // D324 rule 3: the camera goes off because the WINDOW hid, on its own, before and apart from
+    // the session ending for the same reason - so it survives a future change that lets a session
+    // outlive a hidden window. (The microphone's window.hidden is subsumed by session.closed below.)
+    personaCameraEvent("window.hidden");
     personaOver("window-hidden");
     if (win && !win.isDestroyed()) win.webContents.send("persona:end", "window-hidden");
   }
@@ -389,8 +414,10 @@ app.whenReady().then(async () => {
     maxSessionSeconds: Number.isInteger(config.persona?.maxSessionSeconds) && config.persona.maxSessionSeconds > 0 ? config.persona.maxSessionSeconds : 600,
     // D320 (the founder's): a session starts with the microphone ON unless config says otherwise.
     startUnmuted: config.persona?.startUnmuted !== false,
-    // D323 (the founder's): the camera too is on from the start, when the hub allows one.
-    startWithCamera: config.persona?.startWithCamera !== false,
+    // D323/D324 (the founder's): the click that summons her turns the camera on too, when the hub
+    // allows one. The name says the rule - on SUMMON, the user's click - not "always on": nothing
+    // but that click, or the camera button, ever turns it on (camera-policy.js rule 2).
+    cameraOnSummon: config.persona?.cameraOnSummon !== false,
   };
 
   // ---- privileged half ----
@@ -497,10 +524,32 @@ app.whenReady().then(async () => {
         }
       },
     });
-    // WHERE the stored enrollment is looked for, and whether it is there - said once at startup. On
-    // 2026-11-17 an app started from the v2 launcher reported no enrollment while a valid file sat in
-    // the profile folder, and nothing in the log said which path had been read.
-    log(`[enroll] stored enrollment: ${enrollment.path} (${existsSync(enrollment.path) ? "found" : "NOT FOUND"})`);
+    // WHERE the stored enrollment is looked for, and BY WHOM - said once at startup, as a block of
+    // named fields (`startupReport()` in enrollment.js says why each one is there). On 2026-11-17 an
+    // app started from the v2 launcher reported no enrollment while a valid file sat in a profile
+    // folder, and every launch after it enrolled afresh: three device rows in two hours, and the
+    // tickets of the day filed under enrollments the newest one cannot read. The one line that was
+    // here said neither which process looked nor where. The launcher prints the same fields from
+    // outside, before it starts the app, so the two can be read side by side.
+    log(startupReport({
+      userData: app.getPath("userData"),
+      name: app.getName(),
+      packaged: app.isPackaged,
+      exec: process.execPath,
+      cwd: process.cwd(),
+      user: (() => { try { return userInfo().username; } catch { return null; } })(),
+      // shell32's IsUserAnAdmin: true for an ELEVATED process, false for the same account unelevated.
+      // No shell, no PowerShell (the win32 rule); a binding that cannot be loaded prints unknown.
+      elevated: (() => { try { return Boolean(koffi.load("shell32.dll").func("bool IsUserAnAdmin()")()); } catch { return null; } })(),
+      path: enrollment.path,
+      exists: existsSync(enrollment.path),
+      // A READ, not only existsSync: a folder-protection product can leave the file visible and
+      // refuse the open, and that is a different cause from the file not being there.
+      read: (() => { try { readFileSync(enrollment.path, "utf8"); return "ok"; } catch (err) { return err?.code ?? "error"; } })(),
+      mtime: (() => { try { return statSync(enrollment.path).mtime.toISOString(); } catch { return null; } })(),
+      pid: process.pid,
+      started: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+    }));
     const enroll = async () => {
       const r = await ensureEnrolled({ store: enrollment, hubUrl, tenant: enrollCfg.tenant, secret: enrollCfg.secret, onLog: log });
       if (r.credential) { hubClient.setCredential(r.credential); ticketWatch?.start(); }
@@ -605,21 +654,19 @@ app.whenReady().then(async () => {
       void endConversation({ conversationId: opened.conversationId, end: (id) => personaHub.endNuanceConversation(id) });
       return { ok: false, degrade: true, reason: "no-visible-window" };
     }
-    liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), name: opened.persona, host: opened.host, cameraAllowed: opened.camera === true, cameraOn: false };
+    liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), camera: initialCamera(), name: opened.persona, host: opened.host, cameraAllowed: opened.camera === true };
     // D320: this handler is reachable only from the user's click on "Talk face to face", which is
     // the gesture; whether the window is visible is read here, not taken from the renderer.
     const startsLive = personaConfig.startUnmuted && windowVisible();
     egress?.persona("persona.opened", { sessionRef: liveSession.ref, persona: opened.persona, host: opened.host, microphone: startsLive ? "on" : "off" });
     // The policy's first command - a mute, or (D320) an unmute - goes to the renderer to send.
     const mic = personaMicEvent("session.opened", { startLive: personaConfig.startUnmuted, gesture: true });
-    // D323 (the founder's): "Camera should default to on when starting face to face." The same
-    // click that summons her is the gesture; it happens only when the hub allowed a camera for this
-    // session and the window is visible; and the moment the picture starts leaving is written down.
-    if (liveSession.cameraAllowed && personaConfig.startWithCamera && windowVisible()) {
-      liveSession.cameraOn = true;
-      egress?.persona("persona.video.on", { sessionRef: liveSession.ref });
-    }
-    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic, camera: liveSession.cameraAllowed ? { on: liveSession.cameraOn, words: cameraWords(liveSession.cameraOn) } : null };
+    // D323/D324 (the founder's): "Camera should default to on when starting face to face" - and
+    // "camera only comes on when user clicks talk face to face". camera-policy.js decides, from
+    // the hub's allowance, config's on-summon, the summoning click as the gesture, and the window
+    // read here; the moment the picture starts leaving is written down by the policy's line.
+    personaCameraEvent("session.opened", { allowed: opened.camera === true, onSummon: personaConfig.cameraOnSummon, gesture: true });
+    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic, camera: liveSession.cameraAllowed ? { on: liveSession.camera.state === "live", words: cameraWords(liveSession.camera.state === "live") } : null };
   });
 
   // The renderer may ask for exactly two things, and `gesture` is true because this channel is
@@ -652,19 +699,16 @@ app.whenReady().then(async () => {
     return { ok: true };
   });
 
-  // D319. The camera, on the microphone's terms: only the user's click turns it on, only with a
-  // visible window, only when the hub allowed a camera for this session - and the moment the
-  // picture starts leaving is written down, like the audio. Never the picture.
+  // D319/D324. The camera button. `gesture` is true because this channel is only reachable from
+  // the button's click handler; whether the window is visible is read HERE; and camera-policy.js
+  // decides - only the user's click turns it on, only with a visible window, only when the hub
+  // allowed a camera for this session - and writes the moment the picture starts leaving, like the
+  // audio. Never the picture.
   ipcMain.handle("persona:camera", (_e, event) => {
     log(`[persona] the camera button asked for ${String(event)}${liveSession ? "" : " with no live session"}`);
     if (!liveSession || !liveSession.cameraAllowed) return { on: false, words: null, refused: "the camera is not available in this session" };
-    if (event === "user.on") {
-      if (!windowVisible()) return { on: liveSession.cameraOn, words: cameraWords(liveSession.cameraOn), refused: "the camera is not turned on while the window is not visible (D293)" };
-      if (!liveSession.cameraOn) { liveSession.cameraOn = true; egress?.persona("persona.video.on", { sessionRef: liveSession.ref }); }
-    } else if (event === "user.off") {
-      if (liveSession.cameraOn) { liveSession.cameraOn = false; egress?.persona("persona.video.off", { sessionRef: liveSession.ref, reason: "user" }); }
-    }
-    return { on: liveSession.cameraOn, words: cameraWords(liveSession.cameraOn) };
+    if (event !== "user.on" && event !== "user.off") return { on: liveSession.camera.state === "live", words: cameraWords(liveSession.camera.state === "live"), refused: "not a camera event the window may send" };
+    return personaCameraEvent(event, { gesture: true });
   });
 
   // D318. Local and model-free: is Matic waiting on an answer, and what kind of sentence is this?
@@ -681,6 +725,19 @@ app.whenReady().then(async () => {
       log("[ticket] the offer was talked past in conversation - dropped; nothing was filed and nothing was sent");
     }
     return { awaiting, kind: k.kind, subkind: k.subkind ?? null };
+  });
+
+  // D325. A SPOKEN question, to the knowledge base ONLY. `agent.askKnowledge()` reaches `ask()` on
+  // the hub client and nothing else - no proposal, no broker, no escalation - and the window keeps
+  // a decline silent. Never throws into the renderer: a failure is a `ok: false` the window reads
+  // as "nothing to add".
+  ipcMain.handle("agent:ask", async (_e, text) => {
+    try {
+      return await agent.askKnowledge(String(text ?? ""));
+    } catch (err) {
+      log(`[agent] askKnowledge threw: ${err.stack}`);
+      return { ok: false, error: err.message };
+    }
   });
 
   // What the window's half of a live session logs - event TYPES, microphone levels, device names -

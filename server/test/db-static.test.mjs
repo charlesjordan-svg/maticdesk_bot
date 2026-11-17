@@ -251,5 +251,26 @@ const tenantsJs = jsCode(read("src/db/tenants.js"));
 check("dropTenantForTests is named so it cannot be mistaken for offboarding",
   /dropTenantForTests/.test(tenantsJs) && !/export async function dropTenant\b/.test(tenantsJs));
 
+// ---- the database suite is preflighted (2026-11-17) ----------------------------------------------
+// A dormant container wakes up behind or stale, and the suite then fails in job-claim and time-window
+// assertions that read like a regression. The preflight says so instead, before any suite file runs.
+console.log("\n=== the test:db preflight ===");
+{
+  const { compareLedger } = await import("./db-preflight.mjs");
+  const disk = [{ version: "001", checksum: "a" }, { version: "002", checksum: "b" }, { version: "003", checksum: "c" }];
+  const head = compareLedger(disk, new Map([["001", "a"], ["002", "b"], ["003", "c"]]));
+  check("at head: nothing behind, nothing changed", head.behind.length === 0 && head.changed.length === 0);
+  const stale = compareLedger(disk, new Map([["001", "a"]]));
+  check("a ledger missing migrations is BEHIND by exactly those", stale.behind.join() === "002,003" && stale.changed.length === 0);
+  const edited = compareLedger(disk, new Map([["001", "a"], ["002", "X"], ["003", "c"]]));
+  check("an applied migration whose file changed is CHANGED, not behind - the runner's own rule", edited.changed.join() === "002" && edited.behind.length === 0);
+  const runner = read("test/run-all.mjs");
+  check("run-all runs the preflight first under --excluded and stops there when it fails, before any suite file is spawned", /if \(onlyExcluded\) \{\s*const pre = spawnSync\(process\.execPath, \[join\(HERE, "db-preflight\.mjs"\)\]/.test(runner) && /if \(pre\.status !== 0\) process\.exit\(pre\.status \?\? 1\);/.test(runner));
+  check("the preflight is not a suite file: discovery must not pick it up", !/db-preflight\.test\.mjs/.test(readdirSync(HERE).join()) && readdirSync(HERE).includes("db-preflight.mjs"));
+  const pre = read("test/db-preflight.mjs");
+  check("it checks reachable, control at head, every tenant at head, and prints uptime and the newest row's age - and migrates nothing", /pg_postmaster_start_time\(\)/.test(pre) && /control\.schema_migrations/.test(pre) && /tenantSchemas\(\)/.test(pre) && /max\(\$\{col\}\)/.test(pre) && !/migrate\(|migrateControl\(|migrateTenant\(/.test(pre));
+  check("…and names the fix", /npm\.cmd run migrate/.test(pre) && /npm\.cmd run db:up/.test(pre));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
