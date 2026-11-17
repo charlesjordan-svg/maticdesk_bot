@@ -165,6 +165,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
         stage = createPersonaStage({
           bridge,
           videoEl: els.video,
+          selfEl: /** @type {HTMLVideoElement} */ (document.getElementById("persona-self")),
           // A finished spoken turn goes exactly where a typed one goes.
           // ...unless something is waiting on a spoken answer of its own - a consent card that may
           // be approved aloud (D310). Then the sentence goes there and nowhere else.

@@ -369,7 +369,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // answers 503 with the reason rather than 404 with none (src/nuance/route.js).
   // D317: only the API key can end a conversation, so the endpoint asks the hub to.
   const handleNuanceEnd = nuanceEndHandler({ apiKey: nuance?.apiKey ?? null, log });
-  const handleNuanceToken = nuanceTokenHandler({ apiKey: nuance?.apiKey ?? null, prompt: nuance?.prompt ?? null, ...(nuance?.persona ? { persona: nuance.persona } : {}), camera: nuance?.camera === true, log });
+  const handleNuanceToken = nuanceTokenHandler({ apiKey: nuance?.apiKey ?? null, prompt: nuance?.prompt ?? null, ...(nuance?.persona ? { persona: nuance.persona } : {}), camera: nuance?.camera === true, ...(nuance?.caps ? { caps: nuance.caps } : {}), log });
   // D236: what retrieval would do RIGHT NOW — the embedder verified live (not described from its
   // constructor), the corpus, and the resulting mode. ONE reader for /v1/health AND the console's
   // degraded-retrieval banner, so the two cannot disagree (src/kb/health.js).
@@ -620,6 +620,11 @@ if (isMain) {
     const nuance = {
       apiKey: process.env.MATIC_NUANCE_API_KEY?.trim() || null,
       persona: process.env.MATIC_NUANCE_PERSONA?.trim() || null,
+      // The mint caps are proposals (D300), so a hub may set its own: both or neither, whole numbers.
+      caps: (() => {
+        const d = Number(process.env.MATIC_NUANCE_CAP_DEVICE_HOUR), t = Number(process.env.MATIC_NUANCE_CAP_TENANT_DAY);
+        return Number.isInteger(d) && d > 0 && Number.isInteger(t) && t >= d ? { perDevicePerHour: d, perTenantPerDay: t } : null;
+      })(),
       // D319: the persona may be shown the user's camera only when this hub says so.
       camera: process.env.MATIC_NUANCE_CAMERA === "1",
       prompt: null,

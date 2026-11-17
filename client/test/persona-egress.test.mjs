@@ -182,5 +182,23 @@ console.log("\n=== 5. the egress record: the fact, never the content ===");
   check("a missing log is an empty list, not a throw", new EgressAudit({ path: join(dir, "nope.jsonl") }).personaSessions().length === 0);
 }
 
+// ==============================================================================================
+console.log("\n=== 6. D320 (the founder's): a session may START with the microphone on ===");
+{
+  const open = (o) => micStep(initialMic(), { type: "session.opened", nowMs: 500, ...o });
+  const live = open({ startLive: true, gesture: true, windowVisible: true });
+  check("summoned with startLive, by the user's click, with the window visible: it opens LIVE", live.mic.state === "live" && types(live).join() === "session.input_audio.unmute");
+  check("…and the moment audio starts leaving is recorded, as for the button", live.egress.length === 1 && live.egress[0].event === "persona.audio.on");
+  check("startLive without the gesture: OFF", open({ startLive: true, gesture: false, windowVisible: true }).mic.state === "off");
+  check("startLive with no visible window: OFF (D293)", open({ startLive: true, gesture: true, windowVisible: false }).mic.state === "off");
+  check("without startLive it is exactly as before: OFF, and muted first", open({ gesture: true, windowVisible: true }).mic.state === "off" && types(open({ gesture: true, windowVisible: true }))[0] === "session.input_audio.mute");
+  check("startLive must be the boolean true - a truthy string does not open a microphone", open({ startLive: "yes", gesture: true, windowVisible: true }).mic.state === "off");
+  const off = micStep(live.mic, { type: "user.mute", nowMs: 2500 });
+  check("a session that started live counts its audio from the start", off.egress[0].detail.audioSentMs === 2000);
+  const main = readFileSync(join(HERE, "../src/main/main.js"), "utf8");
+  check("main passes startLive from config and the click as the gesture - and reads the window's visibility itself", /personaMicEvent\("session\.opened", \{ startLive: personaConfig\.startUnmuted, gesture: true \}\)/.test(main));
+  check("the egress record's opening line says which way the microphone started", /microphone: startsLive \? "on" : "off"/.test(main));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -54,6 +54,9 @@ export const MIC_STATES = Object.freeze(["unavailable", "off", "live"]);
  * @typedef {{ mic: Mic, commands: Array<{ type: string }>, egress: Array<{ event: string, detail: object }>, refused?: string }} MicStep
  */
 
+/** The one place the unmute command is written. Two branches may return it; both are the user's. */
+const unmute = () => ({ type: "session.input_audio.unmute" });
+
 /** @returns {Mic} */
 export function initialMic() {
   return { state: "unavailable", liveSinceMs: null, audioSentMs: 0 };
@@ -87,6 +90,19 @@ export function micStep(mic, event) {
 
   switch (event.type) {
     case "session.opened":
+      // D320 (THE FOUNDER'S, 2026-11-17): "When a user clicks face to face they are saying they
+      // want to talk. Start the face to face chats unmuted." The click that SUMMONS her is the
+      // gesture, so a session may open with the microphone already on - when the caller says the
+      // product is configured that way (`startLive`), and only with that gesture and a visible
+      // window, exactly as for the button. The moment audio starts leaving is still written down.
+      // This changes rule 1's default and nothing else: no event the user did not cause turns it on.
+      if (event.startLive === true && event.gesture === true && event.windowVisible === true) {
+        return {
+          mic: { state: "live", liveSinceMs: nowMs, audioSentMs: 0 },
+          commands: [unmute()],
+          egress: [{ event: "persona.audio.on", detail: {} }],
+        };
+      }
       // Rule 1. A fresh session starts its own count; the mute goes first, before anything else
       // the session code sends.
       return {
@@ -103,7 +119,7 @@ export function micStep(mic, event) {
       if (event.windowVisible !== true) return { ...same, refused: "the microphone is not turned on while the window is not visible (D293)" };
       return {
         mic: { ...mic, state: "live", liveSinceMs: nowMs },
-        commands: [{ type: "session.input_audio.unmute" }],
+        commands: [unmute()],
         egress: [{ event: "persona.audio.on", detail: {} }],
       };
     }

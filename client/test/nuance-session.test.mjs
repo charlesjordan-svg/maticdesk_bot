@@ -133,7 +133,7 @@ console.log("\n=== 4. what main.js and the vendored library must keep true ===")
   check("quitting ends it", main.includes('personaOver("quit")'));
   const start = main.slice(main.indexOf('ipcMain.handle("persona:start"'), main.indexOf('ipcMain.handle("persona:mic"'));
   check("a session is refused with no visible window (D293), before anything is minted", start.includes('reason: "no-visible-window"') && start.indexOf("windowVisible()") < start.indexOf("openConversation("));
-  check("…and the egress record is opened with the microphone OFF", start.includes('microphone: "off"'));
+  check("…and the egress record's opening line says how the microphone started (D320)", /microphone: startsLive \? "on" : "off"/.test(start));
   check("the window may send two microphone events and no others", main.includes('event !== "user.mute" && event !== "user.unmute"'));
   check("whether the window is visible is read in main, never taken from the renderer", main.includes("windowVisible: windowVisible()"));
   const config = JSON.parse(read("../config.json"));

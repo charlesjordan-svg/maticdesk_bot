@@ -162,7 +162,8 @@ export const POINTERS = Object.freeze({
   abilities: "What you can help with is shown on the screen beside you. Say only that it is on the screen. Do not list anything yourself.",
   // D310: the same pointer as `consent`, plus HOW. The phrase is one voice-consent.js accepts, and a
   // test checks that it is.
-  draft: "The ticket you would open is on the screen beside you. Tell them it is there to check, and that it stays on this PC until they press submit. Do not say it has gone anywhere.",
+  // D321: it may be submitted aloud. The phrase taught here is one voice-consent.js accepts; a test checks.
+  draft: "The ticket you would open is on the screen beside you. Tell them it is there to check, that it stays on this PC until they submit it, and that they can press submit or say 'submit the ticket'. Do not say it has gone anywhere.",
   consentVoice: "You have put the details of a change you want to make on the screen beside you. Tell them it is there, that nothing happens until they approve it, and that they can approve it with the button or by saying 'yes, approve it'. Do not describe what the change does - the card on the screen does that. Then say nothing more until they answer.",
 });
 
@@ -190,6 +191,19 @@ const RULES = Object.freeze({
   "social.nothingneeded": "They have told you nothing is wrong. Agree warmly in one short sentence. Do not ask a follow-up question and do not offer anything.",
 });
 
+/**
+ * Her hello, when she is summoned (D320: "the avatar giving a random greeting to get started").
+ * RULES, not lines: she says each in her own words, so the variety is in what she is asked to do.
+ * None lists what she can do and none claims anything. The first is the original.
+ */
+export const BOOT_RULES = Object.freeze([
+  RULES.boot,
+  "The person has just started a face to face chat with you. Greet them warmly in one short sentence, say your name is Matic, and ask what is going on.",
+  "The person has just opened a face to face chat. Say hello and your name, Matic, in a few words, and invite them to tell you what they need in their own words.",
+  "The person has just come to talk to you. Give a short, friendly hello, say you are Matic, and ask how you can help today.",
+  "The person has just started talking to you. Say hi, say your name is Matic, and say you are ready when they are. One short sentence, then stop.",
+]);
+
 /** The single place a reply event is made. */
 function reply(instructions) {
   return { type: "response.create", response: { instructions } };
@@ -212,7 +226,7 @@ function reply(instructions) {
  *   `panelText` is `text`, untouched - the panel always shows the exact line. `send` is `floor`
  *   then `event`, whichever exist, in the order to send them.
  */
-export function personaTurn({ surface, text, voice = false } = {}) {
+export function personaTurn({ surface, text, voice = false, variant = 0 } = {}) {
   const kind = surfaceOf(surface);
   const panelText = typeof text === "string" ? text : null;
   const done = (speak, event, floor = null) => ({ kind, speak, panelText, event, floor, send: [floor, event].filter(Boolean) });
@@ -234,7 +248,10 @@ export function personaTurn({ surface, text, voice = false } = {}) {
       if (!panelText || note.length > INSTRUCTIONS_MAX) return done("pointer", reply(POINTERS.screen));
       return done("own", reply(note));
     }
-    const rule = RULES[/** @type {keyof typeof RULES} */ (surface)];
+    // `variant` picks among the hellos; any number is taken modulo how many there are.
+    const rule = surface === "boot"
+      ? BOOT_RULES[Math.abs(Math.trunc(Number(variant) || 0)) % BOOT_RULES.length]
+      : RULES[/** @type {keyof typeof RULES} */ (surface)];
     // A surface marked for the persona with no rule to speak from is shown and pointed at.
     return rule ? done("own", reply(rule)) : done("pointer", reply(POINTERS.screen));
   }

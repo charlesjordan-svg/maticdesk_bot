@@ -88,6 +88,11 @@ $env:MATIC_NUANCE_API_KEY = $key
 # launcher starts, and not in the repository's config. The app still sends no picture until its
 # user clicks "Camera off" to turn it on. Pass -NoCamera to start without it.
 if (-not $NoCamera) { $env:MATIC_NUANCE_CAMERA = '1' }
+# The hub's default cap is 6 sessions per install per hour - sized to stop a loop, and too low for an
+# evening of testing: on 2026-11-17 it refused a session mid-test with nothing on the panel to say why.
+# This launcher is stage tooling, so it starts its hub with room to test. A deployment sets its own.
+$env:MATIC_NUANCE_CAP_DEVICE_HOUR = '40'
+$env:MATIC_NUANCE_CAP_TENANT_DAY = '200'
 try {
   Start-Process -FilePath 'powershell.exe' -WorkingDirectory $server -WindowStyle Minimized `
     -ArgumentList '-NoProfile', '-NoExit', '-Command', "`$Host.UI.RawUI.WindowTitle = 'Matic Desk hub (v2)'; npm.cmd start"
@@ -95,6 +100,8 @@ try {
   # Out of THIS window's environment the moment the hub has inherited it.
   Remove-Item Env:MATIC_NUANCE_API_KEY -ErrorAction SilentlyContinue
   Remove-Item Env:MATIC_NUANCE_CAMERA -ErrorAction SilentlyContinue
+  Remove-Item Env:MATIC_NUANCE_CAP_DEVICE_HOUR -ErrorAction SilentlyContinue
+  Remove-Item Env:MATIC_NUANCE_CAP_TENANT_DAY -ErrorAction SilentlyContinue
   $key = $null
 }
 if (-not [bool](Wait-Port 8787 90)) { Fail 'the hub did not start listening on port 8787. Look at the minimised "Matic Desk hub (v2)" window.' }

@@ -26,7 +26,7 @@ import persona from "../src/router/persona.json" with { type: "json" };
 import catalog from "../src/broker/catalog.json" with { type: "json" };
 import {
   SURFACES, SURFACE_KINDS, POINTERS, INSTRUCTIONS_MAX, NETWORK_DROPPING_CAPABILITIES,
-  surfaceOf, personaTurn, beforeExecute, consentRelease, isRepeatPointer, asHandOffResult,
+  surfaceOf, personaTurn, beforeExecute, consentRelease, isRepeatPointer, asHandOffResult, BOOT_RULES,
 } from "../src/nuance/surface-split.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -217,6 +217,18 @@ console.log("\n=== 6. one builder ===");
   const elsewhere = ["../src/renderer/renderer.js", "../src/main/main.js", "../src/agent/agent.js"].filter((f) => strip(readFileSync(join(HERE, f), "utf8")).includes("response.create"));
   check("…and nowhere in the renderer, the main process or the agent", elsewhere.length === 0, elsewhere.join());
   check("surface-split.js imports only persona-free data: nothing from the renderer, the broker's internals or the network", !/from "\.\.\/(renderer|broker\/(win32|capabilities)|main)/.test(readFileSync(join(dir, "surface-split.js"), "utf8")));
+}
+
+// ==============================================================================================
+console.log("\n=== 7. D320: a varied hello ===");
+{
+  check("there are several hellos, all different", BOOT_RULES.length >= 4 && new Set(BOOT_RULES).size === BOOT_RULES.length && Object.isFrozen(BOOT_RULES));
+  for (const [i, r] of BOOT_RULES.entries()) {
+    check(`hello ${i}: names Matic, fits the limit, lists nothing and claims nothing`, /Matic/.test(r) && r.length <= INSTRUCTIONS_MAX && !/\b(fixed|sent|filed|notified|restart|flush|renew|reset|printer|network|ticket)\b/i.test(r.replace(/Do not[^.]*\./gi, "")), r);
+  }
+  const seen = new Set([0, 1, 2, 3, 4, 7, -3, 1e9, NaN, "x"].map((v) => instructionsOf(personaTurn({ surface: "boot", variant: v }))));
+  check("any variant number picks one of them - never nothing, never a throw", [...seen].every((s) => BOOT_RULES.includes(s)) && seen.size >= 4);
+  check("the default is the original hello", instructionsOf(personaTurn({ surface: "boot" })) === BOOT_RULES[0]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

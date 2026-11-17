@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import catalog from "../src/broker/catalog.json" with { type: "json" };
-import { voiceApprovable, voiceVerdict } from "../src/nuance/voice-consent.js";
+import { voiceApprovable, voiceVerdict, ticketVerdict } from "../src/nuance/voice-consent.js";
 import { NETWORK_DROPPING_CAPABILITIES, POINTERS, personaTurn } from "../src/nuance/surface-split.js";
 import { machineSummaryReply } from "../src/agent/machine-summary.js";
 import { classify } from "../src/router/classify.js";
@@ -178,6 +178,28 @@ console.log("\n=== 8. a problem introduced with 'can you help me' is a problem (
   check("the prompt no longer tells her not to read out what she is given", !/Never read those out/.test(prompt) && !/ask for it to be shown/.test(prompt));
   check("…it tells her to say all of what she is given, even when it is on the screen", /Say all of it, out loud, even when it is also on the screen/.test(prompt) && /never shorten a list you are given/.test(prompt));
   check("…and still that she cannot see the screen and must not describe it", /You cannot see it\. Never describe it/.test(prompt));
+}
+
+// ==============================================================================================
+console.log("\n=== 10. D321 (the founder's): a ticket may be submitted by voice ===");
+{
+  for (const t of ["submit the ticket", "Submit.", "send it", "Send.", "yes, submit it", "go ahead and send", "submit it please", "send the ticket"]) {
+    check(`"${t}" submits`, ticketVerdict(t) === "submit", ticketVerdict(t));
+  }
+  for (const t of ["yes", "ok", "sure", "go ahead", "", "that looks right", "Charles", "Building A"]) {
+    check(`"${t}" sends NOTHING`, ticketVerdict(t) === "unclear", ticketVerdict(t));
+  }
+  for (const t of ["don't send it", "do not submit", "wait don't send that yet", "should I send it", "what happens if I submit", "not yet, I need to change the description before you send it"]) {
+    check(`"${t}" does NOT submit`, ticketVerdict(t) !== "submit", ticketVerdict(t));
+  }
+  for (const t of ["cancel", "cancel the ticket", "no", "don't send it", "never mind"]) check(`"${t}" cancels`, ticketVerdict(t) === "cancel", ticketVerdict(t));
+  check("the phrase the draft pointer teaches is one the rule accepts", POINTERS.draft.includes("submit the ticket") && ticketVerdict("submit the ticket") === "submit");
+  const r = readFileSync(join(HERE, "../src/renderer/renderer.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const card = r.slice(r.indexOf("function reviewTicket("), r.indexOf("function askConsent("));
+  check("the review card listens only through ticketVerdict(), and only during a live session", /personaUi\?\.live/.test(card) && /ticketVerdict\(/.test(card));
+  check("a spoken submit presses the SAME button - there is no second way to send", /send\.onclick\(\)/.test(card) && /cancel\.onclick\(\)/.test(card));
+  check("…and it is written down with the words heard", /recordVoiceConsent\?\.\(\{[^}]*ticket\.submit[^}]*heard/.test(card));
+  check("the listener is taken away when the card is answered, either way", (card.match(/personaUi\?\.onSpokenTurn\(null\)/g) ?? []).length >= 2);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

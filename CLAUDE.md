@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D320 onward**, as of D319, register §5.62k, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D322 onward**, as of D321, register §5.62l, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -147,7 +147,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 2589 assertions across 32 files (2026-11-17).
+#                            headless, no key, no admin, no hub: 2638 assertions across 32 files (2026-11-17).
 #                            The running app logs to client/audit/app.log (gitignored) - READ IT FIRST when the live
 #                            video will not start; it names the stage and the reason. Only the HUB can end a Nuance
 #                            conversation (D317): the session token is refused with 403 api_key_required.
@@ -977,6 +977,12 @@ the surface split (D305) and the prompt (D306).
   never record a picture, and never set `MATIC_NUANCE_CAMERA` in a repository file.
 - **An `import` inside a comment passes `node --check` and every regex test.** It cost a build in which no
   spoken turn worked. After touching a renderer file: RUN IT IN THE WINDOW and read the developer log.
+- **The account has ONE concurrent session. Before any live test, read `GET /usage` and do not start one
+  while `active_sessions` is 1 - that is the user talking.** And **never end a conversation you did not
+  start**: on 2026-11-17 a session ended "the latest conversation in the log", which was Charles's.
+- **A session starts with the microphone ON (D320, the founder's) and a ticket can be sent by voice
+  (D321).** Both reverse earlier defaults on his word. Do not widen either rule: no session starts
+  without the user's click, and "yes" alone still sends and approves nothing.
 - **To start v2:** `tools\launchers\start-v2.cmd -KeyFile "<file holding the Nuance key>"` - database, hub with
   the key, closes an older tray instance, starts the app with the persona on. Not yet run end to end.
 - **The prompt and the surface split must agree (D316).** A relayed surface the prompt tells her not to

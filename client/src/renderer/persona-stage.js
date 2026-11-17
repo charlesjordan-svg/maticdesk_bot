@@ -45,7 +45,7 @@ const dec = new TextDecoder();
  *   devlog: (s: string) => void,
  * }} deps
  */
-export function createPersonaStage({ bridge, videoEl, onUserTurn, onPersonaSaid = () => {}, onChange, devlog }) {
+export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn, onPersonaSaid = () => {}, onChange, devlog }) {
   /** @type {"off" | "starting" | "live"} */
   let phase = "off";
   /** @type {any} */ let room = null;
@@ -71,6 +71,14 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onPersonaSaid 
   /** @type {HTMLAudioElement[]} */ let audioEls = [];
   const parts = new Map();
   const seen = new Map();
+
+  /** The user's own picture, small, in the corner: what is being sent is what they can see. */
+  function showSelf() {
+    if (!selfEl) return;
+    const pub = camera?.on && room ? [...room.localParticipant.videoTrackPublications.values()].find((p) => p.track) : null;
+    if (pub?.track) { pub.track.attach(selfEl); selfEl.hidden = false; }
+    else { selfEl.hidden = true; selfEl.srcObject = null; }
+  }
 
   const changed = (reason) => onChange({ phase, mic, camera, ...(reason ? { reason } : {}) });
 
@@ -105,7 +113,8 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onPersonaSaid 
       phase = "live";
       changed();
       // The persona never opens a conversation on its own. This is its hello - a rule, not a line.
-      void speak({ surface: "boot" });
+      // A different hello each time (D320): the rule is picked here, the words are hers.
+      void speak({ surface: "boot", variant: Math.floor(Math.random() * 1000) });
       return;
     }
     if (type === "session.input_transcript.done") {
@@ -187,6 +196,7 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onPersonaSaid 
     videoEl.srcObject = null;
     mic = null;
     camera = null;
+    showSelf();
     herWords = "";
     weSpoke = false;
     devlog(`[persona] session over (${reason}); events seen: ${[...seen].map(([t, n]) => `${t}×${n}`).join(", ") || "none"}`);
@@ -308,6 +318,7 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onPersonaSaid 
       camera = r?.words ? { on: Boolean(r.on), words: r.words } : camera;
       try { await room?.localParticipant.setCameraEnabled(Boolean(camera?.on)); }
       catch (err) { devlog(`[persona] the camera could not be ${camera?.on ? "turned on" : "turned off"}: ${err.message}`); }
+      showSelf();
       changed();
     },
     /** persona-ui sets this around the submit() of a turn that was spoken to her. */

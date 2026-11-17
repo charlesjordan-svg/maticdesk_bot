@@ -47,6 +47,26 @@ const BLOCKERS = ["no", "not", "dont", "do not", "never", "wait", "stop", "cance
 const DENY_WHOLE = ["no", "no thanks", "no thank you", "nope", "cancel", "cancel it", "cancel that", "stop", "dont", "do not", "leave it", "not now", "never mind", "nevermind"];
 const DENY_PHRASES = [" dont approve ", " do not approve ", " dont do it ", " do not do it ", " dont do that ", " cancel it ", " cancel that "];
 
+/**
+ * SUBMITTING A TICKET BY VOICE (D321, the founder's, 2026-11-17: "ensure I can submit ticket
+ * audibly without requiring me to click"). The review card is the moment personal data leaves this
+ * machine (D217), and until now only its Submit button could send it. A spoken instruction may
+ * now press that button - on the same narrow terms as a spoken approval: a short sentence that
+ * says "submit" or "send", with nothing in it that negates or hesitates. "Yes" alone sends
+ * nothing. Anything unclear leaves the card where it is. Written to audit/voice-consent.jsonl.
+ * @param {string} text
+ * @returns {"submit" | "cancel" | "unclear"}
+ */
+export function ticketVerdict(text) {
+  const p = norm(text);
+  const words = p.trim().split(" ").filter(Boolean);
+  if (words.length === 0 || words.length > MAX_WORDS) return "unclear";
+  if (DENY_WHOLE.includes(p.trim()) || [" dont send ", " do not send ", " dont submit ", " do not submit ", " cancel it ", " cancel that ", " cancel the ticket "].some((d) => p.includes(d))) return "cancel";
+  if (BLOCKERS.some((b) => p.includes(` ${b} `))) return "unclear";
+  if ([" submit ", " send "].some((a) => p.includes(a))) return "submit";
+  return "unclear";
+}
+
 const norm = (t) => ` ${String(t ?? "").toLowerCase().replace(/['‘’]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim()} `;
 
 /**

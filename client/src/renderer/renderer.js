@@ -30,7 +30,7 @@ import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
 // The live persona's controls (D307). Its own file - see that file's header for why.
 import { mountPersonaUi } from "./persona-ui.js";
 // D310: which fixes may be approved aloud, and what counts as saying so. Pure, and tested.
-import { voiceApprovable, voiceVerdict } from "../nuance/voice-consent.js";
+import { voiceApprovable, voiceVerdict, ticketVerdict } from "../nuance/voice-consent.js";
 // D249: what the VOICE gets when that differs from what the screen gets. Pure and separate so a
 // headless test can reach it - renderer.js touches `document` at module scope and no test can.
 import { spokenForm } from "./spoken-form.js";
@@ -1022,7 +1022,23 @@ function reviewTicket(draft) {
       headState.textContent = headText;
     };
 
+    // D321 (the founder's): during a live session the ticket may be submitted or cancelled ALOUD.
+    // The rule is voice-consent.js's - a short sentence that says "submit" or "send"; "yes" alone
+    // sends nothing; anything unclear leaves the card where it is. A spoken instruction presses
+    // the same button a click does, so there is still exactly one way a ticket leaves this
+    // machine, and the words that were taken as the instruction are written down.
+    if (personaUi?.live) {
+      personaUi.onSpokenTurn((text) => {
+        const verdict = ticketVerdict(text);
+        devlog(`[ticket] a spoken answer while the review card is up: ${verdict}`);
+        if (verdict !== "submit" && verdict !== "cancel") return;
+        void window.matic.recordVoiceConsent?.({ nonce: null, capabilityId: "ticket.submit", verdict: verdict === "submit" ? "approve" : "deny", heard: String(text) });
+        if (verdict === "submit") send.onclick(); else cancel.onclick();
+      });
+    }
+
     send.onclick = () => {
+      personaUi?.onSpokenTurn(null);
       // IN FLIGHT. The user has decided; the service desk has not answered. Both halves say only
       // that, because that is all that is known — the rail goes busy for the same reason.
       answered("You chose to send this.", "Sending…");
@@ -1049,6 +1065,7 @@ function reviewTicket(draft) {
     };
 
     cancel.onclick = () => {
+      personaUi?.onSpokenTurn(null);
       // D245, FOUND BY CANCELLING THE CARD ON 2026-09-11 rather than by reading it. This note said
       // "Cancelled by you — nothing was sent." and the caller's note three lines below says
       // "Cancelled — nothing left this machine." — one fact about what the system did not do, in

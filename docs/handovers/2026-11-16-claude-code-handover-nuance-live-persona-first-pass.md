@@ -684,3 +684,28 @@ camera's picture, whether it is recorded, and the age check in practice.
 
 **Mine:** an `import` written inside a comment block broke every spoken turn for one build and was
 found only by running it. The tests for this pass were written after the code, not before.
+
+
+---
+
+# Tenth pass — 2026-11-17: she starts listening; tickets by voice
+
+Charles: *"Start the face to face chats unmuted with Avatar giving a random greeting … ensure I can
+submit ticket audibly … I didn't see the camera activated … Is there a way she can see the screen?"*
+Register **D320–D321**, §5.62l; next free **D322**.
+
+- **D320** — a session opens with the microphone on (the summoning click is the gesture) and one of
+  five hellos. Reverses D303's default, on his word.
+- **D321** — "submit the ticket" / "send it" at the review card presses Submit; recorded with the
+  words heard.
+- **Camera** — it did not appear for him because his hub had been started before the camera was
+  allowed; the launcher allows it. A small self-view shows his own picture when it is on.
+- **The screen** — not supported by anything in the service's docs. Not built; see the register.
+- The launcher's hub gets a higher session cap for testing.
+
+Client **2638 / 32**; server **857 / 8**.
+
+**Not verified live by this session, and one mistake.** The account allows one session at a time and
+Charles was in it. This session's test was refused — and then, cleaning up what it took to be its own
+stray conversation, **it ended his**. The rule is in CLAUDE.md now: read `/usage` first, and never
+end a conversation you did not start.

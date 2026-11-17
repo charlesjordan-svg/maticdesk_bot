@@ -59,6 +59,8 @@
              green screen is available. The label is ours and always present with the face. -->
         <div class="persona-stage" id="persona-stage" hidden>
           <video id="persona-video" autoplay playsinline></video>
+          <!-- The user's own camera, small, when it is on (D319): what is being sent is what they see. -->
+          <video id="persona-self" class="persona-self" autoplay playsinline muted hidden></video>
           <div class="persona-label">Live video · AI</div>
         </div>
         <div class="persona-controls" id="persona-controls" hidden>

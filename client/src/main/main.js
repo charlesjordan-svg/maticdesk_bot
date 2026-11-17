@@ -69,7 +69,7 @@ let egress = null;
 // The live persona (D307). `personaHub` is the hub client when there is one; `personaConfig` is
 // config.json's block; `liveSession` is the ONE session this process may have, or null.
 let personaHub = null;
-let personaConfig = { enabled: false, maxSessionSeconds: 600 };
+let personaConfig = { enabled: false, maxSessionSeconds: 600, startUnmuted: true };
 /** @type {null | { ref: string, conversationId: string, sessionToken: string, openedAtMs: number, mic: any, name: string|null, host: string|null }} */
 let liveSession = null;
 let hubUrlForTickets = null;
@@ -387,6 +387,8 @@ app.whenReady().then(async () => {
   personaConfig = {
     enabled: process.env.MATIC_PERSONA === "1" || config.persona?.enabled === true,
     maxSessionSeconds: Number.isInteger(config.persona?.maxSessionSeconds) && config.persona.maxSessionSeconds > 0 ? config.persona.maxSessionSeconds : 600,
+    // D320 (the founder's): a session starts with the microphone ON unless config says otherwise.
+    startUnmuted: config.persona?.startUnmuted !== false,
   };
 
   // ---- privileged half ----
@@ -602,9 +604,12 @@ app.whenReady().then(async () => {
       return { ok: false, degrade: true, reason: "no-visible-window" };
     }
     liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), name: opened.persona, host: opened.host, cameraAllowed: opened.camera === true, cameraOn: false };
-    egress?.persona("persona.opened", { sessionRef: liveSession.ref, persona: opened.persona, host: opened.host, microphone: "off" });
-    // The opening mute is the policy's first command (D303 rule 1); the renderer sends it.
-    const mic = personaMicEvent("session.opened");
+    // D320: this handler is reachable only from the user's click on "Talk face to face", which is
+    // the gesture; whether the window is visible is read here, not taken from the renderer.
+    const startsLive = personaConfig.startUnmuted && windowVisible();
+    egress?.persona("persona.opened", { sessionRef: liveSession.ref, persona: opened.persona, host: opened.host, microphone: startsLive ? "on" : "off" });
+    // The policy's first command - a mute, or (D320) an unmute - goes to the renderer to send.
+    const mic = personaMicEvent("session.opened", { startLive: personaConfig.startUnmuted, gesture: true });
     return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic, camera: liveSession.cameraAllowed ? { on: false, words: cameraWords(false) } : null };
   });
 
