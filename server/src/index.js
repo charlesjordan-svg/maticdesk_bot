@@ -85,7 +85,7 @@
 import http from "node:http";
 import https from "node:https";
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { OpenAICompatibleProvider } from "./providers/openai-compatible-provider.js";
 import { turnHandler } from "./turn.js";
 import { askHandler } from "./kb/ask.js";
@@ -615,11 +615,14 @@ if (isMain) {
       persona: process.env.MATIC_NUANCE_PERSONA?.trim() || null,
       prompt: null,
     };
-    if (process.env.MATIC_NUANCE_PROMPT_FILE) {
-      try { nuance.prompt = readFileSync(process.env.MATIC_NUANCE_PROMPT_FILE, "utf8"); }
-      catch (err) { console.log(`[nuance] MATIC_NUANCE_PROMPT_FILE could not be read (${err.message}); live sessions stay off`); }
+    // The prompt is the functional analysis's §6 draft, shipped beside the route and pinned to that
+    // document by test/nuance.test.mjs §8. MATIC_NUANCE_PROMPT_FILE replaces it for one hub.
+    const nuancePromptFile = process.env.MATIC_NUANCE_PROMPT_FILE || fileURLToPath(new URL("./nuance/persona-prompt.txt", import.meta.url));
+    {
+      try { nuance.prompt = readFileSync(nuancePromptFile, "utf8"); }
+      catch (err) { console.log(`[nuance] the persona prompt ${nuancePromptFile} could not be read (${err.message}); live sessions stay off`); }
     }
-    console.log(`[nuance] live sessions: ${nuance.apiKey && nuance.prompt ? `ON, persona ${nuance.persona ?? "mira"}` : `off (${!nuance.apiKey ? "no MATIC_NUANCE_API_KEY" : "no readable MATIC_NUANCE_PROMPT_FILE"})`}`);
+    console.log(`[nuance] live sessions: ${nuance.apiKey && nuance.prompt ? `ON, persona ${nuance.persona ?? "mira"}` : `off (${!nuance.apiKey ? "no MATIC_NUANCE_API_KEY" : "no readable persona prompt"})`}`);
     const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel, ticketTenant, tls: plan.tls, nuance });
 
     // Verify the embedder, and do not exit if it fails. A hub with no embedder still answers through

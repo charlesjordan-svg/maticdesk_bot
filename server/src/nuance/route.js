@@ -55,14 +55,19 @@
  * the enrollment's own id. It says what the credential says and no more: an install, not a person.
  *
  * ===============================================================================================
- * THE PROMPT IS CONFIGURED, AND THERE IS NO DEFAULT ONE
+ * THE PROMPT IS A FILE, AND IT IS NOT WRITTEN HERE
  * ===============================================================================================
  *
- * The handover names a draft prompt in a document that was not on disk when this was written, and
- * CLAUDE.md forbids reconstructing a missing document. So this file contains no prompt. A hub with
- * no prompt answers 503 and says so; it does not mint with one invented here. Nuance reviews a
- * prompt on first mint and caps new setups per day, so "mint with a placeholder and fix it later"
- * is not free either.
+ * `persona-prompt.txt`, beside this file, is the draft from
+ * docs/handovers/2026-11-16-v2-functional-analysis-persona-optimization.md §6, EXTRACTED from that
+ * document rather than retyped, and `test/nuance.test.mjs` §8 fails if the two differ. It is a
+ * DRAFT: it has never been through Nuance's review, which happens on first mint.
+ *
+ * (History: this route was first committed with no prompt at all, because that document was not
+ * on disk and CLAUDE.md forbids reconstructing a missing one. The handler still takes the prompt
+ * as a dependency and still answers 503 without one - it never mints with a prompt of its own.)
+ * Nuance reviews a prompt on first mint and caps new setups per day, so every edit to that file
+ * is a new setup to be reviewed.
  *
  * ===============================================================================================
  * WHAT IS NOT BUILT
@@ -79,7 +84,7 @@
  *   - Tenant facts in the prompt. `prompt` is one string; per-tenant assembly has nowhere to read
  *     tenant facts from yet, and every distinct prompt is a new setup for Nuance to review.
  *   - No call to Nuance has been made through this route. The stub in the test is the only
- *     upstream it has ever had.
+ *     upstream it has ever had, so the prompt has not been reviewed and may be refused.
  */
 import { createHash } from "node:crypto";
 import { readJson } from "../turn.js";

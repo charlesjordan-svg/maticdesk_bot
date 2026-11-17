@@ -191,5 +191,24 @@ console.log("\n=== 7. the route is wired, listed, and credentialed ===");
   check("the key is read from the environment in ONE file", index.includes("MATIC_NUANCE_API_KEY") && !readFileSync(join(HERE, "../src/nuance/route.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").includes("process.env"));
 }
 
+// ==============================================================================================
+console.log("\n=== 8. the shipped prompt is the document's, and says what Decision D needs ===");
+{
+  const shipped = readFileSync(join(HERE, "../src/nuance/persona-prompt.txt"), "utf8").replace(/\r\n/g, "\n");
+  const doc = readFileSync(join(HERE, "../../docs/handovers/2026-11-16-v2-functional-analysis-persona-optimization.md"), "utf8").replace(/\r\n/g, "\n");
+  const fenced = doc.slice(doc.indexOf("## 6. The persona's system prompt")).match(/```\n([\s\S]*?)\n```/)?.[1];
+  check("the functional analysis has a fenced prompt in its §6", typeof fenced === "string" && fenced.length > 500);
+  check("persona-prompt.txt IS that block, character for character", shipped.trimEnd() === fenced, `${shipped.length} vs ${fenced?.length}`);
+  check("it fits the service's limit", shipped.trim().length >= 1 && shipped.trim().length <= 64_000);
+  check("D245 compiled into a sentence is in it", shipped.includes("If you have nothing to add to what the screen says, say nothing."));
+  check("it forbids outcome claims and describing a change (D301-D)", /Never say a problem is fixed, a ticket was sent, or anyone was notified/.test(shipped) && /you never describe one/.test(shipped));
+  check("it names no model and no vendor (the service refuses a prompt that does)", !/claude|anthropic|nuance|openai|gpt|mistral|llama/i.test(shipped));
+  check("it says it is an AI", /You are an AI/.test(shipped));
+  const m = make({ prompt: shipped });
+  await call(m.handler);
+  check("the hub sends it upstream whole", m.up.calls[0].body.personality.system_prompt === shipped.trim());
+  check("index.js falls back to the shipped file when no override is set", readFileSync(join(HERE, "../src/index.js"), "utf8").includes("./nuance/persona-prompt.txt"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
