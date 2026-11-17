@@ -3,7 +3,7 @@
 **Date:** 2026-11-17
 **From:** a Claude Code session, working from
 `2026-11-17-claude-code-handover-kb-access-camera-and-two-fixes.md` (the brief).
-**Branch:** `v2-nuance-persona`. Register at **D325** (§5.62o); next free **D326**, and the register's own
+**Branch:** `v2-nuance-persona`. Register at **D326** (§5.62o, §5.62p); next free **D327**, and the register's own
 next-free line was updated in the same pass.
 **Read first:** `CLAUDE.md` (v2 section, four new bullets), `PROJECT_START_HERE.md`, the brief.
 
@@ -131,7 +131,7 @@ file spawned. `server/test/db-static.test.mjs` gains 7 checks on `compareLedger(
 
 | # | What | One line |
 |---|---|---|
-| 1 | **`action` by explicit verb** (brief §2.4 b) | Route a spoken `action` ONLY when `classify()` matched an ACTION_VERB ("restart the spooler", "fix my printer") — restores the measured path for those without touching "it's a beautiful day". It changes what she may be interrupted for. Yes or no? |
+| 1 | ~~**`action` by explicit verb** (brief §2.4 b)~~ | **Answered the same evening: *"Yes, build it."* Built as D326** — `classify()` sets `verb` on an ACTION_VERB match and never on its default; `agent:spoken` passes it; `spokenTurnRoute()` routes `action` with a verb and leaves the default hers. `turn-routing.test.mjs` §8 (12 checks). Not seen live. |
 | 2 | **The orphaned tickets** (brief §3.3) | Nine device rows; today's two tickets sit on superseded enrollments and are invisible to the newest. Revoke the stale devices and leave the tickets unmatched (the `notListed` copy already covers it), or re-point the two at the surviving enrollment? A data edit; not done. |
 | 3 | **Camera disclosure** (brief §1.4) | The age check and retention: a question to Nuance support, then G11. |
 

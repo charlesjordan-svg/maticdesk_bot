@@ -724,7 +724,9 @@ app.whenReady().then(async () => {
       intake.clear();
       log("[ticket] the offer was talked past in conversation - dropped; nothing was filed and nothing was sent");
     }
-    return { awaiting, kind: k.kind, subkind: k.subkind ?? null };
+    // `verb` (D326): the ACTION_VERB the classifier matched, or null for its default. The voice
+    // path routes an action on the former and never on the latter.
+    return { awaiting, kind: k.kind, subkind: k.subkind ?? null, verb: typeof k.verb === "string" && k.verb ? k.verb : null };
   });
 
   // D325. A SPOKEN question, to the knowledge base ONLY. `agent.askKnowledge()` reaches `ask()` on

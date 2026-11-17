@@ -43,25 +43,28 @@
  *     The cost: a hub round trip, with a model call on the hub's side, on every spoken question.
  *     The typed path is untouched and still offers the ticket on a decline.
  *
- *   `action` is NOT asked and NOT routed here. The classifier defaults every unrecognised sentence
- *   to `action` (classify.js), so routing it is "route everything", which is pre-D318. Routing
- *   only an explicit ACTION_VERB match ("restart the spooler") would change what she may be
- *   interrupted for, and that is Charles's call, not a session's - put to him in the 2026-11-17
- *   handover and open as of this file.
+ *   ROUTE an `action` ONLY when the classifier matched an explicit ACTION_VERB (D326, the founder's,
+ *   2026-11-17 - "Yes, build it"). "Restart the spooler", "fix my printer": those are the sentences
+ *   the 40-case bakeoff measured, and until this the voice path did not take that path unless she
+ *   chose to hand them off. The classifier's DEFAULT - every unrecognised sentence is `action`
+ *   (classify.js) - stays hers: routing it would be "route everything", which is pre-D318, and
+ *   "it's a beautiful day" is that default. The decision is read from `verb`, a field the
+ *   classifier sets only on a match, never from the `why` string.
  *
  * Typed turns are not touched by any of this: a sentence typed into the box always goes to Matic.
  * Pure. `test/turn-routing.test.mjs`.
  */
 
 /**
- * @param {{ awaitingAnswer?: boolean, handedOff?: boolean, kind?: string, subkind?: string }} t
+ * @param {{ awaitingAnswer?: boolean, handedOff?: boolean, kind?: string, subkind?: string, verb?: string | null }} t
  * @returns {"route" | "ask" | "hers"}
  */
-export function spokenTurnRoute({ awaitingAnswer = false, handedOff = false, kind = "", subkind = "" } = {}) {
+export function spokenTurnRoute({ awaitingAnswer = false, handedOff = false, kind = "", subkind = "", verb = null } = {}) {
   if (awaitingAnswer === true) return "route";
   if (handedOff === true) return "route";
   if (kind === "tickets" || kind === "machine") return "route";
   if (kind === "social" && subkind === "capability") return "route";
+  if (kind === "action" && typeof verb === "string" && verb.trim() !== "") return "route";
   if (kind === "question") return "ask";
   return "hers";
 }

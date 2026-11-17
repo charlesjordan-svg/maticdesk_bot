@@ -82,7 +82,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       deciding = true;
       let info = {};
       try { info = (await bridge.spokenInfo?.(next)) ?? {}; } catch { /* treated as conversation unless she hands it off */ }
-      let route = spokenTurnRoute({ awaitingAnswer: info.awaiting, kind: info.kind, subkind: info.subkind });
+      let route = spokenTurnRoute({ awaitingAnswer: info.awaiting, kind: info.kind, subkind: info.subkind, verb: info.verb });
       if (route === "hers" && stage && (await stage.waitForHandOff(5000))) route = "route";
       // D325: a QUESTION goes to the knowledge base and nowhere else. A hand-off she has ALREADY
       // made wins (D318: she decided it is work), and is not waited for - the round trip is long

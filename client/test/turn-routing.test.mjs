@@ -26,7 +26,7 @@ function check(label, cond, extra = "") {
 const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 const read = (rel) => readFileSync(join(HERE, rel), "utf8");
 /** What the window would do with a spoken sentence, given what the classifier says and nothing else. */
-const routeOf = (text, extra = {}) => { const k = classify(text); return spokenTurnRoute({ kind: k.kind, subkind: k.subkind, ...extra }); };
+const routeOf = (text, extra = {}) => { const k = classify(text); return spokenTurnRoute({ kind: k.kind, subkind: k.subkind, verb: k.verb ?? null, ...extra }); };
 
 // ==============================================================================================
 console.log("=== 1. conversation is hers ===");
@@ -62,7 +62,7 @@ console.log("\n=== 2. work is Matic's ===");
 console.log("\n=== 3. the wiring ===");
 {
   const ui = strip(read("../src/renderer/persona-ui.js"));
-  check("the controls decide through spokenTurnRoute() and nothing else", /spokenTurnRoute\(\{ awaitingAnswer: info\.awaiting, kind: info\.kind, subkind: info\.subkind \}\)/.test(ui));
+  check("the controls decide through spokenTurnRoute() and nothing else, handing it the verb too (D326)", /spokenTurnRoute\(\{ awaitingAnswer: info\.awaiting, kind: info\.kind, subkind: info\.subkind, verb: info\.verb \}\)/.test(ui));
   check("a hand-off is waited for only when the first two facts do not already route", /route === "hers" && stage && \(await stage\.waitForHandOff\(/.test(ui));
   check("a turn that is hers is SHOWN - the user's words, then hers - and not submitted", /showSpoken\(next\);\s*for \(const line of heldHers\.splice\(0\)\) showHers\(line\);[\s\S]{0,60}return;/.test(ui));
   // 2026-11-17: the import of spokenTurnRoute was written INSIDE a comment block. `node --check`
@@ -146,7 +146,7 @@ console.log("\n=== 7. a spoken QUESTION asks the knowledge base, and a decline i
   check("a question Matic is waiting on an answer to is the ANSWER, not a lookup", routeOf("How do I take a screenshot?", { awaitingAnswer: true }) === "route");
   check("a question she handed off is routed, whatever it says (D318 wins)", routeOf("How do I take a screenshot?", { handedOff: true }) === "route");
   check("tickets, the machine and capabilities still route ahead of the lookup", routeOf("where is my ticket") === "route" && routeOf("how is my computer doing") === "route" && routeOf("what can you do") === "route");
-  check("`action` is NOT asked and NOT routed: the classifier's default for every unrecognised sentence stays hers (Charles's call, open)", routeOf("my screen is flickering") === "hers" && routeOf("restart the spooler") === "hers" && routeOf("It's a beautiful day. How are you doing?") === "hers");
+  check("the classifier's DEFAULT action - every unrecognised sentence - is neither asked nor routed: it stays hers", routeOf("my screen is flickering") === "hers" && routeOf("It's a beautiful day. How are you doing?") === "hers" && routeOf("did you see the game last night") === "hers");
   check("the pure function returns exactly three answers", new Set(["route", "ask", "hers"]).has(spokenTurnRoute({ kind: "question" })) && spokenTurnRoute({ kind: "question" }) === "ask");
 
   const { lookupHold, lookupRelease } = await import("../src/nuance/surface-split.js");
@@ -174,6 +174,29 @@ console.log("\n=== 7. a spoken QUESTION asks the knowledge base, and a decline i
   const r = strip(read("../src/renderer/renderer.js"));
   check("the renderer's showAnswer says it came from the company's written guidance and shows and says it as a typed answer is", /showAnswer: async \(r\) => \{[\s\S]*answered from your company's written guidance[\s\S]*await knowledgeAnswered\(r\.reply/.test(r) && (r.match(/await knowledgeAnswered\(/g) ?? []).length === 2);
   check("typed turns are untouched: handleTurn still asks the agent through propose() and still offers on a decline", /const res = await window\.matic\.propose\(text\);/.test(r) && /No company guidance covers this — nothing was filed\./.test(read("../src/renderer/renderer.js")));
+}
+
+// ==============================================================================================
+console.log("\n=== 8. an action that matched an explicit VERB is routed; the default is not (D326, the founder's) ===");
+{
+  // Charles, 2026-11-17: "Yes, build it." "Restart the spooler" and "fix my printer" are the
+  // sentences the bakeoff measured; the voice path now takes that path for them without waiting
+  // for her hand-off. The classifier's default stays hers, so "it's a beautiful day" cannot come
+  // back as a ticket offer through this door.
+  for (const t of ["restart the spooler", "fix my printer", "can you reset my network adapter", "please clear the print queue"]) {
+    const k = classify(t);
+    check(`"${t}" -> routed, on verb "${k.verb}"`, k.kind === "action" && typeof k.verb === "string" && k.verb.length > 0 && routeOf(t) === "route", `${k.kind}/${k.verb}/${routeOf(t)}`);
+  }
+  for (const t of ["my screen is flickering", "My printer won't print.", "Hello, can you hear me now?", "But we haven't even talked about opening a ticket yet."]) {
+    const k = classify(t);
+    check(`"${t}" -> the default action, no verb, hers`, k.kind === "action" && k.verb === undefined && routeOf(t) === "hers", `${k.kind}/${k.verb}/${routeOf(t)}`);
+  }
+  check("the decision reads the `verb` FIELD, not the why string: a kind of action with no verb is hers, with a verb is routed", spokenTurnRoute({ kind: "action" }) === "hers" && spokenTurnRoute({ kind: "action", verb: null }) === "hers" && spokenTurnRoute({ kind: "action", verb: "" }) === "hers" && spokenTurnRoute({ kind: "action", verb: "restart" }) === "route");
+  check("a verb on any other kind changes nothing", spokenTurnRoute({ kind: "question", verb: "restart" }) === "ask" && spokenTurnRoute({ kind: "social", subkind: "greeting", verb: "restart" }) === "hers");
+  const main = strip(read("../src/main/main.js"));
+  check("agent:spoken hands the window the verb, null for the default", /verb: typeof k\.verb === "string" && k\.verb \? k\.verb : null/.test(main));
+  const cls = strip(read("../src/router/classify.js"));
+  check("classify() sets `verb` only on the ACTION_VERB match and not on the default", /return \{ kind: "action", verb: v\.trim\(\)/.test(cls) && /return \{ kind: "action", why: "no question marker/.test(cls));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

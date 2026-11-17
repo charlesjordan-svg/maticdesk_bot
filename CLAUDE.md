@@ -983,8 +983,10 @@ the surface split (D305) and the prompt (D306).
 - **A spoken QUESTION asks the knowledge base and a decline is SILENT (D325, proposed).** `turn-routing.js`
   returns `ask`; the window holds the floor, calls `askKnowledge` (which reaches `ask()` and nothing
   else), shows and says an answer, and on a decline adds NOTHING - no ticket offer, no escalation.
-  **Never** route `question` to the proposal path on the voice path, and **never** route `action`
-  without Charles: the classifier defaults every unrecognised sentence to `action`.
+  **Never** route `question` to the proposal path on the voice path. **A spoken `action` is routed
+  only on an explicit ACTION_VERB match (D326, the founder's)** - `classify()` sets `verb` on the
+  match and never on its default, and the default (every unrecognised sentence) stays hers.
+  **Never** route the default, and never read the `why` string to decide.
   `client/scripts/spoken-turns.mjs` counts the `[spoken]` lines in `audit/app.log` (kind, route,
   outcome - never words): that is the D318 regression number's denominator.
 - **`start-v2.ps1` mints NO enrollment secret unless `-Enroll` is passed.** It used to mint one per launch,

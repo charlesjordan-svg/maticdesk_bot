@@ -351,9 +351,10 @@ const MAX_SOCIAL_RESIDUE_WORDS = 0;
 
 /**
  * @param {string} text
- * @returns {{ kind: InputKind, why: string }}
+ * @returns {{ kind: InputKind, subkind?: string, verb?: string, why: string }}
  *   `why` is for the log. A router that cannot say why it routed is a router nobody will trust
- *   enough to leave in the path.
+ *   enough to leave in the path. `verb` is present only on an `action` that matched an ACTION_VERB,
+ *   never on the default (D326).
  */
 export function classify(text) {
   const t = String(text ?? "").toLowerCase().trim();
@@ -419,8 +420,10 @@ export function classify(text) {
 
   // An action verb wins over question grammar. See the header: the bias is towards the measured
   // path, and "how do I fix my printer" is a request for a fix.
+  // `verb` names the match (D326, 2026-11-17): the voice path routes an `action` only when a verb
+  // was matched, and reads the field rather than the `why` string. Absent on the default below.
   for (const v of ACTION_VERBS) {
-    if (t.includes(v)) return { kind: "action", why: `action verb "${v.trim()}" - resolving to the proposal path even if phrased as a question` };
+    if (t.includes(v)) return { kind: "action", verb: v.trim(), why: `action verb "${v.trim()}" - resolving to the proposal path even if phrased as a question` };
   }
 
   for (const m of QUESTION_MARKERS) {
