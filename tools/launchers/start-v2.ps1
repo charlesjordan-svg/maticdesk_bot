@@ -103,12 +103,36 @@ if ($running -and -not $NoStopExisting) {
   Start-Sleep -Seconds 2
 }
 
+# ---- 3b. an enrollment secret for this launch ------------------------------------------------
+# A live session needs the app to hold an enrollment credential: the hub mints a session for an
+# ENROLLED endpoint and for nobody else. On 2026-11-17 the app started from this launcher came up
+# with "[enroll] disabled" - no stored credential found, and no secret to enroll with, because the
+# repository's config.json keeps its secret empty on purpose (D285) - and every click on "Talk face
+# to face" failed without reaching the hub. So the launcher mints a ONE-DAY secret for the tenant
+# in client\config.json and hands it to the app for this one launch, the way MATIC_ENROLLMENT_SECRET
+# is meant to be used. An app that already holds a credential ignores it.
+$enrollSecret = $null
+try {
+  $tenant = (Get-Content -LiteralPath (Join-Path $client 'config.json') -Raw | ConvertFrom-Json).enrollment.tenant
+  if ($tenant) {
+    Push-Location -LiteralPath $server
+    try { $minted = & node bin/devices.mjs create-secret $tenant --ttl-days 1 2>&1 | Out-String } finally { Pop-Location }
+    $m = [regex]::Match($minted, '(?m)^\s*secret\s+(\S+)\s*$')
+    if ($m.Success) { $enrollSecret = $m.Groups[1].Value }
+  }
+} catch { $enrollSecret = $null }
+if ($enrollSecret) { Say '      (a one-day enrollment secret is ready for this launch)' }
+else { Say '      (no enrollment secret could be minted - the app will use the credential it already holds, if it holds one)' }
+
 # ---- 4. the app ------------------------------------------------------------------------------
 $env:MATIC_PERSONA = '1'
+if ($enrollSecret) { $env:MATIC_ENROLLMENT_SECRET = $enrollSecret }
 try {
   Start-Process -FilePath 'cmd.exe' -WorkingDirectory $client -WindowStyle Hidden -ArgumentList '/c', 'npm.cmd start'
 } finally {
   Remove-Item Env:MATIC_PERSONA -ErrorAction SilentlyContinue
+  Remove-Item Env:MATIC_ENROLLMENT_SECRET -ErrorAction SilentlyContinue
+  $enrollSecret = $null
 }
 Say '[4/4] Matic Desk is starting.'
 Say ''

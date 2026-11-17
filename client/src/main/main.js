@@ -491,6 +491,10 @@ app.whenReady().then(async () => {
         }
       },
     });
+    // WHERE the stored enrollment is looked for, and whether it is there - said once at startup. On
+    // 2026-11-17 an app started from the v2 launcher reported no enrollment while a valid file sat in
+    // the profile folder, and nothing in the log said which path had been read.
+    log(`[enroll] stored enrollment: ${enrollment.path} (${existsSync(enrollment.path) ? "found" : "NOT FOUND"})`);
     const enroll = async () => {
       const r = await ensureEnrolled({ store: enrollment, hubUrl, tenant: enrollCfg.tenant, secret: enrollCfg.secret, onLog: log });
       if (r.credential) { hubClient.setCredential(r.credential); ticketWatch?.start(); }
