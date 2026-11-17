@@ -127,6 +127,36 @@ export function capabilityReply({ capabilities = [] } = {}) {
   return parts.join(" ");
 }
 
+const COUNT_WORDS = ["no things", "one thing", "two things", "three things", "four things", "five things", "six things", "seven things", "eight things", "nine things"];
+const ORDINALS = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth"];
+
+/**
+ * The capability answer, SHAPED TO BE SAID (D315). Same catalog, same phrases, same generator's
+ * rules as `capabilityReply()` above - a different sentence structure, for a listener: the count
+ * first, then one short sentence per ability. See `$capabilitySpokenComment` in persona.json.
+ *
+ * It is what the live persona is handed; the panel still shows `capabilityReply()`.
+ */
+export function capabilitySpokenReply({ capabilities = [] } = {}) {
+  if (capabilities.length === 0) return persona.capability.noCatalog;
+  const P = persona.capabilitySpoken;
+  const phrases = capabilities.map((c) => c.plain?.helpsWith?.trim() || midSentence(c.title ?? c.id));
+  const disruptive = capabilities.filter((c) => (c.tierInfo?.label ?? "").toLowerCase().includes("disruptive"));
+  const ordinal = (i) => {
+    const word = ORDINALS[i] ?? "Also";
+    // The last of several is "And fourth": the listener hears the list end.
+    return i === phrases.length - 1 && phrases.length > 1 ? `And ${word.toLowerCase()}` : word;
+  };
+  const parts = [
+    P.intro.replace("{count}", COUNT_WORDS[phrases.length] ?? `${phrases.length} things`),
+    ...phrases.map((ability, i) => P.item.replace("{ordinal}", ordinal(i)).replace("{ability}", ability.replace(/[.;]+$/, ""))),
+    P.consent,
+  ];
+  if (disruptive.length) parts.push(disruptive.length === 1 ? P.noticeOne : P.noticeSome);
+  parts.push(P.boundary);
+  return parts.join(" ");
+}
+
 /**
  * "Where's my ticket?" (D235). Generated from the endpoint's own egress record, and honest about
  * the one thing it cannot do: see the hub's ticket table.

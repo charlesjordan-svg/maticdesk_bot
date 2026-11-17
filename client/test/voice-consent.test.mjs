@@ -138,5 +138,32 @@ console.log("\n=== 6. the name, as real recognisers write it (D313, proposed) ==
   check('"medic" is not taken as the name - it is a word', classify("I need a medic").kind !== "social");
 }
 
+// ==============================================================================================
+console.log("\n=== 7. the capability answer, shaped to be said (D315) ===");
+{
+  const { capabilityReply, capabilitySpokenReply } = await import("../src/router/social.js");
+  const persona = (await import("../src/router/persona.json", { with: { type: "json" } })).default;
+  const tiers = catalog.tiers ?? {};
+  const caps = catalog.capabilities.map((c) => ({ id: c.id, title: c.title, plain: c.plain, tierInfo: tiers[c.tier] ?? { label: c.id === "reset_adapter" ? "Disruptive" : "Low risk" } }));
+  const written = capabilityReply({ capabilities: caps }), spoken = capabilitySpokenReply({ capabilities: caps });
+  console.log(`        ${spoken}`);
+  check("every ability the written answer names is in the spoken one, in the catalog's own words", caps.every((c) => written.includes(c.plain.helpsWith) && spoken.includes(c.plain.helpsWith.replace(/[.;]+$/, ""))));
+  check("it says how many first, so a listener knows how long the list is", spoken.includes(`I can help with ${["no things", "one thing", "two things", "three things", "four things"][caps.length]} on this machine.`));
+  check("one short sentence per ability, each a whole sentence with its 'when'", (spoken.match(/, when /g) ?? []).length === caps.length && /First, when /.test(spoken) && /And (second|third|fourth|fifth), when /.test(spoken));
+  check("no semicolons, dashes or brackets - nothing a voice has to guess how to read", !/[;—–()\[\]{}:]/.test(spoken), spoken.match(/[;—–()\[\]{}:]/)?.[0]);
+  const longest = Math.max(...spoken.split(/(?<=[.!?])\s+/).map((s) => s.split(/\s+/).length));
+  check("no sentence over 30 words", longest <= 30, String(longest));
+  check("it names no mechanism: no capability id and no catalog title (D250)", !caps.some((c) => spoken.toLowerCase().includes(c.id) || spoken.toLowerCase().includes(String(c.title).toLowerCase())));
+  check("it still says nothing changes without approval, and where its edge is", /nothing changes until you approve/.test(spoken) && /hand it to IT/.test(spoken));
+  check("with no catalog it promises nothing - the same line as the written answer", capabilitySpokenReply({ capabilities: [] }) === persona.capability.noCatalog);
+  const one = capabilitySpokenReply({ capabilities: caps.slice(0, 1) });
+  check("one ability: 'one thing', 'First', and no 'And first'", /one thing/.test(one) && /First, when /.test(one) && !/And first/.test(one));
+  check("it fits one note to the persona", spoken.length < 1800, String(spoken.length));
+  const agentSrc = readFileSync(join(HERE, "../src/agent/agent.js"), "utf8");
+  check("the agent returns it beside the written reply for a capability question, and only then", /kind\.subkind === "capability" \? \{ spokenReply: capabilitySpokenReply\(/.test(agentSrc));
+  const r = readFileSync(join(HERE, "../src/renderer/renderer.js"), "utf8");
+  check("the spoken shape goes through D249's redaction before it reaches her", /spokenShape \? spokenForm\(plainProse\(spokenShape\), spokenEnv\) : heard/.test(r));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

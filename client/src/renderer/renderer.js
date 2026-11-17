@@ -575,7 +575,9 @@ let personaUi = null;
  * as it always has - the tests that pin those calls pin them still. With no live session it does
  * nothing at all.
  */
-function forPersona(surface) { nextSurface = surface; }
+function forPersona(surface, spokenText = null) { nextSurface = surface; nextSpokenText = spokenText; }
+/** D315: a version of the next line SHAPED TO BE SAID, when the product has one. The panel shows `text`. */
+let nextSpokenText = null;
 
 async function say(text, endState = "idle") {
   const box = reply(text);
@@ -598,9 +600,13 @@ async function say(text, endState = "idle") {
   // With no live session this block does nothing and everything below is exactly as it was: that
   // is the degraded channel (Decision C), and it is the same code path it has always been.
   const surface = nextSurface;
+  const spokenShape = nextSpokenText;
   nextSurface = null;
+  nextSpokenText = null;
   if (personaUi?.live) {
-    await personaUi.speak({ surface: surface ?? undefined, text: heard });
+    // A spoken shape goes through the same two steps as the shown line: markers off, then D249.
+    const forHer = spokenShape ? spokenForm(plainProse(spokenShape), spokenEnv) : heard;
+    await personaUi.speak({ surface: surface ?? undefined, text: forHer });
     setState(endState);
     return box;
   }
@@ -782,6 +788,7 @@ function attachRestartChoice(box) {
 async function raiseRestartMoment(advice) {
   devlog(`[restart] raised at score ${advice.score} from `
     + `${(advice.contributions ?? []).map((c) => `${c.id}=${c.weight}`).join(", ") || "nothing"}`);
+  forPersona("@restart");
   const box = await say(advice.sentence, "idle");
   attachRestartChoice(box);
 }
@@ -1423,7 +1430,7 @@ async function handleTurn(text) {
     checked("Not applicable — nothing was proposed, so there was nothing to check.", "not applicable");
     done("Nothing has been changed. This turn never reached the consent path (D198).", { executed: false, changes: [] });
     setState("thinking");
-    forPersona(res.social.subkind === "capability" ? "capability.intro" : `social.${res.social.subkind}`);
+    forPersona(res.social.subkind === "capability" ? "capability.intro" : `social.${res.social.subkind}`, res.spokenReply ?? null);
     await say(res.reply, "idle");
     setState("idle");
     return;

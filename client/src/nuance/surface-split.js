@@ -73,7 +73,7 @@ export const SURFACES = Object.freeze({
 
   // ---- pinned.
   "social.offtopic": "pinned",          // a rephrased scope statement is a scope CLAIM (D260).
-  // D311 (PROPOSED, 2026-11-17 - AWAITS CHARLES). These were pinned: D165/D212 generate the answer
+  // D311 (DECIDED by the founder, 2026-11-17: "yes Keep it"). These were pinned: D165/D212 generate the answer
   // from the catalog so it cannot drift, and a rephrased list is a promise the broker may refuse.
   // In his second live session Charles asked what she can do THREE times - "What can you do?",
   // "Tell me in your own words", "what is Matic's capabilities? Why would I engage Matic ever?" -
@@ -87,6 +87,13 @@ export const SURFACES = Object.freeze({
   "capability.noticeSome": "relay",
   "capability.boundary": "relay",
   "capability.noCatalog": "relay",
+  // D315: the same generated answer in a listener's shape. D311 is DECIDED (Charles: "yes Keep it").
+  "capabilitySpoken.intro": "relay",
+  "capabilitySpoken.item": "relay",
+  "capabilitySpoken.consent": "relay",
+  "capabilitySpoken.noticeOne": "relay",
+  "capabilitySpoken.noticeSome": "relay",
+  "capabilitySpoken.boundary": "relay",
   // D309 (the founder's, 2026-11-17): "enable her ability to ... speak on ... open tickets". These
   // were PINNED - D288 shares their wording with the band character for character, and a rephrase
   // can imply the desk was told something. They are relayed now: the exact reply is the note she
@@ -122,6 +129,10 @@ export const SURFACES = Object.freeze({
   "@intake": "persona",
   "@draft": "pinned",                   // the ticket before it is sent: on the screen, and NOT sent - its own pointer says so.
   "@filed": "relay",                    // "That's filed. Your reference is MD-1042": the hub said so, and D309 covers tickets.
+  // The restart suggestion rides on a turn the user started, and has its own buttons on the panel. She
+  // says NOTHING for it: heard live on 2026-11-17 it came out as a stray "it is on the screen beside me"
+  // tacked onto the answer to a different question. Advice is not relayed (D256), so the rule is silence.
+  "@restart": "silent",
   "@consent": "pinned",                 // the card is the catalog's, assembled by the broker (D128, D130, D248).
   "@consentVoice": "pinned",            // the same card, when it may also be approved by saying so (D310).
   "@execution": "pinned",               // what a change did is an outcome claim (D250's words stay on screen).

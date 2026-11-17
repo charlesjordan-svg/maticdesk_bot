@@ -14,7 +14,7 @@ import os from "node:os";
 import { probeMachine } from "../broker/capabilities/index.js";
 import { routeTier0, routeByState, TIER0_CONFIDENCE_THRESHOLD } from "../router/tier0.js";
 import { classify } from "../router/classify.js";
-import { socialReply, ticketStatusReply } from "../router/social.js";
+import { socialReply, ticketStatusReply, capabilitySpokenReply } from "../router/social.js";
 import persona from "../router/persona.json" with { type: "json" };
 import { diagnoseOffline } from "../router/offline-guide.js";
 import { escalationReply } from "./prompt.js";
@@ -253,6 +253,9 @@ export class Agent {
           social: { subkind: kind.subkind },
           facts: panel,
           reply,
+          // D315: the capability answer has a second SHAPE, for a listener - the same catalog
+          // phrases in short sentences. The panel shows `reply`; the live persona is handed this.
+          ...(kind.subkind === "capability" ? { spokenReply: capabilitySpokenReply({ capabilities: this.broker.listCapabilities() }) } : {}),
         };
       }
       // classify() and the template table disagreed. Fall through rather than say nothing — and the

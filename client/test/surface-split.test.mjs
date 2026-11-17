@@ -81,8 +81,8 @@ console.log("=== 1. every persona line is classified, and only those ===");
   }
   // D311 (PROPOSED, awaits Charles): the GENERATED capability answer is relayed. He asked what she
   // can do three times in one session and was pointed at the screen three times.
-  for (const s of surfaces.filter((x) => x.startsWith("capability."))) {
-    check(`${s} is relayed (D311, proposed) - the catalog's generated words, with the guard`, SURFACES[s] === "relay", SURFACES[s]);
+  for (const s of surfaces.filter((x) => x.startsWith("capability.") || x.startsWith("capabilitySpoken."))) {
+    check(`${s} is relayed (D311, the founder's; D315 for the spoken shape) - the catalog's generated words, with the guard`, SURFACES[s] === "relay", SURFACES[s]);
   }
   // D309 (the founder's, 2026-11-17). These were pinned and this loop used to say so. Charles asked
   // for the persona to speak about open tickets; they are RELAYED - and nothing else moved with them.
@@ -90,7 +90,7 @@ console.log("=== 1. every persona line is classified, and only those ===");
     check(`${s} is relayed (D309) - not pinned, and not handed over to her own words`, SURFACES[s] === "relay", SURFACES[s]);
   }
   const relayed = Object.entries(SURFACES).filter(([, k]) => k === "relay").map(([s]) => s);
-  check("the ONLY relayed surfaces are the ticket lines, the filed confirmation, the machine band (the founder's, D308/D309) and the generated capability answer (D311, proposed) - no others", relayed.every((s) => s.startsWith("tickets.") || s.startsWith("capability.") || s === "@machine" || s === "@filed") && relayed.includes("@machine"), relayed.join());
+  check("the ONLY relayed surfaces are the ticket lines, the filed confirmation, the machine band (the founder's, D308/D309) and the generated capability answer (D311, proposed) - no others", relayed.every((s) => s.startsWith("tickets.") || s.startsWith("capability.") || s.startsWith("capabilitySpoken.") || s === "@machine" || s === "@filed") && relayed.includes("@machine"), relayed.join());
   check("fallback, filing, off-topic, consent and an executed change are STILL not relayed", !relayed.some((s) => /^(fallback|filing|social)\.|^@(consent|consentVoice|execution|draft)$/.test(s)));
   for (const s of surfaces.filter((x) => x.startsWith("filing."))) {
     check(`${s} is never spoken`, s === "filing.timeout" ? SURFACES[s] === "silent" : SURFACES[s] === "pinned", SURFACES[s]);

@@ -572,3 +572,25 @@ relayed. Typed *"matic"*: a greeting. **Once each.** The amended prompt was acce
   unit-tested (and the name rule typed once).
 - **Retention.** A transcript of everything said is held by the service and readable with the key.
   How long is still not known, and it is now the first thing a security review will find.
+
+
+---
+
+# Sixth pass — 2026-11-17: said, not read
+
+Charles kept D311 and said the capability answer *"seems not formatted correctly for her speaking
+style"*, and asked whether Nuance has embedded codes for expression and intonation. Register **D315**,
+§5.62h; next free **D316**.
+
+- **No such codes exist** (read from the docs): no markup, SSML or cues anywhere. The one dial is
+  `expressiveness`, 0–2, fixed at mint; this build does not send it.
+- **The text was the problem, and it was ours.** One written sentence with a semicolon list; she
+  split it at the semicolons and the items lost their "when".
+- **D315:** the same catalog phrases in a listener's shape — the count first, one short sentence per
+  ability. Generated, not handed to her to reword. The panel is unchanged.
+- **The restart suggestion is silent for her.** It had been coming out as a stray "it's on the
+  screen beside me" after the answer to a different question.
+- **Heard, via the service's transcript:** the new shape, almost word for word.
+
+Client **2517 / 31**. **Not done:** the machine summary and the ticket reply have not been given a
+listener's shape — she handled both acceptably in transcript, and neither has been complained of.
