@@ -121,5 +121,22 @@ console.log("\n=== 5. the machine band, as a sentence (D308) ===");
   }
 }
 
+// ==============================================================================================
+console.log("\n=== 6. the name, as real recognisers write it (D313, proposed) ===");
+{
+  // From the service's own transcripts of Charles's two sessions, and the bakeoff: "Malik", "Malic",
+  // "Maddox", and base.en's Maddick / Maddock / Mattick / Madic.
+  for (const t of ["Hello, Malik. How you doing?", "Hello Maddox, how you doing?", "hey malic", "Hey, Malic.", "good morning maddick", "thanks mattick", "hi matic how are you"]) {
+    check(`"${t}" is social, not a problem for the model`, classify(t).kind === "social", `${classify(t).kind} (${classify(t).why})`);
+  }
+  for (const t of ["matic", "Matic?", "malik", "matic desk", "hey matic"]) {
+    check(`"${t}" alone is a greeting - saying its name is how people start`, classify(t).kind === "social" && classify(t).subkind === "greeting", `${classify(t).kind}/${classify(t).subkind}`);
+  }
+  for (const t of ["matic my printer is broken", "malik's laptop will not turn on", "hey matic I can't get online", "maddox said the projector is dead"]) {
+    check(`"${t}" is still NOT social`, classify(t).kind !== "social", classify(t).kind);
+  }
+  check('"medic" is not taken as the name - it is a word', classify("I need a medic").kind !== "social");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1290,6 +1290,7 @@ async function handleTurn(text) {
     done("Nothing has been changed, and NOTHING HAS BEEN SENT. The draft is not built until every required detail is known.",
       { executed: false, sent: false });
     setState("thinking");
+    forPersona("@intake");
     await say(res.reply, "idle");
     setState("idle");
     return;
@@ -1303,6 +1304,7 @@ async function handleTurn(text) {
     checked("Not applicable — a ticket is not a machine change, so the broker never sees it.", "not applicable");
     done("Waiting on your review.", { executed: false, sent: false });
     setState("thinking");
+    forPersona("@draft");
     await say(res.reply, "idle");
 
     const { approved, report } = await reviewTicket(res.ticketDraft);
@@ -1326,6 +1328,7 @@ async function handleTurn(text) {
       // THIS is `escalating` (D232): a ticket exists and has a number. The state is held after the
       // reply so the confirmation stays on the face while the user reads the reference.
       setState("escalating");
+      forPersona("@filed");
       await say(`That's filed. Your reference is ${filed.reference} — quote that if you follow it up.`, "escalating");
       // `notified` IS THE HUB'S OWN FIELD AND IT IS REPEATED, NOT INTERPRETED. The hub stores
       // tickets and emails nobody (D86). A user who hears "filed" and assumes someone was paged

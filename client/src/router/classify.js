@@ -370,6 +370,13 @@ export function classify(text) {
     return { kind: "machine", why: `asks how this machine is doing ("${machineHit}") - answered from the machine band's own rows, not the model (D308)` };
   }
 
+  // ---- D313: the name on its own. "Matic?" is how a person starts talking to a face, and until
+  // 2026-11-17 it classified as an ACTION - the vocative stripped, nothing left, no marker matched -
+  // and went to the model as a problem statement with no problem in it.
+  if (VOCATIVES.some((v) => padded.includes(` ${v} `)) && residue(t) === "" && !SOCIAL.some(({ markers }) => markers.some((m) => hasMarker(padded, m)))) {
+    return { kind: "social", subkind: "greeting", why: "the assistant's name and nothing else - a greeting (D313)" };
+  }
+
   // ---- D165's social layer, FIRST. D198 requires it ahead of the state fallback; it is ahead of
   // every provider call too, because a greeting should not cost a model call either.
   for (const { subkind, markers } of SOCIAL) {

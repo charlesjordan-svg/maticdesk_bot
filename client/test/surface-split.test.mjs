@@ -26,7 +26,7 @@ import persona from "../src/router/persona.json" with { type: "json" };
 import catalog from "../src/broker/catalog.json" with { type: "json" };
 import {
   SURFACES, SURFACE_KINDS, POINTERS, INSTRUCTIONS_MAX, NETWORK_DROPPING_CAPABILITIES,
-  surfaceOf, personaTurn, beforeExecute, consentRelease,
+  surfaceOf, personaTurn, beforeExecute, consentRelease, isRepeatPointer,
 } from "../src/nuance/surface-split.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -76,8 +76,13 @@ console.log("=== 1. every persona line is classified, and only those ===");
   for (const s of ["social.greeting", "social.howareyou", "social.thanks", "social.farewell", "social.nothingneeded", "boot"]) {
     check(`${s} is handed to the persona`, SURFACES[s] === "persona", SURFACES[s]);
   }
-  for (const s of surfaces.filter((x) => /^(capability|fallback)\./.test(x)).concat(["social.offtopic"])) {
+  for (const s of surfaces.filter((x) => /^fallback\./.test(x)).concat(["social.offtopic"])) {
     check(`${s} is pinned`, SURFACES[s] === "pinned", SURFACES[s]);
+  }
+  // D311 (PROPOSED, awaits Charles): the GENERATED capability answer is relayed. He asked what she
+  // can do three times in one session and was pointed at the screen three times.
+  for (const s of surfaces.filter((x) => x.startsWith("capability."))) {
+    check(`${s} is relayed (D311, proposed) - the catalog's generated words, with the guard`, SURFACES[s] === "relay", SURFACES[s]);
   }
   // D309 (the founder's, 2026-11-17). These were pinned and this loop used to say so. Charles asked
   // for the persona to speak about open tickets; they are RELAYED - and nothing else moved with them.
@@ -85,7 +90,8 @@ console.log("=== 1. every persona line is classified, and only those ===");
     check(`${s} is relayed (D309) - not pinned, and not handed over to her own words`, SURFACES[s] === "relay", SURFACES[s]);
   }
   const relayed = Object.entries(SURFACES).filter(([, k]) => k === "relay").map(([s]) => s);
-  check("the ONLY relayed surfaces are the ticket lines and the machine band - two founder decisions, no more", relayed.every((s) => s.startsWith("tickets.") || s === "@machine") && relayed.includes("@machine"), relayed.join());
+  check("the ONLY relayed surfaces are the ticket lines, the filed confirmation, the machine band (the founder's, D308/D309) and the generated capability answer (D311, proposed) - no others", relayed.every((s) => s.startsWith("tickets.") || s.startsWith("capability.") || s === "@machine" || s === "@filed") && relayed.includes("@machine"), relayed.join());
+  check("fallback, filing, off-topic, consent and an executed change are STILL not relayed", !relayed.some((s) => /^(fallback|filing|social)\.|^@(consent|consentVoice|execution|draft)$/.test(s)));
   for (const s of surfaces.filter((x) => x.startsWith("filing."))) {
     check(`${s} is never spoken`, s === "filing.timeout" ? SURFACES[s] === "silent" : SURFACES[s] === "pinned", SURFACES[s]);
   }
@@ -127,6 +133,17 @@ console.log("\n=== 2. no pinned line reaches response.create ===");
     check(`pointer "${name}" names no capability and claims no outcome`, !capWords.some((w) => leaks(w, p) || p.toLowerCase().includes(w.toLowerCase())) && !/\b(fixed|sent|filed|notified|restart|flush|renew|reset)\b/i.test(p.replace(/do not[^.]*\./gi, "")), p);
   }
   check("POINTERS is frozen", Object.isFrozen(POINTERS));
+
+  // D312: an intake question is asked; a draft is pointed at and NOT called sent; a repeat is dropped.
+  const q = personaTurn({ surface: "@intake", text: "And your last name?" });
+  check("a ticket-intake question is ASKED, not pointed at", q.speak === "own" && instructionsOf(q).includes("And your last name?"));
+  const d = personaTurn({ surface: "@draft", text: "Thanks. Here's the ticket I'd open." });
+  check("the draft gets its own pointer, which says it has gone nowhere", d.speak === "pointer" && instructionsOf(d) === POINTERS.draft && /do not say it has gone anywhere/i.test(POINTERS.draft));
+  const a = personaTurn({ surface: undefined, text: "x" }), b = personaTurn({ surface: "something.else", text: "y" });
+  check("the same pointer twice running is a repeat", isRepeatPointer(instructionsOf(a), b) === true);
+  check("a different pointer is not, and neither is an answer", isRepeatPointer(instructionsOf(a), d) === false && isRepeatPointer(instructionsOf(a), q) === false);
+  check("a consent card is NEVER suppressed as a repeat", isRepeatPointer(POINTERS.consent, personaTurn({ surface: "@consent", text: "x" })) === false);
+  check("nothing said yet: nothing is a repeat", isRepeatPointer(null, a) === false);
 }
 
 // ==============================================================================================

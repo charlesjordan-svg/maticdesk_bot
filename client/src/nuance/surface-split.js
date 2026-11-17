@@ -73,12 +73,20 @@ export const SURFACES = Object.freeze({
 
   // ---- pinned.
   "social.offtopic": "pinned",          // a rephrased scope statement is a scope CLAIM (D260).
-  "capability.intro": "pinned",         // D165/D212: a rephrased capability list is a promise the broker will refuse.
-  "capability.consent": "pinned",
-  "capability.noticeOne": "pinned",
-  "capability.noticeSome": "pinned",
-  "capability.boundary": "pinned",
-  "capability.noCatalog": "pinned",
+  // D311 (PROPOSED, 2026-11-17 - AWAITS CHARLES). These were pinned: D165/D212 generate the answer
+  // from the catalog so it cannot drift, and a rephrased list is a promise the broker may refuse.
+  // In his second live session Charles asked what she can do THREE times - "What can you do?",
+  // "Tell me in your own words", "what is Matic's capabilities? Why would I engage Matic ever?" -
+  // and was told "it's on the screen beside me" each time. A product that will not say what it
+  // is for, to the person asking, is failing at something more basic than drift. So the GENERATED
+  // answer is relayed: the words are still the catalog's, and she is told to add nothing to them.
+  // Reversing this is six words below and one loop in the test.
+  "capability.intro": "relay",
+  "capability.consent": "relay",
+  "capability.noticeOne": "relay",
+  "capability.noticeSome": "relay",
+  "capability.boundary": "relay",
+  "capability.noCatalog": "relay",
   // D309 (the founder's, 2026-11-17): "enable her ability to ... speak on ... open tickets". These
   // were PINNED - D288 shares their wording with the band character for character, and a rephrase
   // can imply the desk was told something. They are relayed now: the exact reply is the note she
@@ -107,6 +115,13 @@ export const SURFACES = Object.freeze({
 
   // ---- surfaces that are not persona.json lines.
   "@answer": "persona",                 // the diagnosis, the router's reply, the knowledge base's answer: the persona's job.
+  // D312 (PROPOSED). A ticket-intake QUESTION - "what is your first name?" - is a question, and it
+  // claims nothing. It was untagged, so it was pinned, so in Charles's first session five
+  // questions in a row came out as "It's on the screen beside me" while he answered a form he was
+  // not being asked. She asks it.
+  "@intake": "persona",
+  "@draft": "pinned",                   // the ticket before it is sent: on the screen, and NOT sent - its own pointer says so.
+  "@filed": "relay",                    // "That's filed. Your reference is MD-1042": the hub said so, and D309 covers tickets.
   "@consent": "pinned",                 // the card is the catalog's, assembled by the broker (D128, D130, D248).
   "@consentVoice": "pinned",            // the same card, when it may also be approved by saying so (D310).
   "@execution": "pinned",               // what a change did is an outcome claim (D250's words stay on screen).
@@ -136,6 +151,7 @@ export const POINTERS = Object.freeze({
   abilities: "What you can help with is shown on the screen beside you. Say only that it is on the screen. Do not list anything yourself.",
   // D310: the same pointer as `consent`, plus HOW. The phrase is one voice-consent.js accepts, and a
   // test checks that it is.
+  draft: "The ticket you would open is on the screen beside you. Tell them it is there to check, and that it stays on this PC until they press submit. Do not say it has gone anywhere.",
   consentVoice: "You have put the details of a change you want to make on the screen beside you. Tell them it is there, that nothing happens until they approve it, and that they can approve it with the button or by saying 'yes, approve it'. Do not describe what the change does - the card on the screen does that. Then say nothing more until they answer.",
 });
 
@@ -143,6 +159,7 @@ export const POINTERS = Object.freeze({
 function pointerFor(surface) {
   if (surface === "@consent") return POINTERS.consent;
   if (surface === "@consentVoice") return POINTERS.consentVoice;
+  if (surface === "@draft") return POINTERS.draft;
   if (surface === "@execution") return POINTERS.result;
   if (typeof surface === "string" && surface.startsWith("tickets.")) return POINTERS.tickets;
   if (typeof surface === "string" && surface.startsWith("capability.")) return POINTERS.abilities;
@@ -199,7 +216,7 @@ export function personaTurn({ surface, text, voice = false } = {}) {
   }
 
   if (kind === "persona") {
-    if (surface === "@answer") {
+    if (surface === "@answer" || surface === "@intake") {
       const note = `Tell them this, in plain spoken sentences, without adding to it: ${panelText ?? ""}`;
       // Too long for one note: it is NOT cut. Half an answer is a wrong answer; the whole one is on
       // the screen and the persona says so.
@@ -218,6 +235,22 @@ export function personaTurn({ surface, text, voice = false } = {}) {
     return done("pointer", reply(said), { type: "session.floor.hold", reason: "the user is reading a consent card", ends_on_speech: true });
   }
   return done("pointer", reply(pointerFor(surface)));
+}
+
+/**
+ * Should this turn be left unsaid because it is the SAME pointer she said last? (D312, PROPOSED.)
+ *
+ * Charles's first session, from the service's own transcript: "It's on the screen beside me." five
+ * times running. A pointer said twice in a row tells the user nothing the first did not - and the
+ * prompt's own rule is "if you have nothing to add to what the screen says, say nothing". The
+ * panel still shows every line; only the repeat is dropped. A consent card is never suppressed:
+ * it holds the floor, and each card is a new thing to approve.
+ *
+ * @param {string | null} lastInstructions  the instructions of the last reply that was sent
+ * @param {{ speak: string, event: { response: { instructions: string } } | null, floor: object | null }} turn
+ */
+export function isRepeatPointer(lastInstructions, turn) {
+  return turn.speak === "pointer" && turn.floor === null && turn.event !== null && turn.event.response.instructions === lastInstructions;
 }
 
 /** Sent when the consent card is approved or dismissed. */

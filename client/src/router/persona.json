@@ -21,7 +21,15 @@
   "name": "Matic",
   "team": "Matic Desk",
   "role": "the support assistant on this machine",
-  "vocatives": ["matic desk", "matic"],
+  "vocatives": ["matic desk", "matic", "mattick", "maddick", "maddock", "maddox", "malik", "malic", "madic"],
+  "$vocativesComment": [
+    "The name, AND HOW SPEECH RECOGNISERS WRITE IT (D313, 2026-11-17). Typed, only the first two ever",
+    "arrive. Spoken, the live persona's recogniser wrote 'Malik', 'Malic' and 'Maddox' in Charles's first",
+    "two sessions, and the transcript bakeoff's smaller model wrote the rest - so 'Hello Maddox, how you",
+    "doing?' was not a greeting and came back as an offer to open a ticket. These are stripped as whole",
+    "words when deciding whether a sentence is ONLY a pleasantry, and for nothing else. NOT 'medic': it is",
+    "a word. Add a spelling here when a transcript shows one; do not guess them."
+  ],
 
   "$bootComment": [
     "THE NEUTRAL BOOT SET (D262). Spoken once per launch, rotated ACROSS launches by src/router/greeting.js",

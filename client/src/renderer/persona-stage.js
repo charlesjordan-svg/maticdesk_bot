@@ -29,7 +29,7 @@
  * kept this thin. `client/docs/PERSONA-RENDERER-CHECK.md` is its click-through.
  */
 import { Room, RoomEvent } from "./vendor/livekit-client.esm.mjs";
-import { personaTurn, consentRelease, beforeExecute } from "../nuance/surface-split.js";
+import { personaTurn, consentRelease, beforeExecute, isRepeatPointer } from "../nuance/surface-split.js";
 
 const TOPIC = "nuance_live";
 const enc = new TextEncoder();
@@ -53,6 +53,7 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
   /** @type {object[]} */ let queue = [];
   /** @type {Array<() => void>} */ let audioDoneWaiters = [];
   let closedWaiter = null;
+  /** @type {string | null} */ let lastInstructions = null;
   /** @type {HTMLAudioElement[]} */ let audioEls = [];
   const parts = new Map();
   const seen = new Map();
@@ -104,7 +105,8 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
       return;
     }
     if (type === "session.delegation.created") {
-      devlog(`[persona] the persona handed something off (target ${evt.target ?? evt.delegation?.target ?? "?"}) - recorded, not acted on`);
+      // KEYS ONLY, never values: what a hand-off carries is not yet known, and it may carry the user's words.
+      devlog(`[persona] the persona handed something off (target ${evt.target ?? evt.delegation?.target ?? "?"}; delegation fields: ${Object.keys(evt.delegation ?? {}).join(", ") || "none"}) - recorded, not acted on`);
       return;
     }
     if (type === "error") {
@@ -208,6 +210,12 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
   async function speak(turn) {
     if (phase !== "live") return null;
     const t = personaTurn(turn);
+    // The same pointer she said last is not said again (D312): the panel has the line either way.
+    if (isRepeatPointer(lastInstructions, t)) {
+      devlog(`[persona] ${turn.surface ?? "(untagged)"} -> ${t.kind}/pointer, the same as her last line - not said again`);
+      return t;
+    }
+    if (t.event) lastInstructions = t.event.response.instructions;
     for (const e of t.send) send(e);
     devlog(`[persona] ${turn.surface ?? "(untagged)"} -> ${t.kind}/${t.speak}${t.floor ? " + floor held" : ""}`);
     if (t.event) await audioDone();

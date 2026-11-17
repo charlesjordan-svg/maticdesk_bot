@@ -65,6 +65,23 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
   let stage = null;
   /** @type {null | ((text: string) => void)} */
   let spoken = null;
+  // SPOKEN TURNS ARE TAKEN IN ORDER, NOT DROPPED (D312). `submit()` ignores a sentence that arrives
+  // while another is in flight - right for a Send button, which is disabled meanwhile, and wrong
+  // for a person who keeps talking: Charles's first session lost several turns that way. Each one
+  // waits for the one before. At most two wait; a third replaces the older of them, because a
+  // queue of stale sentences answered one by one is worse than an unanswered one.
+  let chain = Promise.resolve();
+  /** @type {string[]} */
+  const waiting = [];
+  function enqueue(text) {
+    if (waiting.length >= 2) waiting.shift();
+    waiting.push(text);
+    chain = chain.then(async () => {
+      const next = waiting.shift();
+      if (next === undefined) return;
+      try { await submit(next); } catch { /* submit reports its own failures */ }
+    });
+  }
 
   function apply({ phase, mic, reason }) {
     const live = phase === "live";
@@ -105,7 +122,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           // A finished spoken turn goes exactly where a typed one goes.
           // ...unless something is waiting on a spoken answer of its own - a consent card that may
           // be approved aloud (D310). Then the sentence goes there and nowhere else.
-          onUserTurn: (text) => { if (spoken) spoken(text); else void submit(text); },
+          onUserTurn: (text) => { if (spoken) spoken(text); else enqueue(text); },
           onChange: apply,
           devlog,
         });
