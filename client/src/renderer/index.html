@@ -53,6 +53,20 @@
         <!-- The v7 bust (D232). 150px is the size the delivery reserves; `theme` follows the
              panel so the field is knocked out on dark (v7 §05). State is driven by renderer.js. -->
         <matic-avatar id="avatar" state="idle" size="150" theme="light"></matic-avatar>
+        <!-- The live persona (v2, D307). Hidden unless a session is live; the v7 bust above is what
+             shows the rest of the time and what comes back the moment a session ends (Decision C).
+             A rectangle, on purpose: compositing over the desktop waits on the service saying a
+             green screen is available. The label is ours and always present with the face. -->
+        <div class="persona-stage" id="persona-stage" hidden>
+          <video id="persona-video" autoplay playsinline></video>
+          <div class="persona-label">Live video · AI</div>
+        </div>
+        <div class="persona-controls" id="persona-controls" hidden>
+          <button type="button" class="persona-btn" id="persona-toggle">Talk face to face</button>
+          <button type="button" class="persona-btn" id="persona-size" hidden aria-pressed="false">Make the video bigger</button>
+          <button type="button" class="persona-btn" id="persona-mic" hidden aria-pressed="false">Microphone off</button>
+          <div class="persona-mic-note" id="persona-mic-note" hidden></div>
+        </div>
         <div>
           <div class="status-head hubcopy hub-ok">Ready when you are</div>
           <div class="status-head hubcopy hub-unreachable">Ready, with limits</div>

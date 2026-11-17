@@ -47,4 +47,13 @@ contextBridge.exposeInMainWorld("matic", {
   // drive it. `hubStatus` is the same object `hub:link` pushes on every transition.
   hubStatus: () => ipcRenderer.invoke("hub:status"),
   onHubLink: (cb) => ipcRenderer.on("hub:link", (_e, status) => cb(status)),
+
+  // The live persona (D307). The renderer holds the room and the face; MAIN decides whether a
+  // session may start and when the microphone is on (it alone knows the window is visible), and
+  // writes the egress record. `personaMic` takes "user.mute" or "user.unmute" and nothing else.
+  personaStatus: () => ipcRenderer.invoke("persona:status"),
+  personaStart: () => ipcRenderer.invoke("persona:start"),
+  personaMic: (event) => ipcRenderer.invoke("persona:mic", event),
+  personaClosed: (reason) => ipcRenderer.invoke("persona:closed", reason),
+  onPersonaEnd: (cb) => ipcRenderer.on("persona:end", (_e, reason) => cb(reason)),
 });

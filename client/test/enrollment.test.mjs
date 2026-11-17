@@ -180,7 +180,7 @@ try {
     check("ack -> POST /v1/tickets/ack { entryIds } and the hub's count", fetchBodies[3]?.url === "/v1/tickets/ack" && fetchBodies[3].body.entryIds.join(",") === "e1,e2" && ak.ok === true && ak.acknowledged === 2);
     check("a non-array ack sends an empty list rather than throwing", (await writer.ack("e1")).ok === true && fetchBodies[4].body.entryIds.length === 0);
     check("a transport failure is `unreachable`, never a throw", await (async () => { const down = new HubClient({ hubUrl: HUB, capabilities: [], fetchImpl: async () => { throw new Error("fetch failed"); }, onLog: quiet, credential: CRED }); const r = await down.comment("MD-1", "x"); return r.ok === false && r.reason === "unreachable" && /fetch failed/.test(r.detail); })());
-    check("the four writes share one transport (#act) and none is called from HubClient itself", (jsCode(source).match(/return this\.#act\(/g) ?? []).length === 4 && !/this\.(comment|reopen|confirm|ack)\(/.test(jsCode(source)));
+    check("the four ticket writes and the live-session mint (D307) share one transport (#act) and none is called from HubClient itself", (jsCode(source).match(/return this\.#act\(/g) ?? []).length === 5 && !/this\.(comment|reopen|confirm|ack)\(/.test(jsCode(source)));
   }
 
   console.log("\n=== 6. main.js wires it; config.json carries an EMPTY secret; the client now calls /v1/enroll (D274's premise ends) ===");

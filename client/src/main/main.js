@@ -30,6 +30,9 @@ import { marksIn } from "../agent/machine-band.js";
 import { ProfileStore } from "../profile/profile.js";
 import { TicketIntake } from "../ticket/intake.js";
 import { EgressAudit } from "../ticket/egress-audit.js";
+import { openConversation, endConversation } from "../nuance/nuance-session.js";
+import { initialMic, micStep, micWords } from "../nuance/mic-policy.js";
+import { randomUUID as personaRef } from "node:crypto";
 // The two ways this handler can refuse a ticket are both SPOKEN by the avatar, so their wording is
 // persona data (D234/D246) and the reason they failed travels beside it as `detail`.
 import persona from "../router/persona.json" with { type: "json" };
@@ -61,6 +64,12 @@ let agent = null;
 // ticket IPC handlers check that rather than assuming — see the wiring in whenReady.
 let profile = null;
 let egress = null;
+// The live persona (D307). `personaHub` is the hub client when there is one; `personaConfig` is
+// config.json's block; `liveSession` is the ONE session this process may have, or null.
+let personaHub = null;
+let personaConfig = { enabled: false, maxSessionSeconds: 600 };
+/** @type {null | { ref: string, conversationId: string, sessionToken: string, openedAtMs: number, mic: any, name: string|null, host: string|null }} */
+let liveSession = null;
 let hubUrlForTickets = null;
 // D233. Always constructed - a build with no hub gets a link that reports `standalone`, so the
 // renderer's status pill has one shape to read whatever the provider is.
@@ -93,6 +102,32 @@ const log = (line) => {
   // an uncaught-exception dialog on every close (Charles, 2026-09-10). Same guard on hub:link below.
   if (win && !win.isDestroyed()) win.webContents.send("app:log", line);
 };
+
+// ---- the live persona: the pure policies, applied (D303, D307) -----------------------------------
+
+/** One microphone event through mic-policy.js, with its egress lines written. Returns what the renderer applies. */
+function personaMicEvent(type, extra = {}) {
+  if (!liveSession) return { state: "unavailable", words: null, commands: [], refused: "there is no live session" };
+  const step = micStep(liveSession.mic, { type, nowMs: Date.now(), windowVisible: windowVisible(), ...extra });
+  liveSession.mic = step.mic;
+  for (const line of step.egress) egress?.persona(line.event, { sessionRef: liveSession.ref, ...line.detail });
+  if (step.refused) log(`[persona] microphone: ${step.refused}`);
+  return { state: step.mic.state, words: micWords(step.mic.state), commands: step.commands, ...(step.refused ? { refused: step.refused } : {}) };
+}
+
+/** The session is over, for whatever reason. Idempotent. Writes the closing line and ends the conversation. */
+function personaOver(reason) {
+  if (!liveSession) return;
+  const p = liveSession;
+  const nowMs = Date.now();
+  const step = micStep(p.mic, { type: "session.closed", nowMs, reason });
+  for (const line of step.egress) egress?.persona(line.event, { sessionRef: p.ref, ...line.detail });
+  egress?.persona("persona.closed", { sessionRef: p.ref, durationMs: Math.max(0, nowMs - p.openedAtMs), audioSentMs: step.mic.audioSentMs, reason: String(reason ?? "unknown").slice(0, 80) });
+  liveSession = null;
+  log(`[persona] session ${p.ref} over (${reason}) after ${Math.round((nowMs - p.openedAtMs) / 1000)} s; audio was sent for ${Math.round(step.mic.audioSentMs / 1000)} s`);
+  // Best effort, and not awaited: the service ends it on its own too, this just stops the clock sooner.
+  void endConversation({ conversationId: p.conversationId, token: p.sessionToken });
+}
 
 // ---- presence: the pure policy, applied ----------------------------------------------------------
 
@@ -214,6 +249,19 @@ function onWindowShown() {
 }
 
 function onWindowHidden() {
+  // D293 from both sides: nothing is spoken with no visible window, and nothing is LISTENED to.
+  // A live session does not outlive the window - the renderer is told to end it, and the
+  // microphone is closed in the record NOW rather than when the renderer gets round to it.
+  //
+  // MAIN ENDS IT, AND DOES NOT WAIT TO BE TOLD. The first version asked the renderer to close the
+  // session and report back, and on 2026-11-17 a window was closed mid-session and no closing
+  // line was ever written: a hidden window's renderer is the last thing to rely on for stopping a
+  // metered clock and an open microphone. So the record is closed and the conversation ended
+  // HERE, and the renderer is told afterwards so it can drop the room and put the face away.
+  if (liveSession) {
+    personaOver("window-hidden");
+    if (win && !win.isDestroyed()) win.webContents.send("persona:end", "window-hidden");
+  }
   if (win && !win.isDestroyed()) win.webContents.setAudioMuted(true);
   tts?.stop();
   refreshTray();
@@ -277,6 +325,10 @@ async function createWindow() {
     e.preventDefault();
     hideToTray();
   });
+  // A renderer that reloads or dies takes the room with it and cannot say so: main closes the
+  // record and ends the conversation, the same as for a hidden window.
+  win.webContents.on("did-start-navigation", (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame && liveSession) personaOver("renderer-reloaded"); });
+  win.webContents.on("render-process-gone", () => { if (liveSession) personaOver("renderer-gone"); });
   win.on("show", onWindowShown);
   win.on("hide", onWindowHidden);
   win.on("closed", () => { win = null; rendererReady = false; refreshTray(); });
@@ -316,6 +368,12 @@ app.whenReady().then(async () => {
   if (!isPrimary) return;
   const keySource = loadEnvFile();
   const config = JSON.parse(await readFile(join(ROOT, "config.json"), "utf8"));
+  // MATIC_PERSONA=1 turns the live persona on for one launch without editing config.json - the
+  // same convenience MATIC_ENROLLMENT_SECRET is for the secret. It still needs the hub and the key.
+  personaConfig = {
+    enabled: process.env.MATIC_PERSONA === "1" || config.persona?.enabled === true,
+    maxSessionSeconds: Number.isInteger(config.persona?.maxSessionSeconds) && config.persona.maxSessionSeconds > 0 ? config.persona.maxSessionSeconds : 600,
+  };
 
   // ---- privileged half ----
   broker = new InProcessBroker({
@@ -385,6 +443,7 @@ app.whenReady().then(async () => {
       secret: process.env.MATIC_ENROLLMENT_SECRET || config.enrollment?.secret || null,
     };
     const hubClient = cloud;
+    personaHub = cloud;
     // ---- the ticket watch (D288; P4, 2026-09-12) ----
     //
     // Polls GET /v1/tickets on a timer (config `ticketPollMs`, default 60 s, floor 30 s), reads a
@@ -501,6 +560,40 @@ app.whenReady().then(async () => {
   refreshTray();
 
   ipcMain.handle("hub:status", () => hubLink.status());
+
+  // ---- the live persona (D307). Summoned by the user; never started by this process on its own.
+  ipcMain.handle("persona:status", () => ({ enabled: Boolean(personaConfig.enabled && personaHub?.mintNuanceToken), live: Boolean(liveSession) }));
+
+  ipcMain.handle("persona:start", async () => {
+    log("[persona] the user asked for the live video");
+    if (!personaConfig.enabled || !personaHub?.mintNuanceToken) return { ok: false, degrade: true, reason: "disabled" };
+    if (liveSession) return { ok: false, degrade: true, reason: "already" };
+    // D293: a session is speech and a microphone. Neither exists without a visible window.
+    if (!windowVisible()) return { ok: false, degrade: true, reason: "no-visible-window" };
+    const opened = await openConversation({ mint: () => personaHub.mintNuanceToken(), maxSessionSeconds: personaConfig.maxSessionSeconds, log });
+    if (!opened.ok) return { ok: false, degrade: true, stage: opened.stage, reason: opened.reason };
+    if (!windowVisible()) {
+      // It was hidden while the persona warmed up. End what was started; nothing was joined.
+      void endConversation({ conversationId: opened.conversationId, token: opened.sessionToken });
+      return { ok: false, degrade: true, reason: "no-visible-window" };
+    }
+    liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), name: opened.persona, host: opened.host };
+    egress?.persona("persona.opened", { sessionRef: liveSession.ref, persona: opened.persona, host: opened.host, microphone: "off" });
+    // The opening mute is the policy's first command (D303 rule 1); the renderer sends it.
+    const mic = personaMicEvent("session.opened");
+    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic };
+  });
+
+  // The renderer may ask for exactly two things, and `gesture` is true because this channel is
+  // only reachable from the microphone button's click handler. Whether the window is visible is
+  // read HERE, not taken from the renderer.
+  ipcMain.handle("persona:mic", (_e, event) => {
+    log(`[persona] the microphone button asked for ${String(event)}${liveSession ? "" : " with no live session"}`);
+    if (event !== "user.mute" && event !== "user.unmute") return { state: liveSession?.mic.state ?? "unavailable", words: micWords(liveSession?.mic.state ?? "unavailable"), commands: [], refused: "not a microphone event the window may send" };
+    return personaMicEvent(event, { gesture: true });
+  });
+
+  ipcMain.handle("persona:closed", (_e, reason) => { personaOver(typeof reason === "string" ? reason : "closed"); return { ok: true }; });
 
   // ---- IPC: registered BEFORE the window exists, so the renderer cannot ask for a handler
   // that is not there yet. ----
@@ -663,6 +756,7 @@ app.whenReady().then(async () => {
 // The tray's Quit, or the OS: the one path that lets a close through (D293).
 app.on("before-quit", () => {
   isQuitting = true;
+  personaOver("quit");
   hubLink?.stop();
   ticketWatch?.stop();
   tts?.stop();

@@ -450,6 +450,13 @@ export class HubClient {
   }
 
   /** The four writes share one transport, and it is the reads' transport with a body. */
+  /**
+   * Ask the hub for a live-persona session token (D298-D300, D307). The body is {} because the
+   * client chooses nothing: the persona, the prompt and the session's setup are the hub's. The
+   * token is a bearer credential for one conversation for about a minute - DO NOT LOG IT.
+   */
+  async mintNuanceToken() { return this.#act("/v1/nuance/session-token", {}); }
+
   async #act(path, payload) {
     if (!this.available) return { ok: false, reason: "no-hub", detail: "no hub URL is configured on this build" };
     if (!this.credential) return { ok: false, reason: "no-credential", detail: "this endpoint holds no enrollment credential, so the hub would refuse to act: no request was made (D286). See [enroll] in the log" };
@@ -457,10 +464,11 @@ export class HubClient {
       const res = await this.fetch(`${this.hubUrl}${path}`, { method: "POST", headers: this.#headers(), body: JSON.stringify(payload), signal: AbortSignal.timeout(this.timeoutMs) });
       this.link?.noteSuccess();
       const body = await res.json().catch(() => ({}));
-      if (res.status === 200 && body?.ok) return { ...body };
+      // 201 as well as 200: the mint route creates something and says so (D307).
+      if ((res.status === 200 || res.status === 201) && body?.ok) return { ...body };
       const detail = `POST ${this.hubUrl}${path} -> HTTP ${res.status}: ${body?.error ?? "no reason given"}`;
       this.onLog(`[hub] ${detail}`);
-      return { ok: false, reason: "refused", status: res.status, error: body?.error ?? null, state: body?.state ?? null, retryAfterMs: body?.retryAfterMs ?? null, detail };
+      return { ok: false, reason: "refused", status: res.status, error: body?.error ?? null, state: body?.state ?? null, retryAfterMs: body?.retryAfterMs ?? null, code: body?.code ?? null, cap: body?.cap ?? null, detail };
     } catch (err) {
       this.link?.noteFailure(`POST ${path}: ${err.name}`);
       return { ok: false, reason: "unreachable", detail: `POST ${this.hubUrl}${path} failed: ${err.message}` };

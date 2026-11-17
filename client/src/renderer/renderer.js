@@ -27,6 +27,8 @@
  * the LABEL under it that printed the state's name.
  */
 import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
+// The live persona's controls (D307). Its own file - see that file's header for why.
+import { mountPersonaUi } from "./persona-ui.js";
 // D249: what the VOICE gets when that differs from what the screen gets. Pure and separate so a
 // headless test can reach it - renderer.js touches `document` at module scope and no test can.
 import { spokenForm } from "./spoken-form.js";
@@ -560,6 +562,19 @@ async function playRecorded(rec, endState) {
   return true;
 }
 
+/** The surface the NEXT `say()` is for (D305): set by `forPersona()`, read once and cleared by `say()`. */
+let nextSurface = null;
+/** The live persona's controls, mounted further down (D307). Null until then. */
+let personaUi = null;
+
+/**
+ * Names the surface of the `say()` on the next line, for the live persona: a key of `SURFACES`
+ * in src/nuance/surface-split.js. A statement of its own, so that `say(...)` itself reads exactly
+ * as it always has - the tests that pin those calls pin them still. With no live session it does
+ * nothing at all.
+ */
+function forPersona(surface) { nextSurface = surface; }
+
 async function say(text, endState = "idle") {
   const box = reply(text);
   // Shown above, said below. The mouth is driven by the timeline the SPOKEN text produced, so the
@@ -571,6 +586,22 @@ async function say(text, endState = "idle") {
   const said = plainProse(text);
   const heard = spokenForm(said, spokenEnv);
   if (heard !== said) devlog(`[tts] this machine's name, account or address is shown, not spoken (D249)`);
+
+  // D305/D307. WITH A LIVE PERSONA, THE LINE ABOVE IS ON THE PANEL AND THE PERSONA IS NOT HANDED IT.
+  // `personaTurn()` (src/nuance/surface-split.js) decides from the SURFACE what the persona is told:
+  // its own words for chit-chat, the text for an answer, a pointer at the screen for anything
+  // pinned, nothing for the rest. A call site that did not say which surface it is gets the
+  // default, which is pinned. What it is given for an answer is `heard`, D249's redacted form -
+  // the persona is a voice, and a voice does not get this machine's name.
+  // With no live session this block does nothing and everything below is exactly as it was: that
+  // is the degraded channel (Decision C), and it is the same code path it has always been.
+  const surface = nextSurface;
+  nextSurface = null;
+  if (personaUi?.live) {
+    await personaUi.speak({ surface: surface ?? undefined, text: heard });
+    setState(endState);
+    return box;
+  }
 
   // D263. A PRE-RECORDED LINE, IF THERE IS ONE FOR THIS EXACT SENTENCE.
   //
@@ -1204,6 +1235,7 @@ async function handleTurn(text) {
     // ticket number - it follows declining, it does not replace it. Held after speaking because
     // the offer is still open.
     setState("declining");
+    forPersona("@answer");
     const spoken = await say(res.reply, "declining");
     if (res.canFile) {
       // The affordance goes INSIDE the message that made the offer, which is the design's point
@@ -1295,6 +1327,7 @@ async function handleTurn(text) {
       // A ticket that could not be sent is a fault on OUR side - the service desk, the network -
       // not something the assistant tried and could not help with, so `error`, not `apologising`.
       setState("error");
+      forPersona(filed.filed === null ? "filing.timeout" : "filing.unreachable");
       await say(filed.error, "error");
       // `filed: null` means a TIMEOUT — we genuinely do not know. Saying "nothing was filed" there
       // would be a confident guess, and the wrong one leaves a user opening a second ticket.
@@ -1327,6 +1360,7 @@ async function handleTurn(text) {
     done("Nothing has been changed, and nothing was sent. This answer came from a local record.", { executed: false, sent: false });
     renderTickets(res.ticketStatus);
     setState("thinking");
+    forPersona("tickets.some");
     await say(res.reply, "idle");
     setState("idle");
     return;
@@ -1347,6 +1381,7 @@ async function handleTurn(text) {
     checked("Not applicable — nothing was proposed, so there was nothing to check.", "not applicable");
     done("Nothing has been changed. This turn never reached the consent path (D198).", { executed: false, changes: [] });
     setState("thinking");
+    forPersona(res.social.subkind === "capability" ? "capability.intro" : `social.${res.social.subkind}`);
     await say(res.reply, "idle");
     setState("idle");
     return;
@@ -1368,6 +1403,7 @@ async function handleTurn(text) {
       // block under the reply and is deliberately NOT spoken and NOT concatenated into it:
       // "according to keyboard-shortcuts-windows, press Win+Shift+S" said aloud is the avatar
       // claiming provenance, where a separate block is the UI attributing it.
+      forPersona("@answer");
       await say(res.reply, "idle");
       if (citedArticleIds.length) {
         const cite = el("div", "citation");
@@ -1386,6 +1422,7 @@ async function handleTurn(text) {
     // (D205, B7a §2). THE FACE SAYS SO TOO (D232): `declining` is round eyes, narrow mouth, a `?`
     // badge, no bow — composed, never sorry. Held after the reply because the offer is open.
     setState("declining");
+    forPersona("@answer");
     await say(res.reply, "declining");
     note("No company guidance covers this — nothing was filed.");
     return;
@@ -1402,6 +1439,7 @@ async function handleTurn(text) {
       checked("Not applicable — nothing was proposed.", "not applicable");
       done("Nothing has been changed on this machine this turn.", { executed: false, changes: [] });
       setState("apologising");
+      forPersona("@answer");
       await say(`${res.guidance.headline} ${res.guidance.cause}`, "idle");
       todoCard(res.guidance);
       return;
@@ -1461,6 +1499,7 @@ async function handleTurn(text) {
   // where `proposed()` still puts it, and wrong in the avatar's mouth. Nothing is lost by dropping
   // it here: the consent card is the very next thing on screen and it describes the action in the
   // catalog's plain words, which is what this sentence was gesturing at.
+  forPersona("@consent");
   await say(replyText || "I think this is the fix — have a look at what it would do.", "listening");
 
   // The evidence, at the moment it matters, rather than as a row in a band nobody opens - the
@@ -1490,6 +1529,8 @@ async function handleTurn(text) {
   const request = prepared.request;
 
   const approved = await askConsent(request, proposal);
+  // The card has been answered either way: the persona may speak again (D305).
+  personaUi?.releaseFloor();
   if (!approved) {
     consented("You did not approve it. The nonce was never presented back and nothing ran.",
       { nonce: request.nonce, approved: false });
@@ -1500,6 +1541,9 @@ async function handleTurn(text) {
 
   // Consent step 2: the nonce and nothing else. The broker runs what IT rendered.
   setState("accept");
+  // D305: a change that drops the network would take the live session with it mid-sentence. It
+  // is closed FIRST, with a line; everything after this is the built-in face and voice.
+  await personaUi?.beforeExecute(proposal.capabilityId);
   const exec = await window.matic.execute(request.nonce);
   // BEFORE anything says `exec.message`. A fix that changed this machine's address reports the NEW
   // one, which the last probe cannot have seen — and `renew_dhcp` exists to change it (D249).
@@ -1514,12 +1558,14 @@ async function handleTurn(text) {
 
   if (exec.ok) {
     setState("success");
+    forPersona("@execution");
     await say(exec.message, "idle");
   } else if (exec.needsBroker) {
     // A deployment fault - the unprivileged half was asked to do privileged work - so `error`
     // ("a technical fault on our side"), not `escalating`: no ticket was raised (D232).
     setState("error");
     done("It could not run: this half of the app is not allowed to.", exec);
+    forPersona("@execution");
     await say(exec.message, "idle");
     note("That needs the privileged half of this application, which isn't running. Nothing was changed.");
   } else {
@@ -1527,6 +1573,7 @@ async function handleTurn(text) {
     // "Do not put error on a failed fix — that is apologising." The assistant tried and could not
     // help; that is relational, not technical (D232).
     setState("apologising");
+    forPersona("@execution");
     await say(exec.message, "idle");
   }
 }
@@ -1608,6 +1655,13 @@ function applyHubStatus(s) {
   lastHubState = s.state;
 }
 window.matic.onHubLink(applyHubStatus);
+
+// The live persona's controls (D307). Mounted here, after `submit` and `say` exist and before the
+// boot line runs. Everything about it is in persona-ui.js; this file only hands it what it needs.
+personaUi = mountPersonaUi({
+  bridge: window.matic, avatar, note, devlog, setState, submit,
+  stopLocalVoice: () => { try { audioEl.pause(); } catch { /* nothing was playing */ } },
+});
 
 // ═══ input ════════════════════════════════════════════════════════════════════════════════════
 
