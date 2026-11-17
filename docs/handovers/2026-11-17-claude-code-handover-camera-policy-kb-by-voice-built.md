@@ -132,7 +132,7 @@ file spawned. `server/test/db-static.test.mjs` gains 7 checks on `compareLedger(
 | # | What | One line |
 |---|---|---|
 | 1 | ~~**`action` by explicit verb** (brief §2.4 b)~~ | **Answered the same evening: *"Yes, build it."* Built as D326** — `classify()` sets `verb` on an ACTION_VERB match and never on its default; `agent:spoken` passes it; `spokenTurnRoute()` routes `action` with a verb and leaves the default hers. `turn-routing.test.mjs` §8 (12 checks). Not seen live. |
-| 2 | **The orphaned tickets** (brief §3.3) | Nine device rows; today's two tickets sit on superseded enrollments and are invisible to the newest. Revoke the stale devices and leave the tickets unmatched (the `notListed` copy already covers it), or re-point the two at the surviving enrollment? A data edit; not done. |
+| 2 | ~~**The orphaned tickets** (brief §3.3)~~ | **Answered: *"Yes, revoke stale."* Done — see §9.** Three devices revoked (`30d50b0e`, `d4494605`, `b706a7d8`), their three tickets left unmatched; two kept active because each is what a real launch path presents. |
 | 3 | **Camera disclosure** (brief §1.4) | The age check and retention: a question to Nuance support, then G11. |
 
 ## 6. The one launch that answers §1
@@ -174,6 +174,44 @@ Full paths and steps, for Charles or the next session:
   3/3 with the preflight in front. Per-file totals touched: enrollment 47, camera-policy 36,
   turn-routing 74, persona-egress 66, db-static 121.
 - **Commit messages and this document carry no transcript text**; conversation ids only.
+
+## 9. Addendum, the same evening — the revoke, and what the app's own log said about NOT FOUND
+
+**Revoked** (`node bin/devices.mjs revoke devco …`, 3 of 3, audited):
+
+| Device | Key | Created | Last seen | Tickets | Why stale |
+|---|---|---|---|---|---|
+| `30d50b0e` | `ep-8244c3fd…` | 2026-09-13 13:12 | 2026-09-13 13:29 | 1 | a September click-through instance |
+| `d4494605` | `ep-cb48bf03…` | 2026-11-17 03:44 | 05:08 | 1 | enrolled from `Temp\claude\f3a33d2c…\scratchpad\userdata\` — a session's test launch |
+| `b706a7d8` | `ep-91b8c42b…` | 2026-11-17 05:29 | 20:20 | 0 | the same session's `userdata3\` |
+
+Their tickets stay, unmatched. **Kept active, on purpose:**
+
+| Device | Key | Created | Last seen | Tickets | Why kept |
+|---|---|---|---|---|---|
+| `cac7b851` | `ep-bf8689a4…` | 2026-09-13 06:26 | 05:13 today | 1 | the device in the only `enrollment.json` any shell can see, at `C:\Users\Charles\AppData\Roaming\matic-desk-demo\` |
+| `c9a81393` | `ep-036a79e1…` | 2026-11-17 05:15 | seconds ago | 2 | presented on every poll by the Matic Desk running now (pid 80508, started 20:24 by the v2 launcher) |
+
+**What the app's log says about NOT FOUND** (`client/audit/app.log`, `[enroll]` lines): 05:13:04 — read the
+Roaming path, found, `cac7b851`. 05:15:54 — the same path, NOT FOUND, `profile.json` found in the same
+folder, enrolled `c9a81393`, "kept in" that path. 05:43, 05:47, 20:05, 20:24 — the same path, found,
+`c9a81393`. Meanwhile the file at that path holds `cac7b851` with a September mtime whether read
+sandboxed or not; a byte-identical copy sits under
+`AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\matic-desk-demo\` beside a whole second
+Electron profile used at 03:41 today; and a search of all of `C:\Users\Charles` finds **no file holding
+`c9a81393`** although a live process read one four hours ago. **One folder, two views.** The launches that
+come from the v2 launcher under a Claude session read and write a Roaming that this session's shells
+cannot see. The mechanism is not identified: the packaged Claude app redirecting AppData for its children,
+a per-session overlay, or something else. `[VERIFY]`
+
+**Consequence, regardless of mechanism:** a Matic Desk Charles starts from the Desktop shortcut and a
+Matic Desk a session starts from the launcher are, today, **two enrollments of one machine**, and each
+sees only its own tickets. That is the "orphan" effect in one sentence, and it will recur every time a
+session launches the app until the view is understood.
+
+**The decisive experiment is Charles's:** start Matic Desk from the Desktop shortcut, copy the two
+`[enroll]` lines it prints (now thirteen fields), then start it from a session's launcher and diff. The
+launcher's own block is printed from the shell that runs it, so it will show which view that shell has.
 
 ## 8. Verification register
 

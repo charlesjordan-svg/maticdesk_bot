@@ -4732,9 +4732,28 @@ evening, D326, §5.62p below.**
 (2) **The orphaned tickets** — nine rows in `control.devices` where there should be about two, three
 created within two hours on 2026-11-17 each with its own key, the newest with no tickets and the day's
 two on superseded enrollments, so *"where are my tickets?"* answers from the `notListed` branch: true and
-misleading. Revoke the stale devices and leave the tickets unmatched, or re-point today's two at the
-surviving enrollment — **a data edit, Charles's, not done**. (3) **The cause of `enrollment.json NOT FOUND`
-is still not known.** What is built is the measurement: `startupReport()` in `enrollment.js` prints
+misleading. **Charles, the same evening: *"Yes, revoke stale."* Done 2026-11-17 ~22:25 UTC by
+`bin/devices.mjs revoke devco …` (audited `device.revoke`): `30d50b0e` / `ep-8244c3fd…` (2026-09-13, last
+seen that day, 1 ticket), `d4494605` / `ep-cb48bf03…` (03:44, enrolled from a Claude session's scratch
+`userdata\` folder, 1 ticket) and `b706a7d8` / `ep-91b8c42b…` (05:29, the same session's `userdata3\`,
+0 tickets). Their three tickets stay, unmatched; the `notListed` copy covers them. KEPT active, on purpose:
+`cac7b851` / `ep-bf8689a4…` (2026-09-13, 1 ticket) — the device in the enrollment.json every shell can see
+at `%APPDATA%\matic-desk-demo\`; and `c9a81393` / `ep-036a79e1…` (05:15, 2 tickets) — the device the
+Matic Desk running at the time (pid 80508, started 20:24 by the v2 launcher) presents on every poll.
+Whether those two are one machine seen two ways is item (3); revoking either blinds a real launch path.**
+(3) **The cause of `enrollment.json NOT FOUND` is narrowed but not known.** From `client/audit/app.log`:
+at 05:13:04 a launch read `C:\Users\Charles\AppData\Roaming\matic-desk-demo\enrollment.json`, found it,
+and got `cac7b851`; at 05:15:54 the next launch read the SAME path, said NOT FOUND, found `profile.json`
+in the same folder, enrolled `c9a81393` and wrote it there; every launch since (05:43, 05:47, 20:05, 20:24)
+found `c9a81393` at that path. Yet the file at that path — read sandboxed and unsandboxed, and a copy of it
+under `AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\matic-desk-demo\` (a complete
+second Electron profile whose `DevToolsActivePort` was written 2026-11-17 03:41) — holds `cac7b851`
+with a 2026-09-13 mtime, and a profile-wide search finds **no file anywhere holding `c9a81393`**. One
+folder, two views: the launches from the v2 launcher under a Claude session read and write a Roaming
+that no shell of this session can see, and that is where the file came and went. The mechanism (the
+packaged Claude app's AppData redirection, a per-session overlay, or something else) is `[VERIFY]`.
+**The decisive experiment is Charles's, not a session's:** start Matic Desk from the Desktop shortcut,
+read the `[enroll]` block it prints, then start it from a Claude session's launcher and diff. What is built is the measurement: `startupReport()` in `enrollment.js` prints
 thirteen named fields at startup (userData, app name, packaged, exe, cwd, OS user, elevation via
 `IsUserAnAdmin`, the path, exists, a READ, mtime, pid, process start) and `start-v2.ps1` prints the same
 fields from outside before it starts the app, refuses to hand over to an instance it could not stop, and
