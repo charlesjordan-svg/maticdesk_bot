@@ -93,6 +93,7 @@ import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
 import { sessionHandler } from "./sessions/route.js";
+import { nuanceTokenHandler } from "./nuance/route.js";
 import { retrievalHealthReader } from "./kb/health.js";
 import { enrollHandler, IDENTITY_NOTE } from "./devices/route.js";
 import { authenticateDeviceCredential } from "./devices/enrollment.js";
@@ -344,7 +345,7 @@ function adminAuthReport(boundAddress) {
   };
 }
 
-export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true, ticketTenant = null, admin = true, tls = null }) {
+export function createHubServer({ provider, hubProvider = "local", log = console.log, embedder = null, tenantLabel = null, kb = true, ticketTenant = null, admin = true, tls = null, nuance = null }) {
   const handleTurn = turnHandler({ provider, hubProvider, log });
   // Built even when `kb` is false, so the route can answer 503 with a reason rather than 404 with
   // none: "this hub has no knowledge base" and "no such route" are different facts for a client.
@@ -363,6 +364,10 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // D237/D239: the endpoint's session lifecycle. SAME tenant resolution as tickets, so a session and
   // the ticket it produces land in one schema without either side naming it (src/sessions/route.js).
   const handleSession = sessionHandler({ tenantSchema: ticketTenant, log });
+  // D298-D300 (PROPOSED, 2026-11-16): the hub mints a live-persona session token, so the API key
+  // never reaches an endpoint. Built unconditionally, like handleAsk: with no key or no prompt it
+  // answers 503 with the reason rather than 404 with none (src/nuance/route.js).
+  const handleNuanceToken = nuanceTokenHandler({ apiKey: nuance?.apiKey ?? null, prompt: nuance?.prompt ?? null, ...(nuance?.persona ? { persona: nuance.persona } : {}), log });
   // D236: what retrieval would do RIGHT NOW — the embedder verified live (not described from its
   // constructor), the corpus, and the resulting mode. ONE reader for /v1/health AND the console's
   // degraded-retrieval banner, so the two cannot disagree (src/kb/health.js).
@@ -464,6 +469,10 @@ export function createHubServer({ provider, hubProvider = "local", log = console
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
       return handleEnroll(req, res, send);
     }
+    if (pathname === "/v1/nuance/session-token") {
+      if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
+      return handleNuanceToken(req, res, send, { device: auth.principal });
+    }
     if (req.url === "/v1/session") {
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
       return handleSession(req, res, send, { device: auth.principal });
@@ -546,6 +555,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "POST", path: "/v1/turn", what: "propose a machine change. STATELESS - reaches no database", body: { text: "string", probe: "object", capabilities: "array (the endpoint sends its own tool schemas; the hub holds no catalog)" } },
           { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
           { method: "POST", path: "/v1/enroll", what: "a device asks to join a tenant (B3). The one route that DOES take a tenant from the client - the enrollment secret is what authenticates the claim. The response that makes the device active carries its credential ONCE (D282)", body: { tenant: "string (the tenant's slug)", deviceKeyId: "string (opaque device identity)", secret: "string (the tenant's enrollment secret)", mode: "'standalone' | 'joined' (optional)" } },
+          { method: "POST", path: "/v1/nuance/session-token", what: "mint a short-lived token for a live persona session (D298-D300, PROPOSED). The body is {} - the persona, the prompt, the session's setup and the end-user id are the hub's and a body naming one is refused. Credential required on EVERY listener; capped per install per hour and per tenant per day; 503 with the reason when the hub has no API key or no prompt", body: {} },
           { method: "POST", path: "/v1/session", what: "the endpoint's conversation began / was confirmed fixed / was confirmed not fixed / ended (D237, D239). The row is written at BEGIN, defaulting to unresolved; 'escalated' is set by POST /v1/ticket, never by this route; 'suppressed' is reserved", body: { event: "'begin' | 'resolved' | 'not_fixed' | 'end'", sessionId: "uuid, minted by the endpoint - SELF-ASSERTED", startedAt: "ISO timestamp (optional)", category: "slug (optional, with resolved: the capability confirmed)", machineName: "string (optional)" } },
         ],
         // The admin console (B2). A separate field, NOT an entry in routes: it is a browser surface
@@ -570,7 +580,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     return send(404, {
       ok: false,
       error: `no such route: ${req.method} ${req.url}`,
-      routes: ["GET /", "GET /v1/health", "GET /v1/tickets", "GET /v1/tickets/:reference", "POST /v1/ticket/:reference/comment", "POST /v1/ticket/:reference/reopen", "POST /v1/ticket/:reference/confirm", "POST /v1/tickets/ack", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session"],
+      routes: ["GET /", "GET /v1/health", "GET /v1/tickets", "GET /v1/tickets/:reference", "POST /v1/ticket/:reference/comment", "POST /v1/ticket/:reference/reopen", "POST /v1/ticket/:reference/confirm", "POST /v1/tickets/ack", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session", "POST /v1/nuance/session-token"],
     });
   });
 
@@ -597,7 +607,20 @@ if (isMain) {
     const embedder = embeddingProviderFromEnv();
     const tenantLabel = process.env.MATIC_KB_TENANT_LABEL ?? null;
     const ticketTenant = await resolveTicketTenant(console.log);
-    const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel, ticketTenant, tls: plan.tls });
+    // The live persona (D298-D300, PROPOSED). The key is read HERE and handed to one handler; it is
+    // an environment variable because that is the only secret store this hub has - the same place
+    // MATIC_DB_URL's password lives. No key, or no prompt file, and the route answers 503.
+    const nuance = {
+      apiKey: process.env.MATIC_NUANCE_API_KEY?.trim() || null,
+      persona: process.env.MATIC_NUANCE_PERSONA?.trim() || null,
+      prompt: null,
+    };
+    if (process.env.MATIC_NUANCE_PROMPT_FILE) {
+      try { nuance.prompt = readFileSync(process.env.MATIC_NUANCE_PROMPT_FILE, "utf8"); }
+      catch (err) { console.log(`[nuance] MATIC_NUANCE_PROMPT_FILE could not be read (${err.message}); live sessions stay off`); }
+    }
+    console.log(`[nuance] live sessions: ${nuance.apiKey && nuance.prompt ? `ON, persona ${nuance.persona ?? "mira"}` : `off (${!nuance.apiKey ? "no MATIC_NUANCE_API_KEY" : "no readable MATIC_NUANCE_PROMPT_FILE"})`}`);
+    const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel, ticketTenant, tls: plan.tls, nuance });
 
     // Verify the embedder, and do not exit if it fails. A hub with no embedder still answers through
     // the lexical leg, which is the degraded mode the endpoint sees when the embedder is down (B7a
