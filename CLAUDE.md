@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D311 onward**, as of D310, register §5.62f, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D315 onward**, as of D314, register §5.62g, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -147,7 +147,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 2473 assertions across 31 files (2026-11-17).
+#                            headless, no key, no admin, no hub: 2499 assertions across 31 files (2026-11-17).
 #                            node eval/run-spoken-bakeoff.mjs is the v2 TRANSCRIPT bakeoff (no model): spoken forms of
 #                            the 40 cases through routeTier0() + classify(). --asr <file> reads real ASR output made
 #                            by py -3 eval/asr-roundtrip.py (Piper -> faster-whisper, ~15 min). Numbers and limits:
@@ -969,6 +969,13 @@ the surface split (D305) and the prompt (D306).
 - **The persona answers on its own under `delegation: client`** and hands work off with
   `session.delegation.created`, which the client currently ignores. Do not write "Nuance never
   reasons" anywhere: it is not true of what the client does not route (register §5.62f).
+- **To see what the persona actually SAID, fetch the service's transcript:**
+  `GET https://api.nuancelabs.ai/conversation/<id>/transcript` with the API key; the id is in the
+  client's log (`[persona] conversation <id> admitted`). It is the only record of her words, and the
+  first one read (2026-11-17) showed her inventing actions - "Checking the mailbox", "sending that
+  through" (register §5.62g). **Read one after any change to the prompt or the surface split.** It
+  holds the user's words too: do not copy one into the repo.
+- **D311 (the capability answer relayed) is PROPOSED and awaits Charles.** Do not treat it as his.
 - The mint caps and ledger are IN MEMORY (D300). A table is owed before any deployment.
 - **The session IS built (D307) and ships OFF** (`config.json` `persona.enabled`; `MATIC_PERSONA=1` for one
   launch). `client/docs/PERSONA-RENDERER-CHECK.md` is its click-through - rows 6 to 9 have never been run.

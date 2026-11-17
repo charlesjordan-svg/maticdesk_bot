@@ -520,3 +520,55 @@ over her; a refusal by voice; voice approval of a second capability (`restart_se
 to a model. **Not heard by this session:** anything.
 **A machine change was made on this computer during testing:** the DNS cache was flushed, twice, both
 approved by Charles (once by button at 04:12, once by voice at 04:14).
+
+
+---
+
+# Fifth pass — 2026-11-17: reading what she actually said
+
+Charles: *"What do you recommend? is our model better? Review the logs and make improvements."*
+Register **D311–D314**, §5.62g; next free **D315**.
+
+## A. The evidence
+
+The client's logs record event types and word counts, never words — by design. But **Nuance keeps a
+transcript of every conversation**, both sides, and serves it to the API key. Those were fetched for
+the sessions Charles ran and read turn by turn. Nothing from them is copied into the repo beyond the
+short quotations in the register.
+
+## B. Is our model better?
+
+**On substance, yes, clearly. On conversation, hers is. Use each for what it is good at.**
+
+| | The persona's own model | Matic's router |
+|---|---|---|
+| Knows the machine, the KB, the tickets | **No.** Nothing | Yes |
+| The email problem | *"mailbox full? … Let me see what's eating the space."* *"Checking the mailbox."* — **invented** | *"I can't fix this one from here. It needs desktop support. I can open a ticket."* — true |
+| "Go ahead", no card on screen | *"Okay, sending that through. It's already going."* — **invented** | nothing to approve, so nothing |
+| Small talk, her own name, ending the call | Natural: *"It's Matic, actually."* | Templates |
+| A ticket intake | — | Correct, and voiced as *"It's on the screen beside me"* five times (my default, D312) |
+
+The recommendation is **not** "route everything": that was tried by accident and is the five pointers
+in a row. It is: **she converses; Matic decides and acts; she is told plainly that she cannot see or
+do anything, and says what she is handed.**
+
+## C. What was changed
+
+D311 (proposed, **awaits Charles**) the capability answer is relayed. D312 intake questions are asked,
+the draft has its own pointer, a repeated pointer is dropped, spoken turns queue. D313 the name as
+recognisers write it, and the name alone. D314 the prompt. Client **2499 / 31**; server 838 / 8.
+
+## D. Checked
+
+The email sentence, replayed through a synthetic microphone on the new prompt: *"Okay, I'll look into
+the email problem for you."*, then the router's answer. Typed *"what can you do"*: the catalog's words,
+relayed. Typed *"matic"*: a greeting. **Once each.** The amended prompt was accepted at mint.
+
+## E. Not done
+
+- **Her hand-offs are still dropped.** Their shape is now known (`id`, `type`, `target`).
+- **A real voice has not been through the new prompt.** Charles's next session is that test.
+- **Intake by voice, the queue, the repeat rule and the new vocatives have not been heard**, only
+  unit-tested (and the name rule typed once).
+- **Retention.** A transcript of everything said is held by the service and readable with the key.
+  How long is still not known, and it is now the first thing a security review will find.
