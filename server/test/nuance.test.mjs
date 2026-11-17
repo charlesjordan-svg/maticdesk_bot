@@ -248,5 +248,15 @@ console.log("\n=== 10. the camera is the hub's to allow, and off unless it does 
   check("…and that seeing someone is not a licence to remark on them", /Do not\s+remark on how they look/.test(prompt));
 }
 
+// ==============================================================================================
+console.log("\n=== 11. she answers to her name however it was transcribed (D322) ===");
+{
+  const prompt = readFileSync(join(HERE, "../src/nuance/persona-prompt.txt"), "utf8");
+  check("the prompt tells her that the text in front of her gets her name wrong", /YOUR NAME/.test(prompt) && /that text\s+often gets your name wrong/.test(prompt));
+  check("…names the spellings the service's own transcripts show", ["Malik", "Maddox", "Maddie"].every((n) => prompt.includes(n)));
+  check("…and tells her never to correct anyone on it", /Never correct anyone on your name/.test(prompt));
+  check("it still fits the service's limit comfortably", prompt.trim().length < 6000, String(prompt.trim().length));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

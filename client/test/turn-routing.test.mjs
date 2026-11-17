@@ -122,5 +122,19 @@ console.log("\n=== 4. the camera, on the microphone's terms (D319) ===");
   check("the launcher is where the camera is allowed - the repository's config does not turn it on", !/"camera"\s*:\s*true/.test(read("../config.json")));
 }
 
+// ==============================================================================================
+console.log("\n=== 5. the self-view is a corner, not the frame ===");
+{
+  const css = read("../src/renderer/panel/matic-panel.app.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const general = css.match(/\.persona-stage video \{[^}]*\}/)?.[0] ?? "";
+  const self = css.match(/\.persona-stage video\.persona-self \{[^}]*\}/)?.[0] ?? "";
+  check("the persona's video fills the frame", /width:100%/.test(general) && /height:100%/.test(general));
+  // 2026-11-17: `.persona-self` alone lost to `.persona-stage video` and the user's own picture
+  // was drawn full-frame, over her face.
+  check("the self-view's rule is MORE specific than the frame-filling one, so it cannot be overridden by it", self.length > 0 && !/^\.persona-self \{/m.test(css));
+  check("it is small", /width:(1\d|2\d|3[0-3])%/.test(self) && !/height:100%/.test(self), self);
+  check("it sits in the LOWER LEFT, above the label bar", /left:\d+px/.test(self) && /bottom:\d+px/.test(self) && /right:auto/.test(self) && /top:auto/.test(self));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
