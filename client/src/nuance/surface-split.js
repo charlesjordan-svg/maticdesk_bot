@@ -23,6 +23,11 @@
  *
  *   persona   the persona speaks, in its own words. Chit-chat (from a RULE - the template's words
  *             are not sent), and the router's or the knowledge base's actual answer.
+ *   relay     (D308/D309, THE FOUNDER'S, 2026-11-17) the panel shows the exact text AND the
+ *             persona is handed that text to tell the user, told not to add to it or change what
+ *             it claims. This is a deliberate exception to "no load-bearing string", made by
+ *             Charles after his first live session, for two surfaces: the tickets filed from this
+ *             machine and the machine band. She will rephrase them; the panel is still the record.
  *   pinned    the panel shows the exact text; the persona is handed a POINTER at the screen and
  *             nothing of the text.
  *   silent    the panel shows it; the persona is handed nothing at all.
@@ -45,7 +50,7 @@
  * nothing but its key names' sake and reads no clock, no network and no DOM.
  */
 
-export const SURFACE_KINDS = Object.freeze(["persona", "pinned", "silent", "degraded"]);
+export const SURFACE_KINDS = Object.freeze(["persona", "relay", "pinned", "silent", "degraded"]);
 
 /** Nuance's bound on `response.instructions`. */
 export const INSTRUCTIONS_MAX = 2000;
@@ -74,15 +79,19 @@ export const SURFACES = Object.freeze({
   "capability.noticeSome": "pinned",
   "capability.boundary": "pinned",
   "capability.noCatalog": "pinned",
-  "tickets.item": "pinned",             // D288: shared with the band character for character.
-  "tickets.itemKnown": "pinned",
-  "tickets.some": "pinned",
-  "tickets.someKnown": "pinned",
-  "tickets.notListed": "pinned",
-  "tickets.noneListed": "pinned",
-  "tickets.unseen": "pinned",
-  "tickets.none": "pinned",
-  "tickets.unavailable": "pinned",
+  // D309 (the founder's, 2026-11-17): "enable her ability to ... speak on ... open tickets". These
+  // were PINNED - D288 shares their wording with the band character for character, and a rephrase
+  // can imply the desk was told something. They are relayed now: the exact reply is the note she
+  // speaks from, and the band beside her is still the wording that counts.
+  "tickets.item": "relay",
+  "tickets.itemKnown": "relay",
+  "tickets.some": "relay",
+  "tickets.someKnown": "relay",
+  "tickets.notListed": "relay",
+  "tickets.noneListed": "relay",
+  "tickets.unseen": "relay",
+  "tickets.none": "relay",
+  "tickets.unavailable": "relay",
   "fallback.hubUnreachable": "pinned",  // the fix is that it names BOTH things; a summary drops one (D244).
   "fallback.hubNoAnswer": "pinned",
   "filing.noDestination": "pinned",     // persona.json rule 2. An outcome is on the panel or it is nowhere.
@@ -99,8 +108,14 @@ export const SURFACES = Object.freeze({
   // ---- surfaces that are not persona.json lines.
   "@answer": "persona",                 // the diagnosis, the router's reply, the knowledge base's answer: the persona's job.
   "@consent": "pinned",                 // the card is the catalog's, assembled by the broker (D128, D130, D248).
+  "@consentVoice": "pinned",            // the same card, when it may also be approved by saying so (D310).
   "@execution": "pinned",               // what a change did is an outcome claim (D250's words stay on screen).
-  "@machine": "silent",                 // the band, the rails, the marks: never narrated (D245, D258).
+  // D308 (the founder's, 2026-11-17): "speak on the info from the 'what I can see about this machine'
+  // tab". Was SILENT (D245: the band is never narrated). Relayed now - and only the sentence
+  // src/agent/machine-summary.js builds from the band's own rows, when the user ASKS. Nothing
+  // narrates the band unprompted, and the computer's name, the account and its addresses are still
+  // never said (D249): they are left out of that sentence and redacted again by say().
+  "@machine": "relay",
 });
 
 /** @param {unknown} surface */
@@ -119,11 +134,15 @@ export const POINTERS = Object.freeze({
   result: "What happened is written on the screen beside you. Say only that it is on the screen. Do not say whether anything worked, and do not describe it.",
   tickets: "Their tickets are listed on the screen beside you. Say only that they are listed there. Do not say what state any ticket is in, and do not say anyone has been told anything.",
   abilities: "What you can help with is shown on the screen beside you. Say only that it is on the screen. Do not list anything yourself.",
+  // D310: the same pointer as `consent`, plus HOW. The phrase is one voice-consent.js accepts, and a
+  // test checks that it is.
+  consentVoice: "You have put the details of a change you want to make on the screen beside you. Tell them it is there, that nothing happens until they approve it, and that they can approve it with the button or by saying 'yes, approve it'. Do not describe what the change does - the card on the screen does that. Then say nothing more until they answer.",
 });
 
 /** Which pointer a pinned surface gets. Anything not named gets the plainest one. */
 function pointerFor(surface) {
   if (surface === "@consent") return POINTERS.consent;
+  if (surface === "@consentVoice") return POINTERS.consentVoice;
   if (surface === "@execution") return POINTERS.result;
   if (typeof surface === "string" && surface.startsWith("tickets.")) return POINTERS.tickets;
   if (typeof surface === "string" && surface.startsWith("capability.")) return POINTERS.abilities;
@@ -151,8 +170,9 @@ function reply(instructions) {
 /**
  * One turn's worth of what to send the persona and what to show on the panel.
  *
- * @param {{ surface?: string, text?: string }} turn
- *   `surface` is a key of SURFACES; `text` is the exact line the product produced for it.
+ * @param {{ surface?: string, text?: string, voice?: boolean }} turn
+ *   `surface` is a key of SURFACES; `text` is the exact line the product produced for it;
+ *   `voice` (or the surface `@consentVoice`) says this consent card may be approved aloud (D310).
  * @returns {{
  *   kind: "persona" | "pinned" | "silent" | "degraded",
  *   speak: "own" | "pointer" | "none",
@@ -164,12 +184,19 @@ function reply(instructions) {
  *   `panelText` is `text`, untouched - the panel always shows the exact line. `send` is `floor`
  *   then `event`, whichever exist, in the order to send them.
  */
-export function personaTurn({ surface, text } = {}) {
+export function personaTurn({ surface, text, voice = false } = {}) {
   const kind = surfaceOf(surface);
   const panelText = typeof text === "string" ? text : null;
   const done = (speak, event, floor = null) => ({ kind, speak, panelText, event, floor, send: [floor, event].filter(Boolean) });
 
   if (kind === "silent" || kind === "degraded") return done("none", null);
+
+  if (kind === "relay") {
+    // D308/D309. The exact text is the note; she is told to add nothing and change no claim in it.
+    const note = `Tell them this, in plain spoken sentences. Do not add to it, and do not change what it says has or has not happened: ${panelText ?? ""}`;
+    if (!panelText || note.length > INSTRUCTIONS_MAX) return done("pointer", reply(pointerFor(surface)));
+    return done("own", reply(note));
+  }
 
   if (kind === "persona") {
     if (surface === "@answer") {
@@ -185,9 +212,10 @@ export function personaTurn({ surface, text } = {}) {
   }
 
   // pinned
-  if (surface === "@consent") {
+  if (surface === "@consent" || surface === "@consentVoice") {
     // Functional analysis §2.2: keep quiet while they read. The hold goes first.
-    return done("pointer", reply(POINTERS.consent), { type: "session.floor.hold", reason: "the user is reading a consent card", ends_on_speech: true });
+    const said = voice || surface === "@consentVoice" ? POINTERS.consentVoice : POINTERS.consent;
+    return done("pointer", reply(said), { type: "session.floor.hold", reason: "the user is reading a consent card", ends_on_speech: true });
   }
   return done("pointer", reply(pointerFor(surface)));
 }

@@ -21,6 +21,7 @@ import { escalationReply } from "./prompt.js";
 import { createRestartGate, lastRestartedPhrase, memoryWords, restartAdvice, DEFAULT_RESTART_POLICY } from "./restart-signal.js";
 import { describeVolumes, DEFAULT_DISK_POLICY } from "./disk-space.js";
 import { machineBandGroups, marksIn } from "./machine-band.js";
+import { machineSummaryReply } from "./machine-summary.js";
 
 export class Agent {
   /**
@@ -280,6 +281,18 @@ export class Agent {
         facts: panel,
         reply,
       };
+    }
+
+    // ---- D308: "how is my computer doing?" is answered from the machine band's own rows. --------
+    //
+    // No provider call, no proposal, nothing sent: `panel.groups` is what the band draws, decided
+    // by the code that owns each threshold, and the sentence is built from those rows and nothing
+    // else - so the voice and the band cannot describe one machine two ways. It names no computer,
+    // account or address (D249) and gives no advice (D256).
+    if (kind.kind === "machine") {
+      const reply = machineSummaryReply(panel.groups);
+      this.onLog(`[router] ${kind.why} - no provider call, NO PROPOSAL`);
+      return { ok: true, machineStatus: { marks: marksIn(panel.groups) }, facts: panel, reply };
     }
 
     // ---- D211: a question goes to the knowledge base, not to a proposal. ---------------------

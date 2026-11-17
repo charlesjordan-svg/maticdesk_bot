@@ -56,4 +56,7 @@ contextBridge.exposeInMainWorld("matic", {
   personaMic: (event) => ipcRenderer.invoke("persona:mic", event),
   personaClosed: (reason) => ipcRenderer.invoke("persona:closed", reason),
   onPersonaEnd: (cb) => ipcRenderer.on("persona:end", (_e, reason) => cb(reason)),
+  // D310: a consent card answered by VOICE is written down, with the words heard. The broker's own
+  // audit line cannot say how the button was pressed - it sees a nonce and nothing else.
+  recordVoiceConsent: (decision) => ipcRenderer.invoke("consent:voice", decision),
 });

@@ -29,6 +29,8 @@
 import { TTSVisemeDriver } from "./vendor/tts-viseme-driver.js";
 // The live persona's controls (D307). Its own file - see that file's header for why.
 import { mountPersonaUi } from "./persona-ui.js";
+// D310: which fixes may be approved aloud, and what counts as saying so. Pure, and tested.
+import { voiceApprovable, voiceVerdict } from "../nuance/voice-consent.js";
 // D249: what the VOICE gets when that differs from what the screen gets. Pure and separate so a
 // headless test can reach it - renderer.js touches `document` at module scope and no test can.
 import { spokenForm } from "./spoken-form.js";
@@ -1181,14 +1183,36 @@ function askConsent(request, proposal) {
   scrollDown();
 
   return new Promise((resolve) => {
-    const settle = (approved) => {
-      row.replaceWith(el("div", "turn-note", approved ? "Approved by you." : "Not approved — nothing was changed."));
+    let settled = false;
+    const settle = (approved, heard = null) => {
+      if (settled) return;
+      settled = true;
+      // However it was answered, nothing is listening for a spoken answer any more.
+      personaUi?.onSpokenTurn(null);
+      const byVoice = heard !== null;
+      if (byVoice) void window.matic.recordVoiceConsent?.({ nonce: request.nonce, capabilityId: proposal.capabilityId, verdict: approved ? "approve" : "deny", heard });
+      row.replaceWith(el("div", "turn-note", byVoice
+        ? (approved ? "Approved by you, by voice." : "Not approved — you said no, and nothing was changed.")
+        : (approved ? "Approved by you." : "Not approved — nothing was changed.")));
       headState.textContent = approved ? "You approved this" : "You did not approve this";
       setBusy(approved);
       resolve(approved);
     };
     approve.onclick = () => settle(true);
     deny.onclick = () => settle(false);
+    // D310 (the founder's): during a live session a LOW-RISK fix may be approved by saying so. The
+    // rule is voice-consent.js's and is deliberately narrow - a change that drops the network is
+    // never armed, "yes" alone approves nothing, and a sentence that is not clearly one or the
+    // other leaves the card exactly where it is. Armed HERE, after the persona has finished saying
+    // the card is on screen, so her own words coming back through the speakers cannot answer it.
+    if (personaUi?.live && voiceApprovable(proposal.capabilityId)) {
+      personaUi.onSpokenTurn((text) => {
+        const verdict = voiceVerdict(text);
+        devlog(`[consent] a spoken answer while the card is up: ${verdict}`);
+        if (verdict === "approve") settle(true, String(text));
+        else if (verdict === "deny") settle(false, String(text));
+      });
+    }
   });
 }
 
@@ -1340,6 +1364,21 @@ async function handleTurn(text) {
         ? "The service desk did not answer in time, so whether the ticket was stored is unknown. Quote nothing and tell me if you want to try again."
         : "Nothing was filed.", { unknown: filed.filed === null });
     }
+    return;
+  }
+
+  if (res.machineStatus) {
+    // D308: "how is my computer doing?" - answered from the machine band's own rows. The band is
+    // opened so that what is said and what is shown are in front of the user together; the
+    // sentence is built agent-side from those rows and from nothing else.
+    proposed("Nothing. This turn was answered from what this machine's own check found.", { machineStatus: res.machineStatus });
+    checked("Not applicable — nothing was proposed.", "not applicable");
+    done("Nothing has been changed, and nothing was sent.", { executed: false, sent: false });
+    if (root.dataset.band !== "machine") await toggleBand("machine");
+    setState("thinking");
+    forPersona("@machine");
+    await say(res.reply, "idle");
+    setState("idle");
     return;
   }
 
@@ -1499,7 +1538,8 @@ async function handleTurn(text) {
   // where `proposed()` still puts it, and wrong in the avatar's mouth. Nothing is lost by dropping
   // it here: the consent card is the very next thing on screen and it describes the action in the
   // catalog's plain words, which is what this sentence was gesturing at.
-  forPersona("@consent");
+  // "@consentVoice" tells her it may be approved aloud - only when it may (D310).
+  forPersona(personaUi?.live && voiceApprovable(proposal.capabilityId) ? "@consentVoice" : "@consent");
   await say(replyText || "I think this is the fix — have a look at what it would do.", "listening");
 
   // The evidence, at the moment it matters, rather than as a row in a band nobody opens - the

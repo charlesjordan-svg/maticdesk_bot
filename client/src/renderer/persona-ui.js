@@ -63,6 +63,8 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
   }
   /** @type {any} */
   let stage = null;
+  /** @type {null | ((text: string) => void)} */
+  let spoken = null;
 
   function apply({ phase, mic, reason }) {
     const live = phase === "live";
@@ -101,7 +103,9 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           bridge,
           videoEl: els.video,
           // A finished spoken turn goes exactly where a typed one goes.
-          onUserTurn: (text) => { void submit(text); },
+          // ...unless something is waiting on a spoken answer of its own - a consent card that may
+          // be approved aloud (D310). Then the sentence goes there and nowhere else.
+          onUserTurn: (text) => { if (spoken) spoken(text); else void submit(text); },
           onChange: apply,
           devlog,
         });
@@ -121,6 +125,8 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
     get live() { return Boolean(stage?.live); },
     speak: (turn) => stage.speak(turn),
     releaseFloor: () => { stage?.releaseFloor(); },
+    /** Route the user's next spoken turns to `fn` instead of the conversation; null puts it back. */
+    onSpokenTurn: (fn) => { spoken = typeof fn === "function" ? fn : null; },
     beforeExecute: async (capabilityId) => (stage ? stage.beforeExecute(capabilityId) : false),
   };
 }

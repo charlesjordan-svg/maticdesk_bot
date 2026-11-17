@@ -69,22 +69,29 @@ console.log("=== 1. every persona line is classified, and only those ===");
   check("no persona.json line is unclassified", missing.length === 0, missing.join(", "));
   const stale = Object.keys(SURFACES).filter((s) => !s.startsWith("@") && !surfaces.includes(s));
   check("no classification names a persona.json key that is gone", stale.length === 0, stale.join(", "));
-  check("the kinds are a closed set", Object.values(SURFACES).every((k) => SURFACE_KINDS.includes(k)) && JSON.stringify(SURFACE_KINDS) === JSON.stringify(["persona", "pinned", "silent", "degraded"]));
+  check("the kinds are a closed set", Object.values(SURFACES).every((k) => SURFACE_KINDS.includes(k)) && JSON.stringify(SURFACE_KINDS) === JSON.stringify(["persona", "relay", "pinned", "silent", "degraded"]));
   check("SURFACES is frozen", Object.isFrozen(SURFACES));
 
   // The functional analysis §2.1, row by row.
   for (const s of ["social.greeting", "social.howareyou", "social.thanks", "social.farewell", "social.nothingneeded", "boot"]) {
     check(`${s} is handed to the persona`, SURFACES[s] === "persona", SURFACES[s]);
   }
-  for (const s of surfaces.filter((x) => /^(capability|tickets|fallback)\./.test(x)).concat(["social.offtopic"])) {
+  for (const s of surfaces.filter((x) => /^(capability|fallback)\./.test(x)).concat(["social.offtopic"])) {
     check(`${s} is pinned`, SURFACES[s] === "pinned", SURFACES[s]);
   }
+  // D309 (the founder's, 2026-11-17). These were pinned and this loop used to say so. Charles asked
+  // for the persona to speak about open tickets; they are RELAYED - and nothing else moved with them.
+  for (const s of surfaces.filter((x) => x.startsWith("tickets."))) {
+    check(`${s} is relayed (D309) - not pinned, and not handed over to her own words`, SURFACES[s] === "relay", SURFACES[s]);
+  }
+  const relayed = Object.entries(SURFACES).filter(([, k]) => k === "relay").map(([s]) => s);
+  check("the ONLY relayed surfaces are the ticket lines and the machine band - two founder decisions, no more", relayed.every((s) => s.startsWith("tickets.") || s === "@machine") && relayed.includes("@machine"), relayed.join());
   for (const s of surfaces.filter((x) => x.startsWith("filing."))) {
     check(`${s} is never spoken`, s === "filing.timeout" ? SURFACES[s] === "silent" : SURFACES[s] === "pinned", SURFACES[s]);
   }
   check("filing.timeout gets NOTHING AT ALL - the most dangerous rephrase in the product", SURFACES["filing.timeout"] === "silent");
   check("bootState.offline cannot be the persona's: offline, there is no persona", SURFACES["bootState.offline"] === "degraded");
-  check("consent, an executed change and the machine band are classified too", SURFACES["@consent"] === "pinned" && SURFACES["@execution"] === "pinned" && SURFACES["@machine"] === "silent" && SURFACES["@answer"] === "persona");
+  check("consent, an executed change and the machine band are classified too", SURFACES["@consent"] === "pinned" && SURFACES["@consentVoice"] === "pinned" && SURFACES["@execution"] === "pinned" && SURFACES["@machine"] === "relay" && SURFACES["@answer"] === "persona");
 }
 
 // ==============================================================================================
@@ -94,11 +101,13 @@ console.log("\n=== 2. no pinned line reaches response.create ===");
   for (const [surface, text] of lines) {
     const kind = SURFACES[surface];
     const turn = personaTurn({ surface, text });
-    if (kind !== "persona" && leaks(text, JSON.stringify(turn.event ?? {}))) leaked.push(surface);
+    if (kind !== "persona" && kind !== "relay" && leaks(text, JSON.stringify(turn.event ?? {}))) leaked.push(surface);
+    // A relayed line IS carried - that is what relaying means - with the instruction not to change its claims.
+    if (kind === "relay" && !(instructionsOf(turn).includes(text) && /do not change what it says/i.test(instructionsOf(turn)))) leaked.push(`${surface} (relayed without its guard)`);
     if ((kind === "silent" || kind === "degraded") && turn.event !== null) spoke.push(surface);
     if (kind === "pinned" && !Object.values(POINTERS).includes(instructionsOf(turn))) leaked.push(`${surface} (not a pointer)`);
   }
-  check(`none of the pinned, silent or degraded lines (${lines.filter(([s]) => SURFACES[s] !== "persona").length}) appears in an event, whole or in part`, leaked.length === 0, [...new Set(leaked)].join(", "));
+  check(`none of the pinned, silent or degraded lines (${lines.filter(([s]) => !["persona", "relay"].includes(SURFACES[s])).length}) appears in an event, whole or in part; every relayed one carries its guard`, leaked.length === 0, [...new Set(leaked)].join(", "));
   check("a silent or degraded surface produces NO event", spoke.length === 0, [...new Set(spoke)].join(", "));
 
   // The social templates are handed over as a RULE, not as the template's words.
@@ -133,8 +142,10 @@ console.log("\n=== 3. the persona's own job, and the default ===");
     const t = personaTurn({ surface: s, text: "I have sent that off for you and the team has been told." });
     check(`an unknown surface (${JSON.stringify(s)}) is PINNED: its text is not sent`, surfaceOf(s) === "pinned" && !leaks("I have sent that off for you and the team has been told.", JSON.stringify(t.event ?? {})));
   }
-  const m = personaTurn({ surface: "@machine", text: "Printing - Stopped" });
-  check("the machine band is never narrated (D245)", m.event === null && m.speak === "none");
+  // D308 (the founder's): the machine band is spoken WHEN ASKED, from the sentence the app builds.
+  const m = personaTurn({ surface: "@machine", text: "One thing stands out: memory — almost full." });
+  check("the machine summary is relayed, with the guard against changing its claims (D308)", m.speak === "own" && instructionsOf(m).includes("memory — almost full") && /do not add to it/i.test(instructionsOf(m)));
+  check("a relayed line too long for one note falls back to a pointer, never a truncation", personaTurn({ surface: "@machine", text: "word ".repeat(600) }).speak === "pointer");
   const e = personaTurn({ surface: "@execution", text: "I restarted the Print Spooler service and it is running." });
   check("the result of a change is on the screen, not in the persona's mouth - it is an outcome claim", e.speak === "pointer" && !instructionsOf(e).includes("Print Spooler"));
 }
@@ -148,6 +159,7 @@ console.log("\n=== 4. consent holds the floor ===");
   check("…and the floor is held, with a reason, ending on speech", c.floor?.type === "session.floor.hold" && typeof c.floor.reason === "string" && c.floor.reason.length <= 200 && c.floor.ends_on_speech === true);
   check("the hold goes BEFORE the reply in the order to send", c.send[0] === c.floor && c.send[1] === c.event);
   check("no other surface holds the floor", lines.every(([surface, text]) => personaTurn({ surface, text }).floor === null));
+  check("the voice-approvable card holds the floor too (D310)", personaTurn({ surface: "@consentVoice", text: "x" }).floor?.type === "session.floor.hold");
   check("approve or dismiss releases it", consentRelease().type === "session.floor.release" && Object.keys(consentRelease()).join() === "type");
 }
 

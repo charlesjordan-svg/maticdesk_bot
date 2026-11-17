@@ -33,6 +33,7 @@ import { EgressAudit } from "../ticket/egress-audit.js";
 import { openConversation, endConversation } from "../nuance/nuance-session.js";
 import { initialMic, micStep, micWords } from "../nuance/mic-policy.js";
 import { randomUUID as personaRef } from "node:crypto";
+import { appendFileSync as appendVoiceConsent, mkdirSync as makeAuditDir } from "node:fs";
 // The two ways this handler can refuse a ticket are both SPOKEN by the avatar, so their wording is
 // persona data (D234/D246) and the reason they failed travels beside it as `detail`.
 import persona from "../router/persona.json" with { type: "json" };
@@ -591,6 +592,27 @@ app.whenReady().then(async () => {
     log(`[persona] the microphone button asked for ${String(event)}${liveSession ? "" : " with no live session"}`);
     if (event !== "user.mute" && event !== "user.unmute") return { state: liveSession?.mic.state ?? "unavailable", words: micWords(liveSession?.mic.state ?? "unavailable"), commands: [], refused: "not a microphone event the window may send" };
     return personaMicEvent(event, { gesture: true });
+  });
+
+  // D310. Its own file: the broker owns audit/audit.jsonl (and `execute` takes a nonce and nothing
+  // else), and the egress record is about what LEFT the machine. This is neither - it is how a
+  // consent card was answered when it was not a click. Never throws; a lost line is logged.
+  ipcMain.handle("consent:voice", (_e, d) => {
+    const line = {
+      at: new Date().toISOString(),
+      event: d?.verdict === "approve" ? "consent.approved-by-voice" : "consent.refused-by-voice",
+      nonce: typeof d?.nonce === "string" ? d.nonce : null,
+      capabilityId: typeof d?.capabilityId === "string" ? d.capabilityId : null,
+      // The words that were taken as the answer - six at most by the rule, capped here regardless.
+      heard: String(d?.heard ?? "").slice(0, 120),
+      sessionRef: liveSession?.ref ?? null,
+    };
+    try {
+      makeAuditDir(join(ROOT, "audit"), { recursive: true });
+      appendVoiceConsent(join(ROOT, "audit/voice-consent.jsonl"), JSON.stringify(line) + "\n", "utf8");
+    } catch (err) { log(`[consent] COULD NOT WRITE THE VOICE-CONSENT RECORD (${err.message}). The decision still stands: ${line.event}`); }
+    log(`[consent] ${line.event} for ${line.capabilityId ?? "?"}`);
+    return { ok: true };
   });
 
   ipcMain.handle("persona:closed", (_e, reason) => { personaOver(typeof reason === "string" ? reason : "closed"); return { ok: true }; });

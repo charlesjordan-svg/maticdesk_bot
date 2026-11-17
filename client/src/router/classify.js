@@ -238,6 +238,35 @@ const TICKET_STATUS_MARKERS = [
 ];
 const NEW_TICKET_PHRASES = ["raise a ticket", "raise my ticket", "open a ticket", "open a new ticket", "create a ticket", "file a ticket", "log a ticket", "new ticket", "submit a ticket", "make a ticket"];
 
+/**
+ * "How is my computer doing?" - a question about THIS MACHINE'S STATE. D308, 2026-11-17 (the
+ * founder's): the machine band may be spoken when asked for, and before this there was nothing to
+ * ask it with - the sentence went to the model, which had a problem-shaped slot to fill.
+ *
+ * COMPLETE PHRASES, for the reason the ticket and off-topic lists give: "my computer" alone is in
+ * "my computer is broken". Each of these asks how the machine IS, not for something to be done to
+ * it, and a sentence with an action verb in it ("restart my computer") is not caught - see
+ * `isMachineQuestion`.
+ */
+const MACHINE_MARKERS = [
+  "how is my computer", "hows my computer", "how is my pc", "hows my pc", "how is my machine", "hows my machine",
+  "how is my laptop", "hows my laptop", "how is this computer", "how is this pc", "how is this machine", "hows this machine",
+  "how is the computer doing", "how is the machine doing", "how is my computer doing", "is my computer ok", "is my computer okay",
+  "is my pc ok", "is my pc okay", "is my machine ok", "is my machine okay", "is my computer healthy", "is this machine ok",
+  "what can you see about this machine", "what can you see about this computer", "what can you see about this pc",
+  "what can you see about my machine", "what can you see about my computer", "what can you see on this machine",
+  "tell me about this machine", "tell me about this computer", "tell me about this pc", "tell me about my computer", "tell me about my machine",
+  "machine status", "computer status", "status of my computer", "status of my machine", "status of my pc", "status of this machine",
+  "how much disk space", "how much space do i have", "how much space is left", "how full is my disk", "how full are my drives",
+  "how much memory", "is my memory full", "when was it last restarted", "when did i last restart", "when was this last restarted",
+  "when was my computer last restarted", "how long since i restarted", "check this machine", "check my computers health", "health of my computer",
+];
+
+/** @param {string} padded  normalise()d text */
+function isMachineQuestion(padded) {
+  return MACHINE_MARKERS.find((m) => hasMarker(padded, m)) ?? null;
+}
+
 /** @param {string} padded  normalise()d text */
 function isTicketStatusQuestion(padded) {
   if (NEW_TICKET_PHRASES.some((p) => hasMarker(padded, p))) return null;
@@ -313,7 +342,7 @@ export function residue(t) {
 const MAX_SOCIAL_RESIDUE_WORDS = 0;
 
 /**
- * @typedef {"social" | "tickets" | "question" | "action"} InputKind
+ * @typedef {"social" | "tickets" | "machine" | "question" | "action"} InputKind
  */
 
 /**
@@ -332,6 +361,13 @@ export function classify(text) {
   const ticketHit = isTicketStatusQuestion(padded);
   if (ticketHit) {
     return { kind: "tickets", why: `asks about an existing ticket ("${ticketHit}") - answered from this machine's own egress record, not the knowledge base (D235)` };
+  }
+
+  // ---- D308: a question about how THIS MACHINE is doing. After the ticket check (neither is a
+  // pleasantry, the model or the knowledge base), and answered from the machine band's own rows.
+  const machineHit = isMachineQuestion(padded);
+  if (machineHit) {
+    return { kind: "machine", why: `asks how this machine is doing ("${machineHit}") - answered from the machine band's own rows, not the model (D308)` };
   }
 
   // ---- D165's social layer, FIRST. D198 requires it ahead of the state fallback; it is ahead of
