@@ -56,6 +56,11 @@ contextBridge.exposeInMainWorld("matic", {
   personaMic: (event) => ipcRenderer.invoke("persona:mic", event),
   personaClosed: (reason) => ipcRenderer.invoke("persona:closed", reason),
   onPersonaEnd: (cb) => ipcRenderer.on("persona:end", (_e, reason) => cb(reason)),
+  // D319: the camera, on the same terms as the microphone - "user.on" or "user.off", and main decides.
+  personaCamera: (event) => ipcRenderer.invoke("persona:camera", event),
+  // D318: what the local classifier makes of a SPOKEN sentence, and whether Matic is waiting on an
+  // answer - so the window can tell conversation (hers) from work (routed). No model, no network.
+  spokenInfo: (text) => ipcRenderer.invoke("agent:spoken", text),
   // D310: a consent card answered by VOICE is written down, with the words heard. The broker's own
   // audit line cannot say how the button was pressed - it sees a nonce and nothing else.
   recordVoiceConsent: (decision) => ipcRenderer.invoke("consent:voice", decision),

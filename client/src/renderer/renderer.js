@@ -1711,6 +1711,10 @@ window.matic.onHubLink(applyHubStatus);
 personaUi = mountPersonaUi({
   bridge: window.matic, avatar, note, devlog, setState, submit,
   stopLocalVoice: () => { try { audioEl.pause(); } catch { /* nothing was playing */ } },
+  // D318: a spoken turn she answers herself is CONVERSATION. It is shown - the user's words, then
+  // hers - and it goes nowhere else: no router, no hub, no proposal.
+  showSpoken: (text) => { openTurn(); said(text); },
+  showHers: (text) => { reply(text); },
 });
 
 // ═══ input ════════════════════════════════════════════════════════════════════════════════════

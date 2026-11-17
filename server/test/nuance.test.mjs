@@ -58,7 +58,7 @@ const make = (o = {}) => {
   const clock = { now: () => t, advance: (ms) => { t += ms; } };
   const handler = nuanceTokenHandler({
     apiKey: "apiKey" in o ? o.apiKey : KEY, prompt: "prompt" in o ? o.prompt : PROMPT,
-    fetchImpl: up.fetchImpl, ledger, log: (s) => logs.push(s), now: clock.now, caps: o.caps, persona: o.persona,
+    fetchImpl: up.fetchImpl, ledger, log: (s) => logs.push(s), now: clock.now, caps: o.caps, persona: o.persona, camera: o.camera,
   });
   return { handler, up, logs, ledger, clock };
 };
@@ -229,6 +229,23 @@ console.log("\n=== 9. ending a conversation - only the API key can (D317) ===");
   check("unreachable is 502", (await call(mk(() => ({ throw: "ENOTFOUND" })).h, { body: { conversationId: CONV } })).status === 502);
   check("no key on the hub: 503", (await call(mk(undefined, null).h, { body: { conversationId: CONV } })).status === 503);
   check("index.js dispatches it, lists it, and it is not public on a LAN", readFileSync(join(HERE, "../src/index.js"), "utf8").includes('pathname === "/v1/nuance/conversation/end"'));
+}
+
+// ==============================================================================================
+console.log("\n=== 10. the camera is the hub's to allow, and off unless it does (D319) ===");
+{
+  const off = make();
+  const r0 = await call(off.handler);
+  check("by default the camera is OFF in what is sent, and the response says so", off.up.calls[0].body.interface_setup.video.input.camera === false && r0.json.camera === false);
+  const on = make({ camera: true });
+  const r1 = await call(on.handler);
+  check("a hub configured for it leaves the video block OUT (the documented way to not force it off) and says camera: true", on.up.calls[0].body.interface_setup.video === undefined && r1.json.camera === true);
+  check("…and nothing else about the setup changes", JSON.stringify(on.up.calls[0].body.interface_setup) === JSON.stringify({ delegation: { type: "client" }, runtime_tools: { end_call: true } }));
+  check("a CLIENT still cannot ask for it: the body is refused", (await call(make({ camera: false }).handler, { body: { interface_setup: { video: { input: { camera: true } } } } })).status === 400);
+  const prompt = readFileSync(join(HERE, "../src/nuance/persona-prompt.txt"), "utf8");
+  check("the prompt says conversation is hers and lists WHEN work is handed over (D318)", /CONVERSATION IS YOURS/.test(prompt) && /WORK IS HANDED OVER/.test(prompt) && /Hand the request over, every time, when the person:/.test(prompt));
+  check("…and still that she has no access and must not claim an action", /You have no access to this computer/.test(prompt) && /Never say something is being sent, opened, approved, fixed or done/.test(prompt) && /Never offer a ticket, a fix or a next step of your own/.test(prompt));
+  check("…and that seeing someone is not a licence to remark on them", /Do not\s+remark on how they look/.test(prompt));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

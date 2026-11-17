@@ -40,11 +40,12 @@ const dec = new TextDecoder();
  *   bridge: any,
  *   videoEl: HTMLVideoElement,
  *   onUserTurn: (text: string) => void,
+ *   onPersonaSaid?: (text: string) => void,
  *   onChange: (s: { phase: "off" | "starting" | "live", mic: { state: string, words: any } | null, reason?: string }) => void,
  *   devlog: (s: string) => void,
  * }} deps
  */
-export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devlog }) {
+export function createPersonaStage({ bridge, videoEl, onUserTurn, onPersonaSaid = () => {}, onChange, devlog }) {
   /** @type {"off" | "starting" | "live"} */
   let phase = "off";
   /** @type {any} */ let room = null;
@@ -59,11 +60,19 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
   /** @type {Array<() => void>} */ let handOffWaiters = [];
   // True while the turn being answered was SPOKEN to her (set by persona-ui around submit()).
   let spokenTurn = false;
+  // HER OWN WORDS, for the panel (D318). When she answers a turn herself the conversation would
+  // otherwise be one-sided on screen: the user's sentence and nothing after it. Her reply is
+  // gathered from the service's own transcript of her speech and shown when she finishes - IN
+  // MEMORY ONLY, never logged, never written to disk. A reply that came from something the client
+  // sent is not shown this way: the panel already has that line, exactly.
+  let herWords = "";
+  let weSpoke = false;
+  let camera = null;
   /** @type {HTMLAudioElement[]} */ let audioEls = [];
   const parts = new Map();
   const seen = new Map();
 
-  const changed = (reason) => onChange({ phase, mic, ...(reason ? { reason } : {}) });
+  const changed = (reason) => onChange({ phase, mic, camera, ...(reason ? { reason } : {}) });
 
   function sendNow(evt) {
     if (!room) return;
@@ -105,7 +114,15 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
       if (text && !evt.replaces_event_id) onUserTurn(text);
       return;
     }
+    if (type === "session.output_transcript.delta") {
+      if (typeof evt.delta === "string") herWords += evt.delta;
+      return;
+    }
     if (type === "session.output_audio.done") {
+      const hers = herWords.replace(/\s+/g, " ").trim();
+      herWords = "";
+      if (!weSpoke && hers) onPersonaSaid(hers);
+      weSpoke = false;
       for (const w of audioDoneWaiters.splice(0)) w();
       return;
     }
@@ -169,6 +186,9 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
     for (const a of audioEls.splice(0)) a.remove();
     videoEl.srcObject = null;
     mic = null;
+    camera = null;
+    herWords = "";
+    weSpoke = false;
     devlog(`[persona] session over (${reason}); events seen: ${[...seen].map(([t, n]) => `${t}×${n}`).join(", ") || "none"}`);
     seen.clear();
     try { await bridge.personaClosed(reason); } catch { /* main logs its own half */ }
@@ -197,6 +217,7 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
       // Echo cancellation ON: without it the persona hears itself through the speakers and answers
       // its own voice. Published so the session can start - then muted at the source at once.
       await room.localParticipant.setMicrophoneEnabled(true, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+      camera = r.camera ?? null;
       await applyMic(r.mic);
       return { ok: true };
     } catch (err) {
@@ -231,7 +252,7 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
       devlog(`[persona] ${turn.surface ?? "(untagged)"} -> ${t.kind}/pointer, the same as her last line - not said again`);
       return t;
     }
-    if (t.event) lastInstructions = t.event.response.instructions;
+    if (t.event) { lastInstructions = t.event.response.instructions; weSpoke = true; }
     // D316: when she is waiting on a hand-off, the answer goes back as that hand-off's result
     // rather than as a second request to speak beside her. Same words either way.
     if (spokenTurn) {
@@ -271,6 +292,24 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
   return {
     get phase() { return phase; },
     get live() { return phase === "live"; },
+    /** Did she hand this turn off? Resolves true at once if a hand-off is open, or when one arrives within `ms`. */
+    waitForHandOff(ms = 5000) {
+      if (openHandOff) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(Boolean(openHandOff)), ms);
+        handOffWaiters.push(() => { clearTimeout(timer); resolve(true); });
+      });
+    },
+    /** The user's own click on the camera button. Main decides; this applies it to the local track. */
+    async toggleCamera() {
+      if (phase !== "live" || !camera) return;
+      const r = await bridge.personaCamera(camera.on ? "user.off" : "user.on");
+      if (r?.refused) devlog(`[persona] camera: ${r.refused}`);
+      camera = r?.words ? { on: Boolean(r.on), words: r.words } : camera;
+      try { await room?.localParticipant.setCameraEnabled(Boolean(camera?.on)); }
+      catch (err) { devlog(`[persona] the camera could not be ${camera?.on ? "turned on" : "turned off"}: ${err.message}`); }
+      changed();
+    },
     /** persona-ui sets this around the submit() of a turn that was spoken to her. */
     set spokenTurn(v) { spokenTurn = Boolean(v); },
     start, stop, speak, toggleMic,

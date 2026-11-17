@@ -32,7 +32,9 @@
 [CmdletBinding()]
 param(
   [string]$KeyFile = $env:MATIC_NUANCE_KEY_FILE,
-  [switch]$NoStopExisting
+  [switch]$NoStopExisting,
+  # Start the hub WITHOUT allowing the camera. With it allowed, the user still turns it on.
+  [switch]$NoCamera
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,12 +84,17 @@ if ($onPort) {
   Start-Sleep -Seconds 2
 }
 $env:MATIC_NUANCE_API_KEY = $key
+# D319 (the founder's): the persona may be shown the user's camera. Allowed HERE, for the hub this
+# launcher starts, and not in the repository's config. The app still sends no picture until its
+# user clicks "Camera off" to turn it on. Pass -NoCamera to start without it.
+if (-not $NoCamera) { $env:MATIC_NUANCE_CAMERA = '1' }
 try {
   Start-Process -FilePath 'powershell.exe' -WorkingDirectory $server -WindowStyle Minimized `
     -ArgumentList '-NoProfile', '-NoExit', '-Command', "`$Host.UI.RawUI.WindowTitle = 'Matic Desk hub (v2)'; npm.cmd start"
 } finally {
   # Out of THIS window's environment the moment the hub has inherited it.
   Remove-Item Env:MATIC_NUANCE_API_KEY -ErrorAction SilentlyContinue
+  Remove-Item Env:MATIC_NUANCE_CAMERA -ErrorAction SilentlyContinue
   $key = $null
 }
 if (-not [bool](Wait-Port 8787 90)) { Fail 'the hub did not start listening on port 8787. Look at the minimised "Matic Desk hub (v2)" window.' }

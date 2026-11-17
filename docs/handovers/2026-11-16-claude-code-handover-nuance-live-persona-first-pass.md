@@ -647,3 +647,40 @@ Charles launched v2 from the new Desktop icon; "Talk face to face" failed on eve
   no authenticated call to the hub in two minutes. **The launcher itself did work**: it replaced the
   hub and started the app with the persona on.
 - Client **2534 / 31**; server **850 / 8**.
+
+
+---
+
+# Ninth pass — 2026-11-17: conversation is hers; the camera
+
+Charles, after the launcher worked: *"Still some problems with interaction … leverage some of the Nuance
+conversational responses … take advantage of the conversational functionality and world knowledge …
+the avatar can leverage the camera as well … Its supposed to be face to face."* Register **D318–D319**,
+§5.62k; next free **D320**.
+
+**What his session's transcript showed.** *"It's a beautiful day. How are you doing?"* → she answered,
+and then Matic's router — which had been sent the sentence too — delivered *"I can't fix this one from
+here. It needs desktop support. I can open a ticket for you."* Twice. Then *"But we haven't even talked
+about opening a ticket yet."*
+
+**What the docs say** (read 2026-11-17): the persona *"decides on its own, and hands off when its
+instructions say to"*; a hand-off carries no description of the task; the prompt should give *"a name
+first, then a role and a manner"* and *"the facts it may state"*; `timezone` on the conversation makes
+her date and time the user's. There is no documented statement of what she knows on her own.
+
+**Built.**
+- **D318** — a spoken turn goes to Matic only when it is work (`turn-routing.js`); otherwise she
+  answers and both lines are shown. The prompt says conversation is hers and lists when to hand over.
+- **D319** — the camera: allowed by the hub the launcher starts, a **Camera off / on** button, off by
+  default, recorded as a fact.
+- An offer captures only a sentence that answers it. A spoken turn that throws is caught and logged.
+
+**Seen live** (synthetic voice and camera): the beautiful-day sentence is hers, not routed, shown in
+order; the camera button works and is in the record. Client **2589 / 32**; server **857 / 8**.
+
+**Not seen / not known:** a real voice on this flow; whether she hands real problems over reliably
+(the whole design now rests on that and on the classifier's safety net); what she does with the
+camera's picture, whether it is recorded, and the age check in practice.
+
+**Mine:** an `import` written inside a comment block broke every spoken turn for one build and was
+found only by running it. The tests for this pass were written after the code, not before.

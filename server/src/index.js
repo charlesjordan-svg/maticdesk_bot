@@ -369,7 +369,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // answers 503 with the reason rather than 404 with none (src/nuance/route.js).
   // D317: only the API key can end a conversation, so the endpoint asks the hub to.
   const handleNuanceEnd = nuanceEndHandler({ apiKey: nuance?.apiKey ?? null, log });
-  const handleNuanceToken = nuanceTokenHandler({ apiKey: nuance?.apiKey ?? null, prompt: nuance?.prompt ?? null, ...(nuance?.persona ? { persona: nuance.persona } : {}), log });
+  const handleNuanceToken = nuanceTokenHandler({ apiKey: nuance?.apiKey ?? null, prompt: nuance?.prompt ?? null, ...(nuance?.persona ? { persona: nuance.persona } : {}), camera: nuance?.camera === true, log });
   // D236: what retrieval would do RIGHT NOW — the embedder verified live (not described from its
   // constructor), the corpus, and the resulting mode. ONE reader for /v1/health AND the console's
   // degraded-retrieval banner, so the two cannot disagree (src/kb/health.js).
@@ -620,6 +620,8 @@ if (isMain) {
     const nuance = {
       apiKey: process.env.MATIC_NUANCE_API_KEY?.trim() || null,
       persona: process.env.MATIC_NUANCE_PERSONA?.trim() || null,
+      // D319: the persona may be shown the user's camera only when this hub says so.
+      camera: process.env.MATIC_NUANCE_CAMERA === "1",
       prompt: null,
     };
     // The prompt is the functional analysis's §6 draft, shipped beside the route and pinned to that
@@ -629,7 +631,7 @@ if (isMain) {
       try { nuance.prompt = readFileSync(nuancePromptFile, "utf8"); }
       catch (err) { console.log(`[nuance] the persona prompt ${nuancePromptFile} could not be read (${err.message}); live sessions stay off`); }
     }
-    console.log(`[nuance] live sessions: ${nuance.apiKey && nuance.prompt ? `ON, persona ${nuance.persona ?? "mira"}` : `off (${!nuance.apiKey ? "no MATIC_NUANCE_API_KEY" : "no readable persona prompt"})`}`);
+    console.log(`[nuance] live sessions: ${nuance.apiKey && nuance.prompt ? `ON, persona ${nuance.persona ?? "mira"}, camera ${nuance.camera ? "ALLOWED (the user turns it on)" : "off"}` : `off (${!nuance.apiKey ? "no MATIC_NUANCE_API_KEY" : "no readable persona prompt"})`}`);
     const server = createHubServer({ provider, hubProvider: "local", embedder, tenantLabel, ticketTenant, tls: plan.tls, nuance });
 
     // Verify the embedder, and do not exit if it fails. A hub with no embedder still answers through

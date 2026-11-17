@@ -115,6 +115,23 @@ export class TicketIntake {
   clear() { this.state = null; }
 
   /**
+   * Would this sentence be TAKEN by the question that is outstanding? Changes nothing. (D318.)
+   *
+   * For the live persona, which must tell an answer from conversation BEFORE anything is routed:
+   * a spoken "yes" to a ticket offer is Matic's, and "but we haven't even talked about a ticket
+   * yet" is not. The rule is `accept()`'s own, read without acting on it: a refusal always
+   * answers; while details are being collected every sentence is the answer; and an OFFER is
+   * answered only by a yes.
+   * @param {string} text
+   */
+  answers(text) {
+    if (!this.isPending) return false;
+    const said = bare(text);
+    if (NEGATIVE.test(said)) return true;
+    return /** @type {IntakeState} */ (this.state).stage !== "offered" || AFFIRMATIVE.test(said);
+  }
+
+  /**
    * An escalation happened. Remember what it was, so the next turn can act on "yes".
    *
    * This does NOT ask anything and does not change the reply — the offer is already in the

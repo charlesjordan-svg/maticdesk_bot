@@ -66,7 +66,7 @@ export async function endConversation({ conversationId, end }) {
  * }} deps
  */
 export async function openConversation({
-  mint, end, maxSessionSeconds, fetchImpl = fetch, baseUrl = NUANCE_API, admitTimeoutMs = 75_000, pollGapMs = 500,
+  mint, end, maxSessionSeconds, timezone = null, fetchImpl = fetch, baseUrl = NUANCE_API, admitTimeoutMs = 75_000, pollGapMs = 500,
   now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = () => {},
 }) {
   // ---- 1. the hub mints.
@@ -83,7 +83,7 @@ export async function openConversation({
   // ---- 2. start the conversation.
   let conversationId;
   try {
-    const r = await fetchImpl(`${baseUrl}/conversation`, { method: "POST", headers: bearer(token), body: JSON.stringify({ max_session_seconds: maxSessionSeconds }) });
+    const r = await fetchImpl(`${baseUrl}/conversation`, { method: "POST", headers: bearer(token), body: JSON.stringify({ max_session_seconds: maxSessionSeconds, ...(typeof timezone === "string" && timezone ? { timezone } : {}) }) });
     let body = null;
     try { body = await r.json(); } catch { /* no body */ }
     if (r.status !== 201 && r.status !== 200) {
@@ -124,7 +124,7 @@ export async function openConversation({
         let host = null;
         try { host = new URL(e.livekit_url).host; } catch { /* keep null */ }
         log(`[persona] conversation ${conversationId} admitted after ${Math.round((now() - startedAt) / 1000)} s; persona ${minted.persona ?? "?"}, room host ${host ?? "?"}`);
-        return { ok: /** @type {const} */ (true), conversationId, sessionToken: token, livekitUrl: e.livekit_url, roomToken: e.token, persona: minted.persona ?? null, host, after };
+        return { ok: /** @type {const} */ (true), conversationId, sessionToken: token, livekitUrl: e.livekit_url, roomToken: e.token, persona: minted.persona ?? null, camera: minted.camera === true, host, after };
       }
       if (e?.type === "ended") return giveUp(`ended:${e.reason ?? "unknown"}`);
     }

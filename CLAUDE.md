@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D318 onward**, as of D317, register §5.62j, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D320 onward**, as of D319, register §5.62k, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -147,7 +147,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 2534 assertions across 31 files (2026-11-17).
+#                            headless, no key, no admin, no hub: 2589 assertions across 32 files (2026-11-17).
 #                            The running app logs to client/audit/app.log (gitignored) - READ IT FIRST when the live
 #                            video will not start; it names the stage and the reason. Only the HUB can end a Nuance
 #                            conversation (D317): the session token is refused with 403 api_key_required.
@@ -969,6 +969,14 @@ the surface split (D305) and the prompt (D306).
   **Never** widen `voice-consent.js`: no "yes" alone, no network-dropping or unknown capability, no
   arming before the persona has finished speaking, no approval that is not written to
   `audit/voice-consent.jsonl`. **Never** add a parameter to `execute` to carry how it was approved.
+- **Conversation is the persona's; work is Matic's (D318, the founder's).** A SPOKEN turn is routed only
+  when `turn-routing.js` says so: it answers Matic's question, she handed it off, or it is about tickets,
+  this machine or capabilities. **Never** route every spoken sentence again - small talk came back as a
+  ticket offer. **Never** send a spoken sentence to the hub's model because nothing else claimed it.
+- **The camera is allowed per hub and off until the user clicks it (D319).** Never turn it on from code,
+  never record a picture, and never set `MATIC_NUANCE_CAMERA` in a repository file.
+- **An `import` inside a comment passes `node --check` and every regex test.** It cost a build in which no
+  spoken turn worked. After touching a renderer file: RUN IT IN THE WINDOW and read the developer log.
 - **To start v2:** `tools\launchers\start-v2.cmd -KeyFile "<file holding the Nuance key>"` - database, hub with
   the key, closes an older tray instance, starts the app with the persona on. Not yet run end to end.
 - **The prompt and the surface split must agree (D316).** A relayed surface the prompt tells her not to

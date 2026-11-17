@@ -19,6 +19,7 @@
  * The room library is imported on the FIRST click and not before: it is the largest thing this
  * client carries, and a user who never summons the face never pays for parsing it.
  */
+import { spokenTurnRoute } from "../nuance/turn-routing.js";
 
 /**
  * @param {{
@@ -32,7 +33,7 @@
  * }} deps
  * @returns {{ readonly live: boolean, speak: (turn: { surface?: string, text?: string }) => Promise<any>, releaseFloor: () => void, beforeExecute: (capabilityId: string) => Promise<boolean> }}
  */
-export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit, stopLocalVoice }) {
+export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit, stopLocalVoice, showSpoken = () => {}, showHers = () => {} }) {
   const els = {
     stage: /** @type {HTMLElement} */ (document.getElementById("persona-stage")),
     video: /** @type {HTMLVideoElement} */ (document.getElementById("persona-video")),
@@ -41,6 +42,8 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
     mic: /** @type {HTMLButtonElement} */ (document.getElementById("persona-mic")),
     micNote: /** @type {HTMLElement} */ (document.getElementById("persona-mic-note")),
     size: /** @type {HTMLButtonElement} */ (document.getElementById("persona-size")),
+    cam: /** @type {HTMLButtonElement} */ (document.getElementById("persona-cam")),
+    camNote: /** @type {HTMLElement} */ (document.getElementById("persona-cam-note")),
   };
   const rail = els.stage?.closest(".rail");
   // The size is the user's and is remembered, like the theme (D243). Asked for by Charles on the
@@ -71,23 +74,52 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
   // waits for the one before. At most two wait; a third replaces the older of them, because a
   // queue of stale sentences answered one by one is worse than an unanswered one.
   let chain = Promise.resolve();
+  let deciding = false;
+  /** @type {string[]} */
+  const heldHers = [];
   /** @type {string[]} */
   const waiting = [];
   function enqueue(text) {
     if (waiting.length >= 2) waiting.shift();
     waiting.push(text);
-    chain = chain.then(async () => {
+    // A link that throws must not poison the chain: every later spoken turn would be skipped in
+    // silence. It is caught, said in the developer log, and the next turn is taken as usual.
+    chain = chain.then(() => handleSpoken()).catch((err) => { deciding = false; devlog(`[persona] a spoken turn could not be handled: ${err?.message ?? err}`); });
+  }
+
+  async function handleSpoken() {
+    {
       const next = waiting.shift();
       if (next === undefined) return;
+      // WHO ANSWERS IT (D318): turn-routing.js decides, from three facts. Is Matic waiting on an
+      // answer, and what does the local classifier make of it - asked of the main process, no
+      // model, no network. And did she hand it off - which may take her a few seconds to do, so
+      // it is only waited for when the first two do not already say "route".
+      deciding = true;
+      let info = {};
+      try { info = (await bridge.spokenInfo?.(next)) ?? {}; } catch { /* treated as conversation unless she hands it off */ }
+      let route = spokenTurnRoute({ awaitingAnswer: info.awaiting, kind: info.kind, subkind: info.subkind });
+      if (route === "hers" && stage && (await stage.waitForHandOff(5000))) route = "route";
+      if (route === "hers") {
+        devlog("[persona] a spoken turn she is answering herself - conversation, not routed");
+        showSpoken(next);
+        for (const line of heldHers.splice(0)) showHers(line);
+        deciding = false;
+        return;
+      }
+      // Routed: what she said while handing it over ("I'll look into that") is not the answer and
+      // is not put on the panel beside the one that is.
+      heldHers.length = 0;
+      deciding = false;
       // The stage needs to know this turn was SPOKEN to her: she has heard it, may already be
       // answering, and may be about to hand it off (D316).
       if (stage) stage.spokenTurn = true;
       try { await submit(next); } catch { /* submit reports its own failures */ }
       finally { if (stage) stage.spokenTurn = false; }
-    });
+    }
   }
 
-  function apply({ phase, mic, reason }) {
+  function apply({ phase, mic, camera, reason }) {
     const live = phase === "live";
     isLive = live;
     applySize();
@@ -103,6 +135,16 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       els.mic.textContent = mic.words.label;
       els.mic.setAttribute("aria-pressed", mic.state === "live" ? "true" : "false");
       els.micNote.textContent = mic.words.detail;
+    }
+    // The camera's control is there only when this session may use one (D319), and reads in words.
+    if (els.cam) {
+      els.cam.hidden = !live || !camera?.words;
+      els.camNote.hidden = els.cam.hidden;
+      if (camera?.words) {
+        els.cam.textContent = camera.words.label;
+        els.cam.setAttribute("aria-pressed", camera.on ? "true" : "false");
+        els.camNote.textContent = camera.words.detail;
+      }
     }
     if (reason) {
       devlog(`[persona] ${reason}`);
@@ -127,6 +169,11 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           // ...unless something is waiting on a spoken answer of its own - a consent card that may
           // be approved aloud (D310). Then the sentence goes there and nowhere else.
           onUserTurn: (text) => { if (spoken) spoken(text); else enqueue(text); },
+          // What she says on her own goes on the panel too, so a conversation reads as one.
+          // ...AFTER the sentence it answers. She replies in a second or two; whether the turn is
+          // hers is not settled until a hand-off has had its chance to arrive, so her line is
+          // held until the user's has been shown.
+          onPersonaSaid: (text) => { if (deciding) heldHers.push(text); else showHers(text); },
           onChange: apply,
           devlog,
         });
@@ -136,6 +183,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       await stage.start();
     };
     els.mic.onclick = () => { void stage?.toggleMic(); };
+    if (els.cam) els.cam.onclick = () => { void stage?.toggleCamera(); };
     // The button, and the face itself: both make it bigger or smaller.
     if (els.size) els.size.onclick = toggleSize;
     els.stage.onclick = toggleSize;

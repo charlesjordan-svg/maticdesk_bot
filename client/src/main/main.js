@@ -31,7 +31,8 @@ import { ProfileStore } from "../profile/profile.js";
 import { TicketIntake } from "../ticket/intake.js";
 import { EgressAudit } from "../ticket/egress-audit.js";
 import { openConversation, endConversation } from "../nuance/nuance-session.js";
-import { initialMic, micStep, micWords } from "../nuance/mic-policy.js";
+import { initialMic, micStep, micWords, cameraWords } from "../nuance/mic-policy.js";
+import { classify as classifySpoken } from "../router/classify.js";
 import { randomUUID as personaRef } from "node:crypto";
 import { appendFileSync as appendVoiceConsent, mkdirSync as makeAuditDir, existsSync, statSync, writeFileSync } from "node:fs";
 // The two ways this handler can refuse a ticket are both SPOKEN by the avatar, so their wording is
@@ -134,6 +135,7 @@ function personaOver(reason) {
   const nowMs = Date.now();
   const step = micStep(p.mic, { type: "session.closed", nowMs, reason });
   for (const line of step.egress) egress?.persona(line.event, { sessionRef: p.ref, ...line.detail });
+  if (p.cameraOn) egress?.persona("persona.video.off", { sessionRef: p.ref, reason: `session-closed:${String(reason ?? "unknown").slice(0, 60)}` });
   egress?.persona("persona.closed", { sessionRef: p.ref, durationMs: Math.max(0, nowMs - p.openedAtMs), audioSentMs: step.mic.audioSentMs, reason: String(reason ?? "unknown").slice(0, 80) });
   liveSession = null;
   log(`[persona] session ${p.ref} over (${reason}) after ${Math.round((nowMs - p.openedAtMs) / 1000)} s; audio was sent for ${Math.round(step.mic.audioSentMs / 1000)} s`);
@@ -586,7 +588,10 @@ app.whenReady().then(async () => {
     if (liveSession) return { ok: false, degrade: true, reason: "already" };
     // D293: a session is speech and a microphone. Neither exists without a visible window.
     if (!windowVisible()) return { ok: false, degrade: true, reason: "no-visible-window" };
-    const opened = await openConversation({ mint: () => personaHub.mintNuanceToken(), end: (id) => personaHub.endNuanceConversation(id), maxSessionSeconds: personaConfig.maxSessionSeconds, log });
+    // The user's own time zone goes with the conversation, so "good morning" is theirs and not UTC's.
+    let timezone = null;
+    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { /* stays null */ }
+    const opened = await openConversation({ mint: () => personaHub.mintNuanceToken(), end: (id) => personaHub.endNuanceConversation(id), maxSessionSeconds: personaConfig.maxSessionSeconds, timezone, log });
     if (!opened.ok) {
       log(`[persona] the live video did not start: ${opened.stage}/${opened.reason}`);
       return { ok: false, degrade: true, stage: opened.stage, reason: `${opened.stage}/${opened.reason}` };
@@ -596,11 +601,11 @@ app.whenReady().then(async () => {
       void endConversation({ conversationId: opened.conversationId, end: (id) => personaHub.endNuanceConversation(id) });
       return { ok: false, degrade: true, reason: "no-visible-window" };
     }
-    liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), name: opened.persona, host: opened.host };
+    liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), name: opened.persona, host: opened.host, cameraAllowed: opened.camera === true, cameraOn: false };
     egress?.persona("persona.opened", { sessionRef: liveSession.ref, persona: opened.persona, host: opened.host, microphone: "off" });
     // The opening mute is the policy's first command (D303 rule 1); the renderer sends it.
     const mic = personaMicEvent("session.opened");
-    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic };
+    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic, camera: liveSession.cameraAllowed ? { on: false, words: cameraWords(false) } : null };
   });
 
   // The renderer may ask for exactly two things, and `gesture` is true because this channel is
@@ -631,6 +636,37 @@ app.whenReady().then(async () => {
     } catch (err) { log(`[consent] COULD NOT WRITE THE VOICE-CONSENT RECORD (${err.message}). The decision still stands: ${line.event}`); }
     log(`[consent] ${line.event} for ${line.capabilityId ?? "?"}`);
     return { ok: true };
+  });
+
+  // D319. The camera, on the microphone's terms: only the user's click turns it on, only with a
+  // visible window, only when the hub allowed a camera for this session - and the moment the
+  // picture starts leaving is written down, like the audio. Never the picture.
+  ipcMain.handle("persona:camera", (_e, event) => {
+    log(`[persona] the camera button asked for ${String(event)}${liveSession ? "" : " with no live session"}`);
+    if (!liveSession || !liveSession.cameraAllowed) return { on: false, words: null, refused: "the camera is not available in this session" };
+    if (event === "user.on") {
+      if (!windowVisible()) return { on: liveSession.cameraOn, words: cameraWords(liveSession.cameraOn), refused: "the camera is not turned on while the window is not visible (D293)" };
+      if (!liveSession.cameraOn) { liveSession.cameraOn = true; egress?.persona("persona.video.on", { sessionRef: liveSession.ref }); }
+    } else if (event === "user.off") {
+      if (liveSession.cameraOn) { liveSession.cameraOn = false; egress?.persona("persona.video.off", { sessionRef: liveSession.ref, reason: "user" }); }
+    }
+    return { on: liveSession.cameraOn, words: cameraWords(liveSession.cameraOn) };
+  });
+
+  // D318. Local and model-free: is Matic waiting on an answer, and what kind of sentence is this?
+  ipcMain.handle("agent:spoken", (_e, text) => {
+    const k = /** @type {any} */ (classifySpoken(String(text ?? "")));
+    // "Waiting on an answer" means THIS SENTENCE ANSWERS IT, not merely that an offer is open: with
+    // an offer pending, "it's a beautiful day" is still conversation. An offer that is talked past is
+    // dropped, exactly as the typed path drops it (intake.js, escape 1) - a "yes" three sentences
+    // later must not open a ticket nobody is still talking about.
+    const pending = Boolean(intake?.isPending);
+    const awaiting = Boolean(intake?.answers?.(String(text ?? "")));
+    if (pending && !awaiting) {
+      intake.clear();
+      log("[ticket] the offer was talked past in conversation - dropped; nothing was filed and nothing was sent");
+    }
+    return { awaiting, kind: k.kind, subkind: k.subkind ?? null };
   });
 
   ipcMain.handle("persona:closed", (_e, reason) => { personaOver(typeof reason === "string" ? reason : "closed"); return { ok: true }; });

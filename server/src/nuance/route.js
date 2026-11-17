@@ -218,13 +218,22 @@ export function nuanceEndHandler({ apiKey, fetchImpl = fetch, baseUrl = NUANCE_B
  *   now?: () => number,
  * }} deps
  */
-export function nuanceTokenHandler({ apiKey, prompt, persona = DEFAULT_PERSONA, caps = DEFAULT_CAPS, ledger = new MintLedger(), fetchImpl = fetch, baseUrl = NUANCE_BASE_URL, log = () => {}, now = Date.now }) {
+export function nuanceTokenHandler({ apiKey, prompt, persona = DEFAULT_PERSONA, camera = false, caps = DEFAULT_CAPS, ledger = new MintLedger(), fetchImpl = fetch, baseUrl = NUANCE_BASE_URL, log = () => {}, now = Date.now }) {
   if (!NUANCE_PERSONAS.includes(persona)) {
     throw new Error(`the Nuance persona must be one of ${NUANCE_PERSONAS.join(", ")} - not "${persona}". There is no custom persona to configure.`);
   }
   // CRLF is normalised: the prompt is one exact text a third party reviews, and a checkout's line
   // endings must not make it two.
   const promptText = typeof prompt === "string" ? prompt.replace(/\r\n/g, "\n").trim() : "";
+  // THE CAMERA (D319, the founder's, 2026-11-17: "the avatar can leverage the camera as well ...
+  // it's supposed to be face to face"). OFF unless THIS HUB is configured for it - a client cannot
+  // ask for it. When it is on, the `video` block is LEFT OUT rather than set to true: the service
+  // documents `false` ("the persona doesn't look at it ... and it isn't recorded") and "left out,
+  // the deployment's own setting applies", and documents nothing for `true`. The endpoint still
+  // publishes no picture until its user turns the camera on (client D319).
+  const setup = camera === true
+    ? Object.freeze({ delegation: INTERFACE_SETUP.delegation, runtime_tools: INTERFACE_SETUP.runtime_tools })
+    : INTERFACE_SETUP;
   const promptProblem = !promptText ? "no persona prompt is configured on this hub (MATIC_NUANCE_PROMPT_FILE)"
     : promptText.length > PROMPT_MAX_CHARS ? `the configured persona prompt is ${promptText.length} characters and the service takes at most ${PROMPT_MAX_CHARS}`
     : null;
@@ -277,7 +286,7 @@ export function nuanceTokenHandler({ apiKey, prompt, persona = DEFAULT_PERSONA, 
           interface: "nuance_live",
           personality: { system_prompt: promptText, persona_id: persona },
           end_user_id: endUserId,
-          interface_setup: INTERFACE_SETUP,
+          interface_setup: setup,
         }),
       });
       status = r.status;
@@ -299,7 +308,7 @@ export function nuanceTokenHandler({ apiKey, prompt, persona = DEFAULT_PERSONA, 
         expiresAt: body.expires_at ?? null,
         warnings,
         // What the hub fixed, so the client can show and record it without guessing.
-        persona, delegation: INTERFACE_SETUP.delegation.type, camera: INTERFACE_SETUP.video.input.camera,
+        persona, delegation: setup.delegation.type, camera: camera === true,
       });
     }
 

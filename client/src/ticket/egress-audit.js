@@ -73,10 +73,13 @@ export const EGRESS_EVENTS = [
   "persona.audio.on",  // the user turned the microphone on - THIS IS THE MOMENT AUDIO LEAVES
   "persona.audio.off", // it stopped, with how long that stretch ran and why it ended
   "persona.closed",    // the session ended, with how long it ran and the total audio time
+  // D319 (2026-11-17): the camera. The same rule as the microphone - the fact, never the picture.
+  "persona.video.on",  // the user turned the camera on - THE MOMENT THEIR PICTURE LEAVES
+  "persona.video.off", // it stopped, and why
 ];
 
 /** The four persona events `persona()` accepts. */
-const PERSONA_EVENTS = Object.freeze(["persona.opened", "persona.audio.on", "persona.audio.off", "persona.closed"]);
+const PERSONA_EVENTS = Object.freeze(["persona.opened", "persona.audio.on", "persona.audio.off", "persona.video.on", "persona.video.off", "persona.closed"]);
 
 /**
  * Every field a persona line may carry besides `egressId`, `at` and `event`. Facts about the

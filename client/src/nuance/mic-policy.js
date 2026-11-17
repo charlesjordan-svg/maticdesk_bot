@@ -145,6 +145,18 @@ export function micStep(mic, event) {
  * @param {"unavailable" | "off" | "live"} state
  * @returns {{ label: string, detail: string } | null}
  */
+/**
+ * The camera's two labels (D319). The camera has no policy file of its own because its rule is the
+ * microphone's with nothing added: off when a session opens, on only by the user's own click with
+ * the window visible, off when the window hides or the session ends. main.js applies it.
+ * @param {boolean} on
+ */
+export function cameraWords(on) {
+  return on
+    ? { label: "Camera on", detail: "Matic can see you. Your camera's picture is being sent from this PC to the service that runs Matic's live face." }
+    : { label: "Camera off", detail: "Matic cannot see you, and nothing from your camera is being sent anywhere." };
+}
+
 export function micWords(state) {
   if (state === "live") {
     return {
