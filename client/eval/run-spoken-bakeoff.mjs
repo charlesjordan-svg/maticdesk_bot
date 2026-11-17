@@ -76,15 +76,34 @@ export function route(text, probe) {
   return { key: `classify:${k.kind}${k.subkind ? `/${k.subkind}` : ""}`, why: k.why };
 }
 
+/**
+ * eval/states.json is TRIMMED to the fields `machineStateBlock()` sends a model, and says so.
+ * `routeTier0()` reads two more - `primary` and `actionable` - which `probeMachine()` DERIVES
+ * from the adapter list (src/broker/capabilities/index.js). They are derived here by the same two
+ * expressions, character for character, so the state a case names is the state tier-0 sees.
+ * `online` is the fixture's own and is not re-derived: the fixture is the authority on the case.
+ */
+function completeProbe(state) {
+  const adapters = state.adapters ?? [];
+  return {
+    ...state,
+    adapters,
+    primary: state.primary ?? adapters.filter((a) => a.dhcpEnabled && a.hasGateway),
+    actionable: state.actionable ?? adapters.filter((a) => a.dhcpEnabled && (a.linkUp || a.hasGateway)),
+  };
+}
+
 function tally(rows) {
   const differing = rows.filter((r) => r.differs);
   return { n: rows.length, differing: differing.length, rows: differing };
 }
 
+const HEALTHY = completeProbe(states.healthy);
 const baseline = new Map();
 for (const c of cases) {
-  const probe = states[c.state];
-  if (!probe) throw new Error(`case ${c.id} names state "${c.state}", which eval/states.json does not have`);
+  const state = states[c.state];
+  if (!state) throw new Error(`case ${c.id} names state "${c.state}", which eval/states.json does not have`);
+  const probe = completeProbe(state);
   baseline.set(c.id, { probe, typed: c.text, ...route(c.text, probe) });
 }
 for (const id of Object.keys(spoken.variants)) {
@@ -113,7 +132,7 @@ if (!asrPath) {
   report.sections.asked = asked;
   report.sections.byKind = Object.fromEntries([...HEADLINE_KINDS, "asked"].map((k) => [k, (({ n, differing }) => ({ n, differing }))(tally(rows.filter((r) => r.kind === k)))]));
 
-  const probes = spoken.vocativeProbes.probes.map((text) => ({ text, ...route(text, states.healthy) }));
+  const probes = spoken.vocativeProbes.probes.map((text) => ({ text, ...route(text, HEALTHY) }));
   report.sections.vocativeProbesTyped = probes;
 
   say(`METHOD A - hand-written spoken-form variants. ${cases.length} cases.`);
@@ -159,7 +178,7 @@ if (asrPath) {
 
     const probeRows = asr.items.filter((i) => i.set === "probe").map((item) => {
       const heard = item.heard[model];
-      const a = route(item.said, states.healthy), h = route(heard, states.healthy);
+      const a = route(item.said, HEALTHY), h = route(heard, HEALTHY);
       return { said: item.said, heard, saidOutcome: a.key, heardOutcome: h.key, differs: a.key !== h.key, nameSurvived: /\bmatic\b/i.test(heard) };
     });
     section.vocativeProbes = { n: probeRows.length, differing: probeRows.filter((r) => r.differs).length, nameSurvived: probeRows.filter((r) => r.nameSurvived).length, rows: probeRows };

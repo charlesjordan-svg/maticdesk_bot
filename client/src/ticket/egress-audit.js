@@ -35,6 +35,26 @@
  * card, NOT a broker consent card. That was a deliberate choice: the consent card means "a
  * privileged change to this machine", and D198 is about not diluting it. Routing a non-machine
  * action through it would make the broker an authority on something it has no business validating.
+ *
+ * ===============================================================================================
+ * THE LIVE PERSONA'S MICROPHONE (2026-11-16) - THE FACT, NEVER THE CONTENT
+ * ===============================================================================================
+ *
+ * A live persona session sends the user's microphone to a third party for as long as it is on.
+ * That is egress of a kind this file was not built for: there is no payload to show, because the
+ * payload is a stream, and there is no review card, because nobody reviews a sentence before
+ * saying it. What CAN be recorded is that a session opened, where it was sending, how long it
+ * ran, and for how much of that time audio left the machine. So that is what is recorded, and
+ * this is an EXTENSION of what the record claims - "what left this machine" now includes "your
+ * voice did, for this long" - not a narrowing of it.
+ *
+ * The ticket half records the payload verbatim, on purpose (above). THIS HALF RECORDS NO CONTENT
+ * AT ALL, also on purpose, and the two rules do not conflict: a ticket is a document the user
+ * approved, and writing it down again adds nothing to its exposure. A transcript of an open
+ * microphone is the colleague in the background and the password read aloud - writing THAT to a
+ * file on disk would create the very record the user never agreed to. `persona()` therefore takes
+ * an allow-list of fields and drops everything else, so a caller cannot put words in this file by
+ * forgetting a rule. When the microphone is on is decided in `src/nuance/mic-policy.js`.
  */
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -48,7 +68,31 @@ export const EGRESS_EVENTS = [
   "ticket.submitted", // the user pressed submit - THIS IS THE MOMENT DATA LEAVES
   "ticket.filed",     // the hub accepted it
   "ticket.failed",    // it did not; nothing is stored on the hub
+  // ---- the live persona (2026-11-16). Appended, never interleaved: the six above keep their order.
+  "persona.opened",    // a live session started; the microphone starts OFF (mic-policy.js rule 1)
+  "persona.audio.on",  // the user turned the microphone on - THIS IS THE MOMENT AUDIO LEAVES
+  "persona.audio.off", // it stopped, with how long that stretch ran and why it ended
+  "persona.closed",    // the session ended, with how long it ran and the total audio time
 ];
+
+/** The four persona events `persona()` accepts. */
+const PERSONA_EVENTS = Object.freeze(["persona.opened", "persona.audio.on", "persona.audio.off", "persona.closed"]);
+
+/**
+ * Every field a persona line may carry besides `egressId`, `at` and `event`. Facts about the
+ * session and nothing about what was said in it:
+ *
+ *   sessionRef   this endpoint's own reference for the session, so its lines can be paired
+ *   persona      which stock persona was on screen
+ *   host         the endpoint's own claim about where it was sending (same reason `hubUrl` is kept)
+ *   microphone   the state the microphone STARTED in. "off", unless a founder decision changes it
+ *   durationMs   how long the session ran, on the closing line
+ *   audioSentMs  how long audio was being sent - one stretch on `audio.off`, the total on `closed`
+ *   reason       why a stretch or a session ended, as a short code
+ *
+ * `test/persona-egress.test.mjs` fails if a name that could hold content is added here.
+ */
+export const PERSONA_EGRESS_FIELDS = Object.freeze(["sessionRef", "persona", "host", "microphone", "durationMs", "audioSentMs", "reason"]);
 
 export class EgressAudit {
   /** @param {{ path: string, onLog?: (s: string) => void }} deps */
@@ -103,6 +147,89 @@ export class EgressAudit {
       // between "our metadata" and "what we sent" is.
       payload: draft,
     });
+  }
+
+  /**
+   * One line about the live persona: that a session opened or closed, or that audio started or
+   * stopped leaving this machine. THE FACT, NEVER THE CONTENT - see the header.
+   *
+   * Throws on an event that is not one of the four, which is the one place this class throws: a
+   * caller reaching for `persona("ticket.submitted", { payload })` or inventing a
+   * `persona.transcript` is a programming error to find in a test, not something to write down
+   * and carry on. Writing the line itself still never throws (`record()`).
+   *
+   * Fields not on `PERSONA_EGRESS_FIELDS` are DROPPED and the drop is logged by NAME only - the
+   * value of a field that should not be here is exactly what must not reach a log either.
+   *
+   * @param {string} event  one of the four `persona.*` events
+   * @param {object} detail
+   */
+  persona(event, detail = {}) {
+    if (!PERSONA_EVENTS.includes(event)) {
+      throw new Error(`EgressAudit.persona() records only ${PERSONA_EVENTS.join(", ")} - not "${event}"`);
+    }
+    const kept = {};
+    const dropped = [];
+    for (const [k, v] of Object.entries(detail ?? {})) {
+      if (PERSONA_EGRESS_FIELDS.includes(k)) kept[k] = v;
+      else dropped.push(k);
+    }
+    if (dropped.length) {
+      this.onLog(`[egress] ${event}: dropped ${dropped.length} field(s) that are not facts about the session (${dropped.join(", ")}). Nothing said in a session is written to the egress record.`);
+    }
+    return this.record(event, kept);
+  }
+
+  /**
+   * The live persona sessions THIS MACHINE has opened, newest first, read back from the log - so
+   * "what left this machine?" has an answer for a microphone as well as for a ticket.
+   *
+   * WHAT IT WILL NOT INVENT. A session with no `persona.closed` line - the process died, or the
+   * machine did - has `closedAt: null` and `durationMs: null`: how long it ran is not known and
+   * zero would be a claim. But `audioWasSent` is still TRUE for it if an `audio.on` line exists,
+   * because that line is written when audio STARTS, precisely so that this case can say so; its
+   * `audioSentMs` is null for the same reason its duration is. A session that closed with the
+   * microphone never turned on reports `audioWasSent: false` and `audioSentMs: 0`, which is a fact
+   * and the reassuring one.
+   *
+   * Never throws; same degradation as `filedFromThisMachine()`.
+   *
+   * @returns {Array<{ sessionRef: string, persona: string|null, host: string|null, microphoneStartedAs: string|null, openedAt: string|null, closedAt: string|null, durationMs: number|null, audioWasSent: boolean, audioSentMs: number|null, reason: string|null }>}
+   */
+  personaSessions() {
+    let text;
+    try { text = readFileSync(this.path, "utf8"); } catch { return []; }
+    /** @type {Map<string, any>} */
+    const byRef = new Map();
+    const get = (ref) => {
+      if (!byRef.has(ref)) {
+        byRef.set(ref, { sessionRef: ref, persona: null, host: null, microphoneStartedAs: null, openedAt: null, closedAt: null, durationMs: null, audioWasSent: false, audioSentMs: null, reason: null });
+      }
+      return byRef.get(ref);
+    };
+    for (const raw of text.split("\n")) {
+      if (!raw.trim()) continue;
+      let line;
+      try { line = JSON.parse(raw); } catch { continue; }
+      if (!PERSONA_EVENTS.includes(line.event) || typeof line.sessionRef !== "string") continue;
+      const s = get(line.sessionRef);
+      if (line.event === "persona.opened") {
+        s.openedAt = line.at ?? null;
+        s.persona = line.persona ?? null;
+        s.host = line.host ?? null;
+        s.microphoneStartedAs = line.microphone ?? null;
+      } else if (line.event === "persona.audio.on" || line.event === "persona.audio.off") {
+        s.audioWasSent = true;
+      } else if (line.event === "persona.closed") {
+        s.closedAt = line.at ?? null;
+        s.durationMs = typeof line.durationMs === "number" ? line.durationMs : null;
+        s.audioSentMs = typeof line.audioSentMs === "number" ? line.audioSentMs : null;
+        if (s.audioSentMs !== null && s.audioSentMs > 0) s.audioWasSent = true;
+        s.reason = line.reason ?? null;
+      }
+    }
+    // Insertion order is first-seen order, so reversing it is newest first.
+    return [...byRef.values()].reverse();
   }
 
   /**
