@@ -79,7 +79,11 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
     chain = chain.then(async () => {
       const next = waiting.shift();
       if (next === undefined) return;
+      // The stage needs to know this turn was SPOKEN to her: she has heard it, may already be
+      // answering, and may be about to hand it off (D316).
+      if (stage) stage.spokenTurn = true;
       try { await submit(next); } catch { /* submit reports its own failures */ }
+      finally { if (stage) stage.spokenTurn = false; }
     });
   }
 

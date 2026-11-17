@@ -264,6 +264,28 @@ export function isRepeatPointer(lastInstructions, turn) {
   return turn.speak === "pointer" && turn.floor === null && turn.event !== null && turn.event.response.instructions === lastInstructions;
 }
 
+/**
+ * The same reply, as the RESULT OF A HAND-OFF. (D316, PROPOSED, 2026-11-17.)
+ *
+ * Under `delegation: client` the persona is a conversational front end: she answers the user
+ * herself, and when something needs doing she says she will look into it and HANDS IT OFF
+ * (`session.delegation.created`, target `client`). The service's way to answer a hand-off is
+ * `session.commentary.append` carrying the delegation's id - "something to tell the user", after
+ * which "the task is done". Until this existed the client ignored every hand-off and pushed its
+ * answer in beside her with a second request to speak, so two speakers raced: in Charles's fourth
+ * session the router's answers arrived a turn late, after she had already said something of her own.
+ *
+ * It CONVERTS an event `personaTurn()` built and adds nothing to it - same words, different
+ * envelope - so every rule about what she may be handed still has exactly one author. The stage
+ * does not write this event type itself; a test looks.
+ *
+ * @param {{ response: { instructions: string } }} event  a reply event from `personaTurn()`
+ * @param {string} delegationId
+ */
+export function asHandOffResult(event, delegationId) {
+  return { type: "session.commentary.append", content: event.response.instructions, delegation_id: delegationId };
+}
+
 /** Sent when the consent card is approved or dismissed. */
 export function consentRelease() {
   return { type: "session.floor.release" };

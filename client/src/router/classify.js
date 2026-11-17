@@ -145,7 +145,11 @@ const SOCIAL = [
   ] },
   { subkind: "capability", markers: [
     "what can you do", "what do you do", "what are you able", "what can you help",
-    "what else can you do", "who are you", "what are you", "can you help me with",
+    // "can you help me with" WAS HERE and is gone (D316). A capability marker fires on the marker
+    // alone, and that phrase is how people introduce a PROBLEM: in Charles's fourth live session
+    // "I'm having problems with my network printer. Can you help me with it?" was answered with the
+    // list of what the assistant can do. Asking what it can help WITH is still caught, below.
+    "what else can you do", "who are you", "what are you", "what can you help me with",
     "what are your capabilities", "list your", "what can i ask",
     "what can you fix", "what do you fix", "what problems can you", "what kind of problems",
     "what kinds of problems", "what sort of things", "what kind of things", "what are you good at",

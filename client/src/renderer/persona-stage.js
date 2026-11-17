@@ -29,7 +29,7 @@
  * kept this thin. `client/docs/PERSONA-RENDERER-CHECK.md` is its click-through.
  */
 import { Room, RoomEvent } from "./vendor/livekit-client.esm.mjs";
-import { personaTurn, consentRelease, beforeExecute, isRepeatPointer } from "../nuance/surface-split.js";
+import { personaTurn, consentRelease, beforeExecute, isRepeatPointer, asHandOffResult } from "../nuance/surface-split.js";
 
 const TOPIC = "nuance_live";
 const enc = new TextEncoder();
@@ -54,6 +54,11 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
   /** @type {Array<() => void>} */ let audioDoneWaiters = [];
   let closedWaiter = null;
   /** @type {string | null} */ let lastInstructions = null;
+  // The hand-off she is waiting on, if any (D316): the id of the latest one addressed to the client.
+  /** @type {string | null} */ let openHandOff = null;
+  /** @type {Array<() => void>} */ let handOffWaiters = [];
+  // True while the turn being answered was SPOKEN to her (set by persona-ui around submit()).
+  let spokenTurn = false;
   /** @type {HTMLAudioElement[]} */ let audioEls = [];
   const parts = new Map();
   const seen = new Map();
@@ -105,8 +110,16 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
       return;
     }
     if (type === "session.delegation.created") {
+      const target = evt.target ?? evt.delegation?.target;
+      const id = evt.delegation?.id ?? evt.id ?? null;
+      // She has said she will look into it and is waiting for the answer. The next thing the
+      // router says is that answer, and it goes back AS this hand-off's result.
+      if (target === "client" && typeof id === "string") {
+        openHandOff = id;
+        for (const w of handOffWaiters.splice(0)) w();
+      }
       // KEYS ONLY, never values: what a hand-off carries is not yet known, and it may carry the user's words.
-      devlog(`[persona] the persona handed something off (target ${evt.target ?? evt.delegation?.target ?? "?"}; delegation fields: ${Object.keys(evt.delegation ?? {}).join(", ") || "none"}) - recorded, not acted on`);
+      devlog(`[persona] the persona handed something off (target ${target ?? "?"}) - ${openHandOff === id ? "the next answer goes back as its result" : "not ours to answer"}`);
       return;
     }
     if (type === "error") {
@@ -146,6 +159,9 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
     phase = "off";
     started = false;
     queue = [];
+    openHandOff = null;
+    lastInstructions = null;
+    for (const w of handOffWaiters.splice(0)) w();
     for (const w of audioDoneWaiters.splice(0)) w();
     const r = room;
     room = null;
@@ -216,8 +232,28 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
       return t;
     }
     if (t.event) lastInstructions = t.event.response.instructions;
-    for (const e of t.send) send(e);
-    devlog(`[persona] ${turn.surface ?? "(untagged)"} -> ${t.kind}/${t.speak}${t.floor ? " + floor held" : ""}`);
+    // D316: when she is waiting on a hand-off, the answer goes back as that hand-off's result
+    // rather than as a second request to speak beside her. Same words either way.
+    if (spokenTurn) {
+      // SHE HEARD THIS TURN HERSELF, so two things differ from a typed one (D316):
+      //  - small talk she has already answered, in her own words and well. Sending her a rule for
+      //    it as well is the second speaker; the panel has the line.
+      if (t.kind === "persona" && String(turn.surface ?? "").startsWith("social.")) {
+        devlog(`[persona] ${turn.surface} -> she heard it and answers small talk herself - nothing sent`);
+        return t;
+      }
+      //  - her hand-off for it may not have ARRIVED yet. The router answers a template question
+      //    in a millisecond; her "I'll get you the list" and the hand-off behind it take longer.
+      //    Seen live: the answer was sent first, she was mid-sentence, and it was lost. So wait
+      //    briefly for the hand-off before falling back to asking her to speak.
+      if (t.event && !openHandOff) {
+        await new Promise((resolve) => { const timer = setTimeout(resolve, 4000); handOffWaiters.push(() => { clearTimeout(timer); resolve(undefined); }); });
+      }
+    }
+    const handOff = t.event && openHandOff ? openHandOff : null;
+    if (handOff) openHandOff = null;
+    for (const e of handOff ? [t.floor, asHandOffResult(t.event, handOff)].filter(Boolean) : t.send) send(e);
+    devlog(`[persona] ${turn.surface ?? "(untagged)"} -> ${t.kind}/${t.speak}${t.floor ? " + floor held" : ""}${handOff ? " (as the result of her hand-off)" : ""}`);
     if (t.event) await audioDone();
     return t;
   }
@@ -235,6 +271,8 @@ export function createPersonaStage({ bridge, videoEl, onUserTurn, onChange, devl
   return {
     get phase() { return phase; },
     get live() { return phase === "live"; },
+    /** persona-ui sets this around the submit() of a turn that was spoken to her. */
+    set spokenTurn(v) { spokenTurn = Boolean(v); },
     start, stop, speak, toggleMic,
     /** The consent card was approved or dismissed. */
     releaseFloor() { if (phase === "live") send(consentRelease()); },

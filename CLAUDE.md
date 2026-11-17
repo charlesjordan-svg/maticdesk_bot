@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D316 onward**, as of D315, register §5.62h, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D317 onward**, as of D316, register §5.62i, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -147,7 +147,7 @@ npm.cmd install            # npm.cmd, not npm — PowerShell execution policy bl
 #                            (same for npx: `npx.ps1` is blocked, so `npx.cmd`, or just use an npm script)
 npm.cmd run fetch-voice    # 63 MB Piper model into client/voices/ (gitignored); needed for speech
 npm.cmd test               # ALL files, REPORTS ALL, exits non-zero at the end (test/run-all.mjs):
-#                            headless, no key, no admin, no hub: 2517 assertions across 31 files (2026-11-17).
+#                            headless, no key, no admin, no hub: 2531 assertions across 31 files (2026-11-17).
 #                            node eval/run-spoken-bakeoff.mjs is the v2 TRANSCRIPT bakeoff (no model): spoken forms of
 #                            the 40 cases through routeTier0() + classify(). --asr <file> reads real ASR output made
 #                            by py -3 eval/asr-roundtrip.py (Piper -> faster-whisper, ~15 min). Numbers and limits:
@@ -966,8 +966,15 @@ the surface split (D305) and the prompt (D306).
   **Never** widen `voice-consent.js`: no "yes" alone, no network-dropping or unknown capability, no
   arming before the persona has finished speaking, no approval that is not written to
   `audit/voice-consent.jsonl`. **Never** add a parameter to `execute` to carry how it was approved.
+- **To start v2:** `tools\launchers\start-v2.cmd -KeyFile "<file holding the Nuance key>"` - database, hub with
+  the key, closes an older tray instance, starts the app with the persona on. Not yet run end to end.
+- **The prompt and the surface split must agree (D316).** A relayed surface the prompt tells her not to
+  say is a surface she will not say: she refused the capability list three times because the draft
+  prompt said "never read those out". Change one, read the other, then read a transcript.
+- **A routed answer to a SPOKEN turn goes back as the result of her hand-off** (`asHandOffResult()`),
+  not as a second request to speak. Do not send small-talk rules for a turn she heard.
 - **The persona answers on its own under `delegation: client`** and hands work off with
-  `session.delegation.created`, which the client currently ignores. Do not write "Nuance never
+  `session.delegation.created`, which the client ANSWERS since D316 (it ignored them before). Do not write "Nuance never
   reasons" anywhere: it is not true of what the client does not route (register §5.62f).
 - **To see what the persona actually SAID, fetch the service's transcript:**
   `GET https://api.nuancelabs.ai/conversation/<id>/transcript` with the API key; the id is in the

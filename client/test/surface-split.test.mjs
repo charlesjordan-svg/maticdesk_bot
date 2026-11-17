@@ -26,7 +26,7 @@ import persona from "../src/router/persona.json" with { type: "json" };
 import catalog from "../src/broker/catalog.json" with { type: "json" };
 import {
   SURFACES, SURFACE_KINDS, POINTERS, INSTRUCTIONS_MAX, NETWORK_DROPPING_CAPABILITIES,
-  surfaceOf, personaTurn, beforeExecute, consentRelease, isRepeatPointer,
+  surfaceOf, personaTurn, beforeExecute, consentRelease, isRepeatPointer, asHandOffResult,
 } from "../src/nuance/surface-split.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -144,6 +144,14 @@ console.log("\n=== 2. no pinned line reaches response.create ===");
   check("a different pointer is not, and neither is an answer", isRepeatPointer(instructionsOf(a), d) === false && isRepeatPointer(instructionsOf(a), q) === false);
   check("a consent card is NEVER suppressed as a repeat", isRepeatPointer(POINTERS.consent, personaTurn({ surface: "@consent", text: "x" })) === false);
   check("nothing said yet: nothing is a repeat", isRepeatPointer(null, a) === false);
+
+  // D316: the answer to a hand-off is the SAME words in the service's envelope for one.
+  const pinnedLine = personaTurn({ surface: "filing.unreachable", text: "I could not reach the service desk, so that has not been filed." });
+  const h = asHandOffResult(pinnedLine.event, "d-1");
+  check("a hand-off's result is a commentary event carrying the delegation's id", h.type === "session.commentary.append" && h.delegation_id === "d-1" && Object.keys(h).sort().join() === "content,delegation_id,type");
+  check("…and its content is exactly what personaTurn() decided - nothing added, so a pinned line is still a pointer", h.content === instructionsOf(pinnedLine) && Object.values(POINTERS).includes(h.content));
+  const stageSrc = readFileSync(join(HERE, "../src/renderer/persona-stage.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  check("the stage answers a hand-off through asHandOffResult() and writes no commentary event of its own", /asHandOffResult\(/.test(stageSrc) && !stageSrc.includes("session.commentary.append"));
 }
 
 // ==============================================================================================

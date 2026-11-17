@@ -6,7 +6,11 @@ when it was done. Register D307; handback `docs/handovers/2026-11-16-claude-code
 
 ## Running it
 
-Needs PostgreSQL up, a hub with the key, and an enrolled endpoint. From PowerShell, in two windows:
+**The short way: the Desktop icon *Matic Desk v2 (Live Face)***, which runs
+`tools\launchers\start-v2.cmd -KeyFile "<the key's file>"` — database, hub with the key, closes an older
+Matic Desk in the notification area, starts the app with the persona on.
+
+By hand, it needs PostgreSQL up, a hub with the key, and an enrolled endpoint. From PowerShell, in two windows:
 
 ```powershell
 cd C:\Users\Charles\Downloads\maticdesk_bot\server

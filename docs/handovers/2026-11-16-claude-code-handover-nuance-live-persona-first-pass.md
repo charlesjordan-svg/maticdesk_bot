@@ -594,3 +594,39 @@ style"*, and asked whether Nuance has embedded codes for expression and intonati
 
 Client **2517 / 31**. **Not done:** the machine summary and the ticket reply have not been given a
 listener's shape — she handled both acceptably in transcript, and neither has been complained of.
+
+
+---
+
+# Seventh pass — 2026-11-17: "she wouldn't read it"
+
+Charles: *"check the logs. Look for improvements.. She wouldnt read the what can you do request. how do
+I launch this v2 is there another icon for it?"* Register **D316**, §5.62i; next free **D317**.
+
+**What the transcript of his fourth session showed.** The answer WAS routed and sent, three times.
+She declined to say it: *"I can't list it all from memory"*, *"It's coming up beside me now"*, then
+*"I don't read those out. That's just how it works on my end."* **She was following her prompt.** The
+draft told her never to read the screen out and never to list what she can do; three founder
+decisions later, that is exactly what she was being handed. A prompt and a surface split that
+disagree is a failure the tests on either one cannot see.
+
+The same transcript shows the router's answers arriving a turn late — *"Do I have any open tickets
+already?"* was answered with the previous turn's escalation — because the client sent them as a
+second request to speak while she was already replying; and *"I'm having problems with my network
+printer. Can you help me with it?"* was answered with the capability list.
+
+**Fixed (D316):** the prompt; answers to a spoken turn go back as the result of her hand-off; small
+talk she heard is left to her; the misfiring marker is gone. **Checked live, twice, synthetic voice:**
+*"What can you do?"* → *"I'll get you the list."* → the whole list. The first attempt after the prompt
+change exposed the race (the answer was sent before her hand-off arrived and was lost), which is how
+the waiting was found to be needed.
+
+**A launcher:** `tools/launchers/start-v2.ps1` / `.cmd`, and a Desktop shortcut that passes the key
+file's path. **Not run end to end** — it closes the Matic Desk already in the notification area,
+which this session was not permitted to do.
+
+Client **2531 / 31**; server 838 / 8.
+
+**Still open:** a real voice on the new prompt and hand-off path; a hand-off whose answer is silent
+(a pinned-silent surface) is left unanswered; her *"Oh okay, opening that ticket now"* — an action
+claim — still appeared once in session four, before this prompt.

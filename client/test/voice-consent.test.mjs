@@ -165,5 +165,20 @@ console.log("\n=== 7. the capability answer, shaped to be said (D315) ===");
   check("the spoken shape goes through D249's redaction before it reaches her", /spokenShape \? spokenForm\(plainProse\(spokenShape\), spokenEnv\) : heard/.test(r));
 }
 
+// ==============================================================================================
+console.log("\n=== 8. a problem introduced with 'can you help me' is a problem (D316) ===");
+{
+  for (const t of ["I'm having problems with my network printer. Can you help me with it?", "can you help me with my email", "my screen is flickering, can you help me with that"]) {
+    check(`"${t}" is NOT a capability question`, !(classify(t).kind === "social" && classify(t).subkind === "capability"), `${classify(t).kind}/${classify(t).subkind ?? ""}`);
+  }
+  for (const t of ["what can you help me with", "what can you do", "what are your capabilities", "tell me about yourself", "what can you help with"]) {
+    check(`"${t}" still is`, classify(t).kind === "social" && classify(t).subkind === "capability", `${classify(t).kind}/${classify(t).subkind ?? ""}`);
+  }
+  const prompt = readFileSync(join(HERE, "../../server/src/nuance/persona-prompt.txt"), "utf8");
+  check("the prompt no longer tells her not to read out what she is given", !/Never read those out/.test(prompt) && !/ask for it to be shown/.test(prompt));
+  check("…it tells her to say all of what she is given, even when it is on the screen", /Say all of it, out loud, even when it is also on the screen/.test(prompt) && /never shorten a list you are given/.test(prompt));
+  check("…and still that she cannot see the screen and must not describe it", /You cannot see it\. Never describe it/.test(prompt));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
