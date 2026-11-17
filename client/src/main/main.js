@@ -69,7 +69,7 @@ let egress = null;
 // The live persona (D307). `personaHub` is the hub client when there is one; `personaConfig` is
 // config.json's block; `liveSession` is the ONE session this process may have, or null.
 let personaHub = null;
-let personaConfig = { enabled: false, maxSessionSeconds: 600, startUnmuted: true };
+let personaConfig = { enabled: false, maxSessionSeconds: 600, startUnmuted: true, startWithCamera: true };
 /** @type {null | { ref: string, conversationId: string, sessionToken: string, openedAtMs: number, mic: any, name: string|null, host: string|null }} */
 let liveSession = null;
 let hubUrlForTickets = null;
@@ -389,6 +389,8 @@ app.whenReady().then(async () => {
     maxSessionSeconds: Number.isInteger(config.persona?.maxSessionSeconds) && config.persona.maxSessionSeconds > 0 ? config.persona.maxSessionSeconds : 600,
     // D320 (the founder's): a session starts with the microphone ON unless config says otherwise.
     startUnmuted: config.persona?.startUnmuted !== false,
+    // D323 (the founder's): the camera too is on from the start, when the hub allows one.
+    startWithCamera: config.persona?.startWithCamera !== false,
   };
 
   // ---- privileged half ----
@@ -610,7 +612,14 @@ app.whenReady().then(async () => {
     egress?.persona("persona.opened", { sessionRef: liveSession.ref, persona: opened.persona, host: opened.host, microphone: startsLive ? "on" : "off" });
     // The policy's first command - a mute, or (D320) an unmute - goes to the renderer to send.
     const mic = personaMicEvent("session.opened", { startLive: personaConfig.startUnmuted, gesture: true });
-    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic, camera: liveSession.cameraAllowed ? { on: false, words: cameraWords(false) } : null };
+    // D323 (the founder's): "Camera should default to on when starting face to face." The same
+    // click that summons her is the gesture; it happens only when the hub allowed a camera for this
+    // session and the window is visible; and the moment the picture starts leaving is written down.
+    if (liveSession.cameraAllowed && personaConfig.startWithCamera && windowVisible()) {
+      liveSession.cameraOn = true;
+      egress?.persona("persona.video.on", { sessionRef: liveSession.ref });
+    }
+    return { ok: true, livekitUrl: opened.livekitUrl, roomToken: opened.roomToken, persona: opened.persona, mic, camera: liveSession.cameraAllowed ? { on: liveSession.cameraOn, words: cameraWords(liveSession.cameraOn) } : null };
   });
 
   // The renderer may ask for exactly two things, and `gesture` is true because this channel is
@@ -672,6 +681,16 @@ app.whenReady().then(async () => {
       log("[ticket] the offer was talked past in conversation - dropped; nothing was filed and nothing was sent");
     }
     return { awaiting, kind: k.kind, subkind: k.subkind ?? null };
+  });
+
+  // What the window's half of a live session logs - event TYPES, microphone levels, device names -
+  // goes to audit/app.log as well. On 2026-11-17 a session ran 74 seconds with the microphone on
+  // and the service heard nothing, and the only record of what the window had seen was in a
+  // developer pane that was gone. Written to the FILE only: `log()` would send it back to the
+  // window that sent it.
+  ipcMain.handle("persona:log", (_e, line) => {
+    try { appendVoiceConsent(APP_LOG, `${new Date().toISOString()} ${String(line ?? "").slice(0, 400)}\n`, "utf8"); } catch { /* a lost log line is not a failure */ }
+    return true;
   });
 
   ipcMain.handle("persona:closed", (_e, reason) => { personaOver(typeof reason === "string" ? reason : "closed"); return { ok: true }; });

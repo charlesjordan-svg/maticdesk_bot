@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld("matic", {
   onPersonaEnd: (cb) => ipcRenderer.on("persona:end", (_e, reason) => cb(reason)),
   // D319: the camera, on the same terms as the microphone - "user.on" or "user.off", and main decides.
   personaCamera: (event) => ipcRenderer.invoke("persona:camera", event),
+  // The window's half of a live session, into audit/app.log: event types and microphone levels, never words.
+  personaLog: (line) => ipcRenderer.invoke("persona:log", line),
   // D318: what the local classifier makes of a SPOKEN sentence, and whether Matic is waiting on an
   // answer - so the window can tell conversation (hers) from work (routed). No model, no network.
   spokenInfo: (text) => ipcRenderer.invoke("agent:spoken", text),

@@ -23,8 +23,8 @@
     "model": "gpt-oss:20b"
   },
   "_localModelNote": "Any OpenAI-compatible endpoint - Ollama, LM Studio, vLLM, or the customer’s own. Setting enabled:true SWAPS the cloud provider for this one; it does not add a routing tier. MATIC_LOCAL_MODEL / MATIC_LOCAL_BASE_URL override, and setting MATIC_LOCAL_MODEL alone is enough to turn it on for one run.",
-  "persona": { "enabled": false, "maxSessionSeconds": 600, "startUnmuted": true },
-  "_personaNote": "The live persona (v2, D301-D307): a real-time video face from a third-party service, summoned by the user with a button, with the built-in face and voice as the fallback. OFF by default. It needs provider 'hub', an enrolled endpoint, and a hub with MATIC_NUANCE_API_KEY. maxSessionSeconds bounds a forgotten window: the service bills wall-clock, silence included. startUnmuted (D320, the founder's): clicking 'Talk face to face' is the user saying they want to talk, so the microphone is ON from the start of a session; set it false and it starts off until its button is clicked. Either way the egress record says when audio started leaving (D303).",
+  "persona": { "enabled": false, "maxSessionSeconds": 600, "startUnmuted": true, "startWithCamera": true },
+  "_personaNote": "The live persona (v2, D301-D307): a real-time video face from a third-party service, summoned by the user with a button, with the built-in face and voice as the fallback. OFF by default. It needs provider 'hub', an enrolled endpoint, and a hub with MATIC_NUANCE_API_KEY. maxSessionSeconds bounds a forgotten window: the service bills wall-clock, silence included. startUnmuted (D320, the founder's): clicking 'Talk face to face' is the user saying they want to talk, so the microphone is ON from the start of a session; set it false and it starts off until its button is clicked. Either way the egress record says when audio started leaving (D303). startWithCamera (D323, the founder's): the camera is on from the start too, when the hub allows one; its button turns it off.",
   "voiceEnabled": true,
   "voiceTuning": {
     "enabled": true,

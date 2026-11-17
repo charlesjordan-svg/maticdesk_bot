@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EgressAudit, EGRESS_EVENTS, PERSONA_EGRESS_FIELDS } from "../src/ticket/egress-audit.js";
-import { initialMic, micStep, micWords, MIC_STATES } from "../src/nuance/mic-policy.js";
+import { initialMic, micStep, micWords, MIC_STATES, greetingGuard } from "../src/nuance/mic-policy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 let pass = 0, fail = 0;
@@ -198,6 +198,19 @@ console.log("\n=== 6. D320 (the founder's): a session may START with the microph
   const main = readFileSync(join(HERE, "../src/main/main.js"), "utf8");
   check("main passes startLive from config and the click as the gesture - and reads the window's visibility itself", /personaMicEvent\("session\.opened", \{ startLive: personaConfig\.startUnmuted, gesture: true \}\)/.test(main));
   check("the egress record's opening line says which way the microphone started", /microphone: startsLive \? "on" : "off"/.test(main));
+}
+
+// ==============================================================================================
+console.log("\n=== 7. D323: she finishes her hello before she listens ===");
+{
+  const g = greetingGuard("live");
+  check("a session that starts live asks the service for silence during the hello, then to listen", g.before.map((c) => c.type).join() === "session.input_audio.mute" && g.after.map((c) => c.type).join() === "session.input_audio.unmute");
+  for (const s of ["off", "unavailable", undefined, "LIVE"]) check(`a session that starts ${String(s)} gets no guard at all`, greetingGuard(s).before.length === 0 && greetingGuard(s).after.length === 0);
+  const stage = readFileSync(join(HERE, "../src/renderer/persona-stage.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  check("the stage takes the guard from mic-policy.js and writes no unmute of its own", /greetingGuard\(/.test(stage) && !stage.includes("session.input_audio.unmute"));
+  check("the guard is lifted even if the hello's end is never reported - a lost event must not leave her deaf", /Promise\.race\(\[[^\]]*speak\(/.test(stage));
+  check("the stage watches whether the microphone is actually producing sound, and says so when it is not", /NO SOUND from the microphone/.test(stage) && /micHint/.test(stage));
+  check("…and what it writes to the app's log is levels and device names, never audio or words", !/personaLog\?\.\([^)]*(transcript|herWords|delta)/.test(stage));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

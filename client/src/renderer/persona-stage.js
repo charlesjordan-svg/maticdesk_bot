@@ -30,6 +30,7 @@
  */
 import { Room, RoomEvent } from "./vendor/livekit-client.esm.mjs";
 import { personaTurn, consentRelease, beforeExecute, isRepeatPointer, asHandOffResult } from "../nuance/surface-split.js";
+import { greetingGuard } from "../nuance/mic-policy.js";
 
 const TOPIC = "nuance_live";
 const enc = new TextEncoder();
@@ -45,7 +46,56 @@ const dec = new TextDecoder();
  *   devlog: (s: string) => void,
  * }} deps
  */
-export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn, onPersonaSaid = () => {}, onChange, devlog }) {
+export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn, onPersonaSaid = () => {}, onChange, devlog: devlogLocal }) {
+  // Everything this file logs goes to the developer pane AND to audit/app.log (D323): event types,
+  // microphone levels and device names. Never a word anybody said.
+  const devlog = (line) => { devlogLocal(line); try { void bridge.personaLog?.(line); } catch { /* the pane has it */ } };
+  // IS THE MICROPHONE ACTUALLY PRODUCING SOUND? "On" is a setting; this is the fact. When it is on
+  // and silent for ten seconds the panel says so, in the user's words, and the log says which device.
+  let micHint = null;
+  let watch = null;
+  function stopWatch() {
+    if (!watch) return;
+    clearInterval(watch.timer);
+    try { void watch.ctx.close(); } catch { /* already closed */ }
+    watch = null;
+  }
+  function watchMic() {
+    stopWatch();
+    micHint = null;
+    const pub = room ? [...room.localParticipant.audioTrackPublications.values()].find((p) => p.track) : null;
+    const mst = pub?.track?.mediaStreamTrack;
+    if (!mst) { devlog("[persona] there is no local microphone track to listen to"); return; }
+    devlog(`[persona] microphone device: ${mst.label || "unnamed"} (enabled ${mst.enabled}, muted by the system ${mst.muted}, ${mst.readyState})`);
+    try {
+      const ctx = new AudioContext();
+      const an = ctx.createAnalyser();
+      ctx.createMediaStreamSource(new MediaStream([mst])).connect(an);
+      const buf = new Float32Array(an.fftSize);
+      let quiet = 0, heard = false;
+      const timer = setInterval(() => {
+        if (mic?.state !== "live") { quiet = 0; return; }
+        an.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (const x of buf) sum += x * x;
+        if (Math.sqrt(sum / buf.length) > 0.003) {
+          if (!heard || quiet >= 10) devlog("[persona] the microphone is picking up sound");
+          heard = true; quiet = 0;
+          if (micHint) { micHint = null; changed(); }
+        } else if (++quiet === 10) {
+          // Logged every time; SAID ON THE PANEL only when nothing has been heard at all this session.
+          // A person who stops talking for ten seconds has a working microphone, and telling them
+          // otherwise would be the false alarm.
+          devlog(`[persona] NO SOUND from the microphone for 10 s while it is on (${mst.label || "unnamed"}; enabled ${mst.enabled}, muted by the system ${mst.muted}, ${mst.readyState})`);
+          if (!heard) {
+            micHint = "I'm not picking up any sound from your microphone. Check it isn't muted, and that Windows is using the one you're speaking into.";
+            changed();
+          }
+        }
+      }, 1000);
+      watch = { ctx, timer };
+    } catch (err) { devlog(`[persona] the microphone's level could not be watched: ${err.message}`); }
+  }
   /** @type {"off" | "starting" | "live"} */
   let phase = "off";
   /** @type {any} */ let room = null;
@@ -80,7 +130,7 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     else { selfEl.hidden = true; selfEl.srcObject = null; }
   }
 
-  const changed = (reason) => onChange({ phase, mic, camera, ...(reason ? { reason } : {}) });
+  const changed = (reason) => onChange({ phase, mic: mic ? { ...mic, hint: mic.state === "live" ? micHint : null } : null, camera, ...(reason ? { reason } : {}) });
 
   function sendNow(evt) {
     if (!room) return;
@@ -99,6 +149,7 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     catch (err) { devlog(`[persona] the local microphone track could not be ${result.state === "live" ? "turned on" : "muted"}: ${err.message}`); }
     for (const c of result.commands ?? []) send(c);
     if (result.refused) devlog(`[persona] microphone: ${result.refused}`);
+    if (result.state === "live") watchMic(); else { stopWatch(); micHint = null; }
     changed();
   }
 
@@ -114,7 +165,13 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
       changed();
       // The persona never opens a conversation on its own. This is its hello - a rule, not a line.
       // A different hello each time (D320): the rule is picked here, the words are hers.
-      void speak({ surface: "boot", variant: Math.floor(Math.random() * 1000) });
+      // And she is left to finish it (D323): when the session started with the microphone on, the
+      // service is asked for silence until the hello is over - or twelve seconds, whichever is first.
+      const guard = greetingGuard(mic?.state);
+      for (const e of guard.before) sendNow(e);
+      void Promise.race([speak({ surface: "boot", variant: Math.floor(Math.random() * 1000) }), new Promise((r) => setTimeout(r, 12_000))]).then(() => {
+        if (phase === "live" && mic?.state === "live") for (const e of guard.after) sendNow(e);
+      });
       return;
     }
     if (type === "session.input_transcript.done") {
@@ -194,6 +251,8 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     try { await r?.disconnect(); } catch { /* already gone */ }
     for (const a of audioEls.splice(0)) a.remove();
     videoEl.srcObject = null;
+    stopWatch();
+    micHint = null;
     mic = null;
     camera = null;
     showSelf();
@@ -229,6 +288,13 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
       await room.localParticipant.setMicrophoneEnabled(true, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
       camera = r.camera ?? null;
       await applyMic(r.mic);
+      // D323: the camera starts on when main said so - main has already written that down.
+      if (camera?.on) {
+        try { await room.localParticipant.setCameraEnabled(true); }
+        catch (err) { devlog(`[persona] the camera could not be turned on: ${err.message}`); }
+        showSelf();
+        changed();
+      }
       return { ok: true };
     } catch (err) {
       devlog(`[persona] could not join the room: ${err.message}`);

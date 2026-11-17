@@ -117,7 +117,10 @@ console.log("\n=== 4. the camera, on the microphone's terms (D319) ===");
   check("main turns it on only for a session the hub allowed a camera for", /!liveSession \|\| !liveSession\.cameraAllowed/.test(cam));
   check("…only with a visible window (D293)", /event === "user\.on"[\s\S]{0,80}if \(!windowVisible\(\)\) return/.test(cam));
   check("…and writes the line at the moment the picture starts leaving", /liveSession\.cameraOn = true; egress\?\.persona\("persona\.video\.on"/.test(cam));
-  check("a session starts with the camera OFF, whatever the hub allowed", /cameraOn: false \}/.test(main) && /camera: liveSession\.cameraAllowed \? \{ on: false/.test(main));
+  // D323 (the founder's) reversed "starts with the camera off": it starts ON when the hub allowed one,
+  // config says so and the window is visible - and the line is written at that moment.
+  check("a session starts with the camera on only when the hub allowed it, config says so and the window is visible (D323)", /if \(liveSession\.cameraAllowed && personaConfig\.startWithCamera && windowVisible\(\)\) \{\s*liveSession\.cameraOn = true;\s*egress\?\.persona\("persona\.video\.on"/.test(main));
+  check("…and what the window is told matches what main decided", /camera: liveSession\.cameraAllowed \? \{ on: liveSession\.cameraOn, words: cameraWords\(liveSession\.cameraOn\) \} : null/.test(main));
   check("a session that ends with the camera on closes that in the record too", /if \(p\.cameraOn\) egress\?\.persona\("persona\.video\.off"/.test(main));
   check("the launcher is where the camera is allowed - the repository's config does not turn it on", !/"camera"\s*:\s*true/.test(read("../config.json")));
 }
@@ -134,6 +137,15 @@ console.log("\n=== 5. the self-view is a corner, not the frame ===");
   check("the self-view's rule is MORE specific than the frame-filling one, so it cannot be overridden by it", self.length > 0 && !/^\.persona-self \{/m.test(css));
   check("it is small", /width:(1\d|2\d|3[0-3])%/.test(self) && !/height:100%/.test(self), self);
   check("it sits in the LOWER LEFT, above the label bar", /left:\d+px/.test(self) && /bottom:\d+px/.test(self) && /right:auto/.test(self) && /top:auto/.test(self));
+}
+
+// ==============================================================================================
+console.log("\n=== 6. one size, and it is the large one (D323) ===");
+{
+  const ui = strip(read("../src/renderer/persona-ui.js"));
+  check("there is no size button and no size toggle", !/persona-size/.test(read("../src/renderer/index.html")) && !/toggleSize|matic\.persona\.large/.test(ui));
+  check("the rail is large whenever a session is live", /rail\?\.classList\.toggle\("persona-large", live\)/.test(ui));
+  check("clicking the face does nothing", !/els\.stage\.onclick/.test(ui));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

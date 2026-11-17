@@ -57,6 +57,23 @@ export const MIC_STATES = Object.freeze(["unavailable", "off", "live"]);
 /** The one place the unmute command is written. Two branches may return it; both are the user's. */
 const unmute = () => ({ type: "session.input_audio.unmute" });
 
+/**
+ * LET HER FINISH HER HELLO (D323). With the microphone on from the first second (D320), the
+ * service heard something during her greeting in both sessions that started that way and she cut
+ * herself off - "Hi, I'm Matic. Welcome to the- Okay, so what's going on today?", then "How's-
+ * Sorry, say that again?" - most likely her own voice coming back through the speakers. So when a
+ * session starts live, the SERVICE is asked to treat the microphone as silent until the hello is
+ * done, and to listen from then on. The local track is not touched: audio is leaving the machine
+ * the whole time and the egress record already says so. A session that starts muted needs none of
+ * this and gets none.
+ * @param {"unavailable" | "off" | "live" | undefined} state  the microphone's state when the session starts
+ * @returns {{ before: Array<{ type: string }>, after: Array<{ type: string }> }}
+ */
+export function greetingGuard(state) {
+  if (state !== "live") return { before: [], after: [] };
+  return { before: [{ type: "session.input_audio.mute" }], after: [unmute()] };
+}
+
 /** @returns {Mic} */
 export function initialMic() {
   return { state: "unavailable", liveSinceMs: null, audioSentMs: 0 };

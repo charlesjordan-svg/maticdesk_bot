@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D323 onward**, as of D322, register §5.62m, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D324 onward**, as of D323, register §5.62n, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -983,6 +983,9 @@ the surface split (D305) and the prompt (D306).
 - **A session starts with the microphone ON (D320, the founder's) and a ticket can be sent by voice
   (D321).** Both reverse earlier defaults on his word. Do not widen either rule: no session starts
   without the user's click, and "yes" alone still sends and approves nothing.
+- **A session starts with the microphone AND the camera on, and the video is one size (D320, D323 - the
+  founder's).** The stage's own log - event types, microphone levels, device names - is in
+  `client/audit/app.log`: when she "can't hear", read it first, then the service's transcript.
 - **To start v2:** `tools\launchers\start-v2.cmd -KeyFile "<file holding the Nuance key>"` - database, hub with
   the key, closes an older tray instance, starts the app with the persona on. Not yet run end to end.
 - **The prompt and the surface split must agree (D316).** A relayed surface the prompt tells her not to

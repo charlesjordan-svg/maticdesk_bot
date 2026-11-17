@@ -162,7 +162,7 @@ matic-avatar { display: block; }
    summon button or a microphone control, so these are our approximations in the delivery's tokens,
    and the first item for the next design ask. The microphone's two states differ in WORDS (the
    button's own text) before they differ in anything drawn. */
-.persona-stage { position:relative; width:196px; height:178px; overflow:hidden; background:var(--matic-ui-surface-2); cursor:pointer; }
+.persona-stage { position:relative; width:196px; height:178px; overflow:hidden; background:var(--matic-ui-surface-2); }
 /* THE LARGER FACE (Charles, 2026-11-17: "is there any way to make the ... face to face avatar bigger").
    The RAIL widens and the conversation gives up the room, rather than the face floating over the
    transcript: nothing a user needs to read is ever behind it. The picture is 704 by 640, so both

@@ -41,29 +41,13 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
     toggle: /** @type {HTMLButtonElement} */ (document.getElementById("persona-toggle")),
     mic: /** @type {HTMLButtonElement} */ (document.getElementById("persona-mic")),
     micNote: /** @type {HTMLElement} */ (document.getElementById("persona-mic-note")),
-    size: /** @type {HTMLButtonElement} */ (document.getElementById("persona-size")),
     cam: /** @type {HTMLButtonElement} */ (document.getElementById("persona-cam")),
     camNote: /** @type {HTMLElement} */ (document.getElementById("persona-cam-note")),
   };
   const rail = els.stage?.closest(".rail");
-  // The size is the user's and is remembered, like the theme (D243). Asked for by Charles on the
-  // first live run: at the rail's own width the face is a thumbnail.
-  let large = false;
-  try { large = localStorage.getItem("matic.persona.large") === "1"; } catch { /* no storage: small */ }
-  let isLive = false;
-  function applySize() {
-    rail?.classList.toggle("persona-large", isLive && large);
-    if (els.size) {
-      els.size.hidden = !isLive;
-      els.size.textContent = large ? "Make the video smaller" : "Make the video bigger";
-      els.size.setAttribute("aria-pressed", large ? "true" : "false");
-    }
-  }
-  function toggleSize() {
-    large = !large;
-    try { localStorage.setItem("matic.persona.large", large ? "1" : "0"); } catch { /* not remembered */ }
-    applySize();
-  }
+  // ONE SIZE, AND IT IS THE LARGE ONE (D323, the founder's: "Default should be the bigger video
+  // avatar size. [no button to change it]"). The first build had a button and a remembered choice;
+  // at the rail's own width the face is a thumbnail, and it is supposed to be face to face.
   /** @type {any} */
   let stage = null;
   /** @type {null | ((text: string) => void)} */
@@ -121,8 +105,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
 
   function apply({ phase, mic, camera, reason }) {
     const live = phase === "live";
-    isLive = live;
-    applySize();
+    rail?.classList.toggle("persona-large", live);
     els.stage.hidden = !live;
     avatar.style.display = live ? "none" : "";
     els.toggle.disabled = phase === "starting";
@@ -134,7 +117,8 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       // states read differently before they look different.
       els.mic.textContent = mic.words.label;
       els.mic.setAttribute("aria-pressed", mic.state === "live" ? "true" : "false");
-      els.micNote.textContent = mic.words.detail;
+      // When the microphone is on and nothing is coming from it, that is said instead (D323).
+      els.micNote.textContent = mic.hint ?? mic.words.detail;
     }
     // The camera's control is there only when this session may use one (D319), and reads in words.
     if (els.cam) {
@@ -185,9 +169,6 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
     };
     els.mic.onclick = () => { void stage?.toggleMic(); };
     if (els.cam) els.cam.onclick = () => { void stage?.toggleCamera(); };
-    // The button, and the face itself: both make it bigger or smaller.
-    if (els.size) els.size.onclick = toggleSize;
-    els.stage.onclick = toggleSize;
     bridge.onPersonaEnd?.((reason) => { void stage?.stop(String(reason ?? "ended")); });
   }
 
