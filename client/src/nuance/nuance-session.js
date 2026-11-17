@@ -33,20 +33,28 @@ const codeOf = (body) => (typeof body?.error?.code === "string" && body.error.co
 
 /**
  * End a conversation by id. Never throws.
- * @param {{ conversationId: string, token: string, fetchImpl?: typeof fetch, baseUrl?: string }} p
+ *
+ * THROUGH THE HUB (D317). The first version called the service's own end route with the session
+ * token, and the service answers that with 403 `api_key_required`: only the API key may end a
+ * conversation, and the key is the hub's. So every "end" this client sent since D307 failed, and
+ * a conversation whose room was never joined ran until the service's own timeout. `end` is
+ * HubClient.endNuanceConversation().
+ *
+ * @param {{ conversationId: string, end: (conversationId: string) => Promise<any> }} p
  */
-export async function endConversation({ conversationId, token, fetchImpl = fetch, baseUrl = NUANCE_API }) {
+export async function endConversation({ conversationId, end }) {
   try {
-    const r = await fetchImpl(`${baseUrl}/conversation/${encodeURIComponent(conversationId)}/end`, { method: "POST", headers: bearer(token), body: "{}" });
-    return { ok: r.status >= 200 && r.status < 300, status: r.status };
+    const r = await end(conversationId);
+    return { ok: Boolean(r?.ok), ...(r?.ok ? {} : { detail: r?.detail ?? r?.reason ?? "refused" }) };
   } catch (err) {
-    return { ok: false, status: 0, detail: err.message };
+    return { ok: false, detail: err.message };
   }
 }
 
 /**
  * @param {{
  *   mint: () => Promise<any>,
+ *   end: (conversationId: string) => Promise<any>,
  *   maxSessionSeconds: number,
  *   fetchImpl?: typeof fetch,
  *   baseUrl?: string,
@@ -58,7 +66,7 @@ export async function endConversation({ conversationId, token, fetchImpl = fetch
  * }} deps
  */
 export async function openConversation({
-  mint, maxSessionSeconds, fetchImpl = fetch, baseUrl = NUANCE_API, admitTimeoutMs = 75_000, pollGapMs = 500,
+  mint, end, maxSessionSeconds, fetchImpl = fetch, baseUrl = NUANCE_API, admitTimeoutMs = 75_000, pollGapMs = 500,
   now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = () => {},
 }) {
   // ---- 1. the hub mints.
@@ -67,7 +75,7 @@ export async function openConversation({
   catch (err) { log(`[persona] the hub could not be asked for a session: ${err.message}`); return fail("mint", "unreachable"); }
   if (!minted?.ok || typeof minted.token !== "string" || !minted.token) {
     const reason = minted?.cap || minted?.code || (minted?.reason === "unreachable" ? "unreachable" : "unavailable");
-    log(`[persona] no session token from the hub (${reason}${minted?.status ? `, HTTP ${minted.status}` : ""}) - staying with the local face and voice`);
+    log(`[persona] no session token from the hub (${reason}${minted?.status ? `, HTTP ${minted.status}` : ""}${minted?.detail ? `: ${minted.detail}` : ""}) - staying with the local face and voice`);
     return fail("mint", reason, minted?.retryAfterMs ? { retryAfterMs: minted.retryAfterMs } : {});
   }
   const token = minted.token;
@@ -95,7 +103,7 @@ export async function openConversation({
   const startedAt = now();
   let after = 0;
   const giveUp = async (reason) => {
-    await endConversation({ conversationId, token, fetchImpl, baseUrl });
+    await endConversation({ conversationId, end });
     log(`[persona] conversation ${conversationId} was not admitted (${reason}); it has been ended`);
     return fail("admit", reason);
   };

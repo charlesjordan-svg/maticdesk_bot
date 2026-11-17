@@ -33,7 +33,7 @@ import { EgressAudit } from "../ticket/egress-audit.js";
 import { openConversation, endConversation } from "../nuance/nuance-session.js";
 import { initialMic, micStep, micWords } from "../nuance/mic-policy.js";
 import { randomUUID as personaRef } from "node:crypto";
-import { appendFileSync as appendVoiceConsent, mkdirSync as makeAuditDir } from "node:fs";
+import { appendFileSync as appendVoiceConsent, mkdirSync as makeAuditDir, existsSync, statSync, writeFileSync } from "node:fs";
 // The two ways this handler can refuse a ticket are both SPOKEN by the avatar, so their wording is
 // persona data (D234/D246) and the reason they failed travels beside it as `detail`.
 import persona from "../router/persona.json" with { type: "json" };
@@ -95,8 +95,19 @@ let rendererReady = false;
 /** The resolved Start with Windows value (settings + the OS's answer), what the tray's box shows. */
 let autostart = false;
 
+// A FILE AS WELL AS THE CONSOLE (2026-11-17). The app is normally started with no console at all -
+// from a shortcut, or at logon - so when the live video failed for Charles there was nothing to
+// read: the reason was in a window that does not exist. audit/app.log sits beside the two records
+// that already live there, is truncated when it passes 2 MB, and carries what the developer log
+// carries: no credential, no token, and nothing anybody said.
+const APP_LOG = join(dirname(fileURLToPath(import.meta.url)), "../../audit/app.log");
+try {
+  makeAuditDir(dirname(APP_LOG), { recursive: true });
+  if (existsSync(APP_LOG) && statSync(APP_LOG).size > 2 * 1024 * 1024) writeFileSync(APP_LOG, "");
+} catch { /* a log that cannot be written is not a reason to fail to start */ }
 const log = (line) => {
   console.log(line);
+  try { appendVoiceConsent(APP_LOG, `${new Date().toISOString()} ${line}\n`, "utf8"); } catch { /* same */ }
   // `win` outlives its window: after close the BrowserWindow object is destroyed but the variable
   // still holds it, and `webContents.send` throws "Object has been destroyed". The Piper worker's
   // exit line arrives exactly then (tts.stop() runs on window-all-closed), which is how this became
@@ -127,7 +138,7 @@ function personaOver(reason) {
   liveSession = null;
   log(`[persona] session ${p.ref} over (${reason}) after ${Math.round((nowMs - p.openedAtMs) / 1000)} s; audio was sent for ${Math.round(step.mic.audioSentMs / 1000)} s`);
   // Best effort, and not awaited: the service ends it on its own too, this just stops the clock sooner.
-  void endConversation({ conversationId: p.conversationId, token: p.sessionToken });
+  void endConversation({ conversationId: p.conversationId, end: (id) => personaHub.endNuanceConversation(id) }).then((r) => { if (!r.ok) log(`[persona] the hub could not end conversation ${p.conversationId}: ${r.detail ?? "no reason"}`); });
 }
 
 // ---- presence: the pure policy, applied ----------------------------------------------------------
@@ -571,11 +582,14 @@ app.whenReady().then(async () => {
     if (liveSession) return { ok: false, degrade: true, reason: "already" };
     // D293: a session is speech and a microphone. Neither exists without a visible window.
     if (!windowVisible()) return { ok: false, degrade: true, reason: "no-visible-window" };
-    const opened = await openConversation({ mint: () => personaHub.mintNuanceToken(), maxSessionSeconds: personaConfig.maxSessionSeconds, log });
-    if (!opened.ok) return { ok: false, degrade: true, stage: opened.stage, reason: opened.reason };
+    const opened = await openConversation({ mint: () => personaHub.mintNuanceToken(), end: (id) => personaHub.endNuanceConversation(id), maxSessionSeconds: personaConfig.maxSessionSeconds, log });
+    if (!opened.ok) {
+      log(`[persona] the live video did not start: ${opened.stage}/${opened.reason}`);
+      return { ok: false, degrade: true, stage: opened.stage, reason: `${opened.stage}/${opened.reason}` };
+    }
     if (!windowVisible()) {
       // It was hidden while the persona warmed up. End what was started; nothing was joined.
-      void endConversation({ conversationId: opened.conversationId, token: opened.sessionToken });
+      void endConversation({ conversationId: opened.conversationId, end: (id) => personaHub.endNuanceConversation(id) });
       return { ok: false, degrade: true, reason: "no-visible-window" };
     }
     liveSession = { ref: personaRef(), conversationId: opened.conversationId, sessionToken: opened.sessionToken, openedAtMs: Date.now(), mic: initialMic(), name: opened.persona, host: opened.host };

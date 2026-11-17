@@ -457,6 +457,12 @@ export class HubClient {
    */
   async mintNuanceToken() { return this.#act("/v1/nuance/session-token", {}); }
 
+  /**
+   * Ask the hub to end a live-persona conversation (D317). The service ends one only for the API
+   * key, which is the hub's: the session token this endpoint holds is refused.
+   */
+  async endNuanceConversation(conversationId) { return this.#act("/v1/nuance/conversation/end", { conversationId }); }
+
   async #act(path, payload) {
     if (!this.available) return { ok: false, reason: "no-hub", detail: "no hub URL is configured on this build" };
     if (!this.credential) return { ok: false, reason: "no-credential", detail: "this endpoint holds no enrollment credential, so the hub would refuse to act: no request was made (D286). See [enroll] in the log" };

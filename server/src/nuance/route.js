@@ -164,6 +164,45 @@ export class MintLedger {
   rows() { return this._rows.map((r) => ({ ...r })); }
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * POST /v1/nuance/conversation/end - the hub ends a conversation. (D317, PROPOSED, 2026-11-17.)
+ *
+ * WHY THE HUB. Nuance ends a conversation only for the API KEY: the session token an endpoint
+ * holds gets 403 `api_key_required` (observed 2026-11-17 - the client had been calling it with the
+ * token since D307, and every call failed without anybody seeing). So an endpoint whose window
+ * closed, whose renderer died or whose room never joined could not stop the clock on a session it
+ * had started, and on a plan with ONE concurrent session a stray one refuses everybody else.
+ *
+ * Credential required. The body is `{ conversationId }`. The hub does not know which enrollment a
+ * conversation belongs to - the conversation is started by the endpoint, with the token - so an
+ * enrolled endpoint can end any conversation whose id it knows. The ids are random and are shown
+ * to nobody else; that is the whole of the protection, and it is said here rather than implied.
+ *
+ * @param {{ apiKey: string | null, fetchImpl?: typeof fetch, baseUrl?: string, log?: (s: string) => void }} deps
+ */
+export function nuanceEndHandler({ apiKey, fetchImpl = fetch, baseUrl = NUANCE_BASE_URL, log = () => {} }) {
+  return async function handleNuanceEnd(req, res, send, { device = null } = {}) {
+    if (!device) return send(401, { ok: false, error: NEEDS_CREDENTIAL_TO_MINT });
+    if (!apiKey) return send(503, { ok: false, error: "live sessions are switched off on this hub: no MATIC_NUANCE_API_KEY is set in its environment." });
+    const parsed = await readJson(req);
+    if (parsed.error) return send(400, { ok: false, error: parsed.error });
+    const id = parsed.value?.conversationId;
+    if (typeof id !== "string" || !UUID.test(id)) return send(400, { ok: false, error: "conversationId must be the conversation's uuid" });
+    try {
+      const r = await fetchImpl(`${baseUrl}/conversation/${id}/end`, { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, body: "{}" });
+      log(`[nuance] ended conversation ${id} for enrollment ${device.id} (${device.tenantSlug}): HTTP ${r.status}`);
+      // 404 is "already gone", which is what was wanted.
+      if ((r.status >= 200 && r.status < 300) || r.status === 404) return send(200, { ok: true, ended: r.status !== 404 });
+      return send(502, { ok: false, error: "the live-session service did not end the conversation; the hub's log has its answer." });
+    } catch (err) {
+      log(`[nuance] could not reach the service to end conversation ${id}: ${err.message}`);
+      return send(502, { ok: false, code: "unreachable", error: "the live-session service could not be reached." });
+    }
+  };
+}
+
 /**
  * The handler.
  *

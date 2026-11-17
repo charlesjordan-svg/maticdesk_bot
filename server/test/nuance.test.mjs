@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  nuanceTokenHandler, checkMintRequest, endUserIdFor, MintLedger,
+  nuanceTokenHandler, nuanceEndHandler, checkMintRequest, endUserIdFor, MintLedger,
   INTERFACE_SETUP, NUANCE_PERSONAS, DEFAULT_PERSONA, DEFAULT_CAPS, NEEDS_CREDENTIAL_TO_MINT,
 } from "../src/nuance/route.js";
 
@@ -208,6 +208,27 @@ console.log("\n=== 8. the shipped prompt is the document's, and says what Decisi
   await call(m.handler);
   check("the hub sends it upstream whole", m.up.calls[0].body.personality.system_prompt === shipped.trim());
   check("index.js falls back to the shipped file when no override is set", readFileSync(join(HERE, "../src/index.js"), "utf8").includes("./nuance/persona-prompt.txt"));
+}
+
+// ==============================================================================================
+console.log("\n=== 9. ending a conversation - only the API key can (D317) ===");
+{
+  const CONV = "f81634d9-3088-40c6-a3a1-ca7518a75cd7";
+  const mk = (script = () => ({ status: 200, body: {} }), apiKey = KEY) => { const up = upstream(script); const logs = []; return { up, logs, h: nuanceEndHandler({ apiKey, fetchImpl: up.fetchImpl, log: (s) => logs.push(s) }) }; };
+  const a = mk();
+  const r = await call(a.h, { body: { conversationId: CONV } });
+  check("it POSTs /conversation/:id/end with the API KEY as the bearer", r.status === 200 && r.json.ok === true && a.up.calls[0].url === `https://api.nuancelabs.ai/conversation/${CONV}/end` && a.up.calls[0].headers.authorization === `Bearer ${KEY}`);
+  check("the key is in no response and no log line", !(JSON.stringify(r.json) + a.logs.join("\n")).includes("CANARY"));
+  check("no credential: 401, nothing sent", (await call(a.h, { body: { conversationId: CONV }, dev: null })).status === 401 && a.up.calls.length === 1);
+  for (const bad of [{}, { conversationId: "../usage" }, { conversationId: 7 }, { conversationId: "abc" }]) {
+    const b = mk();
+    check(`a body of ${JSON.stringify(bad)} is refused and nothing is sent upstream`, (await call(b.h, { body: bad })).status === 400 && b.up.calls.length === 0);
+  }
+  check("already gone (404) is success - it is what was wanted", (await call(mk(() => ({ status: 404, body: {} })).h, { body: { conversationId: CONV } })).json.ok === true);
+  check("the service refusing is 502, not a silent success", (await call(mk(() => ({ status: 500, body: {} })).h, { body: { conversationId: CONV } })).status === 502);
+  check("unreachable is 502", (await call(mk(() => ({ throw: "ENOTFOUND" })).h, { body: { conversationId: CONV } })).status === 502);
+  check("no key on the hub: 503", (await call(mk(undefined, null).h, { body: { conversationId: CONV } })).status === 503);
+  check("index.js dispatches it, lists it, and it is not public on a LAN", readFileSync(join(HERE, "../src/index.js"), "utf8").includes('pathname === "/v1/nuance/conversation/end"'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

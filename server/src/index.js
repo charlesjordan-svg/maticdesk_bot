@@ -93,7 +93,7 @@ import { corpusStatus } from "./kb/ingest.js";
 import { embeddingProviderFromEnv, EMBEDDING_DIM } from "./kb/embed.js";
 import { ticketHandler, resolveTicketTenant } from "./tickets/file.js";
 import { sessionHandler } from "./sessions/route.js";
-import { nuanceTokenHandler } from "./nuance/route.js";
+import { nuanceTokenHandler, nuanceEndHandler } from "./nuance/route.js";
 import { retrievalHealthReader } from "./kb/health.js";
 import { enrollHandler, IDENTITY_NOTE } from "./devices/route.js";
 import { authenticateDeviceCredential } from "./devices/enrollment.js";
@@ -367,6 +367,8 @@ export function createHubServer({ provider, hubProvider = "local", log = console
   // D298-D300 (PROPOSED, 2026-11-16): the hub mints a live-persona session token, so the API key
   // never reaches an endpoint. Built unconditionally, like handleAsk: with no key or no prompt it
   // answers 503 with the reason rather than 404 with none (src/nuance/route.js).
+  // D317: only the API key can end a conversation, so the endpoint asks the hub to.
+  const handleNuanceEnd = nuanceEndHandler({ apiKey: nuance?.apiKey ?? null, log });
   const handleNuanceToken = nuanceTokenHandler({ apiKey: nuance?.apiKey ?? null, prompt: nuance?.prompt ?? null, ...(nuance?.persona ? { persona: nuance.persona } : {}), log });
   // D236: what retrieval would do RIGHT NOW — the embedder verified live (not described from its
   // constructor), the corpus, and the resulting mode. ONE reader for /v1/health AND the console's
@@ -469,6 +471,10 @@ export function createHubServer({ provider, hubProvider = "local", log = console
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
       return handleEnroll(req, res, send);
     }
+    if (pathname === "/v1/nuance/conversation/end") {
+      if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
+      return handleNuanceEnd(req, res, send, { device: auth.principal });
+    }
     if (pathname === "/v1/nuance/session-token") {
       if (req.method !== "POST") return send(405, { ok: false, error: "POST only" });
       return handleNuanceToken(req, res, send, { device: auth.principal });
@@ -556,6 +562,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
           { method: "POST", path: "/v1/ticket", what: "file a ticket. STORES ONLY - nobody is notified, there is no outbound email (D86)", body: { description: "string (the reporter's own words)", summary: "string (the case note for the assignee)", category: "enum", suggestedOwner: "enum or null", whatWasChecked: "string", machineName: "string", reporter: "{ osUsername, firstName, lastName, location, contactId } - SELF-ASSERTED, not authenticated" } },
           { method: "POST", path: "/v1/enroll", what: "a device asks to join a tenant (B3). The one route that DOES take a tenant from the client - the enrollment secret is what authenticates the claim. The response that makes the device active carries its credential ONCE (D282)", body: { tenant: "string (the tenant's slug)", deviceKeyId: "string (opaque device identity)", secret: "string (the tenant's enrollment secret)", mode: "'standalone' | 'joined' (optional)" } },
           { method: "POST", path: "/v1/nuance/session-token", what: "mint a short-lived token for a live persona session (D298-D300, PROPOSED). The body is {} - the persona, the prompt, the session's setup and the end-user id are the hub's and a body naming one is refused. Credential required on EVERY listener; capped per install per hour and per tenant per day; 503 with the reason when the hub has no API key or no prompt", body: {} },
+          { method: "POST", path: "/v1/nuance/conversation/end", what: "end a live persona conversation (D317, PROPOSED). The service ends one only for the API key, which the endpoint does not have. Credential required", body: { conversationId: "the conversation's uuid" } },
           { method: "POST", path: "/v1/session", what: "the endpoint's conversation began / was confirmed fixed / was confirmed not fixed / ended (D237, D239). The row is written at BEGIN, defaulting to unresolved; 'escalated' is set by POST /v1/ticket, never by this route; 'suppressed' is reserved", body: { event: "'begin' | 'resolved' | 'not_fixed' | 'end'", sessionId: "uuid, minted by the endpoint - SELF-ASSERTED", startedAt: "ISO timestamp (optional)", category: "slug (optional, with resolved: the capability confirmed)", machineName: "string (optional)" } },
         ],
         // The admin console (B2). A separate field, NOT an entry in routes: it is a browser surface
@@ -580,7 +587,7 @@ export function createHubServer({ provider, hubProvider = "local", log = console
     return send(404, {
       ok: false,
       error: `no such route: ${req.method} ${req.url}`,
-      routes: ["GET /", "GET /v1/health", "GET /v1/tickets", "GET /v1/tickets/:reference", "POST /v1/ticket/:reference/comment", "POST /v1/ticket/:reference/reopen", "POST /v1/ticket/:reference/confirm", "POST /v1/tickets/ack", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session", "POST /v1/nuance/session-token"],
+      routes: ["GET /", "GET /v1/health", "GET /v1/tickets", "GET /v1/tickets/:reference", "POST /v1/ticket/:reference/comment", "POST /v1/ticket/:reference/reopen", "POST /v1/ticket/:reference/confirm", "POST /v1/tickets/ack", "POST /v1/ask", "POST /v1/turn", "POST /v1/ticket", "POST /v1/enroll", "POST /v1/session", "POST /v1/nuance/session-token", "POST /v1/nuance/conversation/end"],
     });
   });
 

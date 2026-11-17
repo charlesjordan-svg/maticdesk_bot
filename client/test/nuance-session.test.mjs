@@ -41,7 +41,6 @@ const happy = (events = [[{ type: "preparing" }], [{ type: "admitted", livekit_u
   return net((url, init) => {
     if (url.endsWith("/conversation") && init.method === "POST") return { status: 201, body: { id: "c-1", status: "preparing" } };
     if (url.includes("/conversation/c-1/events")) return { status: 200, body: { events: events[Math.min(poll++, events.length - 1)] } };
-    if (url.endsWith("/conversation/c-1/end")) return { status: 200, body: {} };
     return { status: 404, body: {} };
   });
 };
@@ -49,10 +48,11 @@ const open = (o = {}) => {
   const logs = [];
   const n = o.net ?? happy();
   let t = 0;
+  const ended = [];
   return openConversation({
-    mint: o.mint ?? (async () => MINT_OK), fetchImpl: n.fetchImpl, log: (s) => logs.push(s),
+    mint: o.mint ?? (async () => MINT_OK), end: async (id) => { ended.push(id); return { ok: true }; }, fetchImpl: n.fetchImpl, log: (s) => logs.push(s),
     now: () => t, sleep: async (ms) => { t += ms; }, admitTimeoutMs: o.admitTimeoutMs ?? 60_000, maxSessionSeconds: o.maxSessionSeconds ?? 600,
-  }).then((r) => ({ r, n, logs }));
+  }).then((r) => ({ r, n, logs, ended }));
 };
 
 // ==============================================================================================
@@ -97,17 +97,21 @@ console.log("\n=== 2. every failure is a reason to carry on locally, never a thr
   const { r } = await open({ net: net(() => ({ status: 429, body: { code: "capacity_unavailable", retry_after_seconds: 12 } })) });
   check("a retry time from the service is carried", r.retryAfterMs === 12_000);
   const t = await open({ net: happy([[]]), admitTimeoutMs: 3000 });
-  check("a conversation that was started and never admitted is ENDED, not left running", t.n.calls.some((c) => c.url.endsWith("/conversation/c-1/end") && c.method === "POST"));
+  check("a conversation that was started and never admitted is ENDED, not left running - through the hub", t.ended.join() === "c-1");
+  check("…and the client never calls the service's end route itself: its token is refused there (D317)", !t.n.calls.some((c) => c.url.endsWith("/end")));
 }
 
 // ==============================================================================================
 console.log("\n=== 3. ending one ===");
 {
-  const n = happy();
-  const r = await endConversation({ conversationId: "c-1", token: "st_TOKEN-CANARY", fetchImpl: n.fetchImpl });
-  check("endConversation POSTs /conversation/:id/end with the session token", r.ok === true && n.calls[0].url === `${NUANCE_API}/conversation/c-1/end` && n.calls[0].method === "POST" && n.calls[0].headers.authorization === "Bearer st_TOKEN-CANARY");
-  const bad = await endConversation({ conversationId: "c-1", token: "st_x", fetchImpl: net(() => ({ throw: "gone" })).fetchImpl });
-  check("…and never throws", bad.ok === false);
+  const asked = [];
+  const r = await endConversation({ conversationId: "c-1", end: async (id) => { asked.push(id); return { ok: true }; } });
+  check("endConversation asks the HUB to end it (D317: only the API key can)", r.ok === true && asked.join() === "c-1");
+  check("a refusal is reported, not thrown", (await endConversation({ conversationId: "c-1", end: async () => ({ ok: false, reason: "refused" }) })).ok === false);
+  const bad = await endConversation({ conversationId: "c-1", end: async () => { throw new Error("gone"); } });
+  check("…and it never throws", bad.ok === false);
+  const src2 = readFileSync(join(HERE, "../src/nuance/nuance-session.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  check("nuance-session.js holds no call to the service's end route", !/\/end`/.test(src2));
 }
 
 // ==============================================================================================
