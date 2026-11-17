@@ -58,7 +58,11 @@ by Charles clicking the same window. Screenshots: `docs/handovers/screenshots/20
 | 3 | **Seen, by its record:** a session ended with the microphone never clicked wrote `audioSentMs: 0`, and the service confirmed the opening mute (`session.input_audio.muted`) |
 | 4 | **Seen.** Label, pressed state and sentence all changed; the service confirmed `unmuted` |
 | 5 | **Seen, twice,** with the synthetic voice: transcribed as *"Hello Matic. How are you today"*, routed as `social.howareyou`, answered. **The name was written "Matic" both times** |
-| 6–9 | **NOT RUN** |
+| 6 | **NOT RUN** (the capability answer) |
+| 7 | **Seen**, with D310 on top: a `flush_dns` card came up, the log read `@consentVoice -> pinned/pointer + floor held`, and the service reported the quiet period. What she SAID was not captured |
+| 7a | **D310 seen, by Charles's own voice:** a one-word answer ignored as unclear; *"I approve."* approved; the card read *Approved by you, by voice*; the broker ran it; `audit/voice-consent.jsonl` has the line and its nonce matches the broker's audit line |
+| 8, 9 | **NOT RUN** (the pre-emptive close; talking over her) |
+| — | **D308 seen:** typed "how is my computer doing" → the band opened and *"Two things stand out: last restarted — 16 hours ago and memory — almost full…"* was relayed. **D309 seen:** typed "where is my ticket" → the filed-tickets reply was relayed |
 | 10 | **Seen.** 460 × 418, rail 500 px, class gone when the session ended |
 | 11 | **FAILED, then fixed, and the fix has NOT been watched.** Charles closed the window mid-session and no `persona.closed` line was written. Main now ends the session itself; `test/nuance-session.test.mjs` §4 pins the code, nobody has closed a window on it since |
 | 12 | **Seen**, three times |

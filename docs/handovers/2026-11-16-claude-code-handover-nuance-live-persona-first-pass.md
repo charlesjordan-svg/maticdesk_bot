@@ -438,3 +438,85 @@ phantom caller of the microphone — the policy has none.
 **Left running on this machine:** the hub on 8787 with the key in its environment, PostgreSQL in
 Docker, and a second Matic Desk on a scratch profile with the persona on. Charles's own tray
 instance was not touched.
+
+
+---
+
+# Fourth pass — 2026-11-17: after Charles talked to it
+
+Charles ran a live session himself (136 s, microphone on for 129 s, a ticket taken by voice through to
+its draft) and said: *"she seemed to perform well. Check logs. Please enable her ability to do approve
+fixes and speak on the info from the this see about this machine tab and open tickets."* Register
+**D308–D310**, §5.62f; next free **D311**. One commit, `66d0d50`.
+
+## A. What his session's logs say
+
+- **It held together.** Opened, microphone on six seconds later by his click, closed by him, the
+  egress record complete with a closing line.
+- **A ticket was taken by voice**: the offer, yes, first name, last name, location, contact, the draft
+  on screen. Nothing was sent.
+- **"Hello Maddox, how you doing?"** His first sentence. The recogniser wrote the name as *Maddox*, so
+  it was not a greeting; it went to the model and came back as *"I can't fix this one from here — it
+  needs desktop support. I can open a ticket for you."* The first pass's bakeoff predicted exactly
+  this from a synthetic voice. **A real one did it on the first sentence.**
+- **She speaks for herself.** 17 persona replies in that session; the client asked for about 8. And
+  `session.delegation.created`, target *client*, arrived at least four times and was logged and
+  dropped. So the persona has a model of its own, answers the user directly, and hands things to us
+  that we do not pick up. **The third pass said "four requests, four replies — the persona did not
+  answer on its own." That was two turns, and it was wrong.**
+- **Turns were dropped.** Several finished spoken turns have no routing line after them: `submit()`
+  ignores a sentence that arrives while another is in flight.
+
+## B. What was built
+
+| | |
+|---|---|
+| **D308** — the machine band, spoken when asked | `classify()` `machine` kind; `src/agent/machine-summary.js`; the renderer opens the band and relays the sentence |
+| **D309** — open tickets, spoken | the `tickets.*` lines move from *pinned* to a new kind, *relay* |
+| **D310** — a low-risk fix approved by voice | `src/nuance/voice-consent.js`; the consent card listens while it is up; `audit/voice-consent.jsonl` |
+
+`client/test/voice-consent.test.mjs`, 95 assertions. Client **2473 / 31**.
+
+**Each reverses something this branch pinned a day earlier**, on the founder's word. What was kept:
+the machine sentence is built only from the band's own rows and never names the computer, the account
+or an address (D249), and gives no advice (D256); the ticket band is still the wording that counts
+(D288); the consent card is still the broker's and approval still presents a nonce and nothing else
+(D130, D200).
+
+**Asked before building, because it is the trust root:** what "approve fixes" should mean. Charles
+chose *voice, low-risk only* over *voice for every fix* and *she explains, you click*.
+
+## C. Seen
+
+All three, in one session, with `mira` — and D310 by Charles's own voice, unplanned, while this
+session's check had a card on screen:
+
+- *"how is my computer doing"* → *"Two things stand out: last restarted — 16 hours ago and memory —
+  almost full. The rest of what I can see looks normal: … all 5 drives have room."*
+- *"where is my ticket"* → the filed-tickets reply, relayed.
+- *"the internet is slow"* → a `flush_dns` card, the floor held. A one-word spoken answer: **ignored
+  as unclear.** *"I approve."*: **approved**, *Approved by you, by voice* on the card, the broker ran
+  it. `voice-consent.jsonl`'s nonce is the broker audit line's `consentNonce`.
+
+## D. What is NOT fixed, and matters
+
+1. **The name.** Until "Matic" survives a real voice, a greeting can turn into a ticket offer. The
+   cheap fix is the recogniser's spellings as vocatives; the catch is that some are real words
+   ("medic"). Not done: it wants a list of what Nuance actually writes, from more than one sentence.
+2. **Two brains.** The persona answers from its own model. D299's reasoning — and the handover's
+   "Nuance never reasons" — does not describe what runs. Either the hand-offs are answered and the
+   prompt tells her to hand everything over, or the claim is dropped. **This is the open question on
+   the whole design now.**
+3. **Dropped turns.**
+4. **What she actually says is not captured anywhere** — by design, for the user's words, but it means
+   nobody can check a relay against what was relayed. Her own output transcript is a different thing
+   from the user's speech and could be kept for testing.
+
+## E. Ledger additions
+
+**Not run:** the capability answer by voice; the pre-emptive close before a network change; talking
+over her; a refusal by voice; voice approval of a second capability (`restart_service`).
+**Not verified:** that she relays a ticket's state without changing it — the instruction is a request
+to a model. **Not heard by this session:** anything.
+**A machine change was made on this computer during testing:** the DNS cache was flushed, twice, both
+approved by Charles (once by button at 04:12, once by voice at 04:14).
