@@ -28,3 +28,10 @@
 *.svg   text eol=lf
 *.css   text eol=lf
 *.html  text eol=lf
+
+# Vendored third-party code is kept BYTE FOR BYTE (2026-11-17): its note records a sha256 and
+# client/test/nuance-session.test.mjs checks it, so a line-ending conversion would make a fresh
+# checkout fail a test for a file nobody edited. And the persona prompt is one exact text that a
+# third party reviews - it is LF everywhere, so two checkouts cannot send two prompts.
+client/src/renderer/vendor/livekit-client.esm.mjs -text
+server/src/nuance/persona-prompt.txt text eol=lf

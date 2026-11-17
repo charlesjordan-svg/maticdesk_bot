@@ -183,7 +183,9 @@ export function nuanceTokenHandler({ apiKey, prompt, persona = DEFAULT_PERSONA, 
   if (!NUANCE_PERSONAS.includes(persona)) {
     throw new Error(`the Nuance persona must be one of ${NUANCE_PERSONAS.join(", ")} - not "${persona}". There is no custom persona to configure.`);
   }
-  const promptText = typeof prompt === "string" ? prompt.trim() : "";
+  const promptText = typeof prompt === "string" ? prompt.replace(/
+/g, "
+").trim() : "";
   const promptProblem = !promptText ? "no persona prompt is configured on this hub (MATIC_NUANCE_PROMPT_FILE)"
     : promptText.length > PROMPT_MAX_CHARS ? `the configured persona prompt is ${promptText.length} characters and the service takes at most ${PROMPT_MAX_CHARS}`
     : null;
