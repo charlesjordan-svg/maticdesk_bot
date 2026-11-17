@@ -630,3 +630,20 @@ Client **2531 / 31**; server 838 / 8.
 **Still open:** a real voice on the new prompt and hand-off path; a hand-off whose answer is silent
 (a pinned-silent surface) is left unanswered; her *"Oh okay, opening that ticket now"* — an action
 claim — still appeared once in session four, before this prompt.
+
+
+---
+
+# Eighth pass — 2026-11-17: it failed from the icon
+
+Charles launched v2 from the new Desktop icon; "Talk face to face" failed on every click. Register
+**D317**, §5.62j; next free **D318**.
+
+- **Found and fixed:** the client could never end a conversation — the service refuses the session
+  token on its end route (403 `api_key_required`). The hub ends it now.
+- **Built:** `client/audit/app.log`, and the stage and reason logged when the live video does not start.
+- **NOT found:** why it failed for him. Everything testable from outside his running app works with
+  his profile's credential; a scratch copy launched the icon's way started a session. His app made
+  no authenticated call to the hub in two minutes. **The launcher itself did work**: it replaced the
+  hub and started the app with the persona on.
+- Client **2534 / 31**; server **850 / 8**.
