@@ -35,9 +35,18 @@ const SYMPTOMS = [
     id: "network",
     keywords: [
       "internet", "network", "offline", "connect", "wifi", "wi-fi", "ethernet",
-      "web page", "webpage", "website", "browser", "dns", "dropped", "no service",
-      "online", "lan", "vpn",
+      // D297 (PROPOSED, 2026-11-16): "dropped" alone is gone and "lan" moved to `words` below.
+      // "I dropped my laptop" and "my screen went bLANk" each raised a `flush_dns` card at 0.81 -
+      // over the threshold, so with no model call to catch it. A connection that dropped is still
+      // caught: by "connect", "wifi" or "vpn" when the sentence names what dropped, and by the
+      // three phrases here when it does not.
+      "web page", "webpage", "website", "browser", "dns", "dropped out", "dropping out", "keeps dropping", "no service",
+      "online", "vpn",
     ],
+    // WHOLE WORDS ONLY. The substring rule above is right for a STEM ("connect") and wrong for a
+    // short word that is also a run of letters inside ordinary ones. Put a keyword here when the
+    // second is true of it; `test/router.test.mjs` §D297 holds the sentences that say why.
+    words: ["lan"],
   },
 ];
 
@@ -45,6 +54,11 @@ function matchSymptom(text) {
   const t = text.toLowerCase();
   for (const s of SYMPTOMS) {
     for (const k of s.keywords) if (t.includes(k)) return s.id;
+    if (s.words) {
+      // Same tokenisation as `stateTopicsFor` below, so the two cannot disagree about what a word is.
+      const tokens = t.replace(/['’]/g, "").split(/[^a-z0-9]+/);
+      for (const w of s.words) if (tokens.includes(w)) return s.id;
+    }
   }
   return null;
 }

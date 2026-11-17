@@ -424,5 +424,52 @@ console.log("=== D219: the signature change fails loudly, never silently ===");
   check("passing the probe first throws instead of quietly narrowing the answer", threw);
 }
 
+// ==============================================================================================
+// D297 (PROPOSED, 2026-11-16). Found by RUNNING the v2 transcript bakeoff, not by reading this
+// file: the spoken variant "i dropped my bag on the train this morning and my laptop screen has a
+// crack across the corner" came back as a `flush_dns` proposal at 0.81 - over the threshold, so no
+// model is asked and the user is shown a CONSENT CARD to clear a network cache for a cracked
+// screen. Two keywords did it, and neither needed speech to do it:
+//
+//   "lan"      is inside bLANk, pLAN, pLANner, LANguage. "my screen went blank" raised the card.
+//   "dropped"  is what people do to laptops, bags and coffee, far more often than to connections.
+//
+// That is D198's defect - a card the user did not provoke - on the path that makes no model call
+// and so has nothing downstream to catch it. Speech makes it likelier (people who talk put a story
+// in front of the complaint, and a longer sentence is more substring to hit) but every sentence
+// below is one somebody would TYPE.
+console.log("\n=== D297: a network keyword inside another word does not raise a network card ===");
+{
+  const healthy = probe({ adapters: [adapter({ ip: "192.168.1.42", hasIp: true, hasGateway: true, gateway: "192.168.1.1" })], online: true });
+  for (const t of [
+    "my screen went blank",
+    "my second monitor is blank after lunch",
+    "the Teams planner will not open",
+    "I need to change my language settings",
+    "can you explain the holiday plan",
+    "I dropped my laptop and the screen is cracked",
+    "I dropped coffee on my keyboard",
+    "i dropped my bag on the train this morning and my laptop screen has a crack across the corner",
+  ]) {
+    const r = routeTier0(t, healthy);
+    check(`"${t}" is not a network complaint and gets no tier-0 proposal`, r === null, JSON.stringify(r?.proposal));
+    check(`…and machine state is not entitled to answer it either (D219)`, stateTopicsFor(t) === null, JSON.stringify(stateTopicsFor(t)));
+  }
+  // What the two keywords were FOR must still work.
+  for (const t of [
+    "the lan is down",
+    "I can't get on the LAN.",
+    "LAN cable is plugged in but nothing works",
+    "my connection dropped",
+    "the wifi dropped again",
+    "the vpn keeps dropping",
+    "it keeps dropping out",
+    "the call dropped out and now nothing loads",
+  ]) {
+    const r = routeTier0(t, healthy);
+    check(`"${t}" is still a network complaint`, r !== null && stateTopicsFor(t) instanceof Set && stateTopicsFor(t).has("network"), JSON.stringify(r?.proposal ?? null));
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
