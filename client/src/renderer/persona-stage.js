@@ -429,6 +429,8 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     },
     /** persona-ui sets this around the submit() of a turn that was spoken to her. */
     set spokenTurn(v) { spokenTurn = Boolean(v); },
+    /** D331: persona-ui waits for her goodbye - or `ms` - before stopping a session the user asked to end. */
+    waitForReply(ms) { return audioDone(ms); },
     /** persona-ui marks the instant a spoken turn leaves for Matic: the "submitted" leg. */
     noteSubmitted(turn) {
       legs.submittedAt = Date.now();

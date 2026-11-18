@@ -354,5 +354,32 @@ console.log("\n=== 12. fewer pointers: she is handed the words, not told to poin
   check("a knowledge-base decline on the TYPED path attaches the offer it just made", /forPersona\("@answer"\);\s*const spoken = await say\(res\.reply, "declining"\);\s*if \(res\.answer\?\.offered\) attachOffer\(spoken\);/.test(r));
 }
 
+// ==============================================================================================
+console.log("\n=== 13. she can end the session when asked, and a hung hub cannot hold the conversation (D331, D332) ===");
+{
+  // The 00:32 session (conversation 5fb05ace, 235 s, 25 turns): turn 3 was routed to Matic at
+  // 00:33:13 and the hub never answered it inside the session (the one before had a propose take
+  // 300 054 ms - the hub's own timeout). Every spoken turn is taken IN ORDER behind the one before
+  // (D312), so turns 4 to 25 - twenty-two of them, several of which were Charles asking her to end
+  // it - waited behind that submit and nothing happened: "She seems not to have the ability to
+  // close the session. I tried several times and she wouldnt end it."
+  const { wantsToEnd, END_PHRASES } = await import("../src/nuance/session-end.js");
+  for (const t of ["end the session", "End the call.", "stop the video", "close the session", "end live video", "hang up", "that's all for now", "I'm done", "goodbye", "bye for now", "ok bye", "we're done here", "turn off the video", "end the conversation", "let's stop the chat"]) {
+    check(`"${t}" ends the session`, wantsToEnd(t) === true);
+  }
+  for (const t of ["my screen keeps going black", "stop", "stop the spooler", "end of the month reports are slow", "can you close the ticket", "the call keeps dropping", "the video is choppy", "I'm done with this printer", "restart the spooler", "what can you do", "yes", ""]) {
+    check(`"${t}" does NOT end the session`, wantsToEnd(t) === false, String(wantsToEnd(t)));
+  }
+  check("the phrases are a frozen list, and bare 'stop' is not on it", Object.isFrozen(END_PHRASES) && !END_PHRASES.includes("stop"));
+  const ui = strip(read("../src/renderer/persona-ui.js"));
+  check("the end check runs on the user's turn BEFORE anything is queued - it does not wait behind a routed turn", /onUserTurn: \(text, meta\) => \{\s*if \(wantsToEnd\(text\)\) \{ void endByVoice\(text, meta\); return; \}/.test(ui));
+  check("…and ending is: one [spoken] line, her goodbye waited for briefly, then the same stop the button does", /async function endByVoice\(text, meta\)/.test(ui) && /spokenLine\(\{ kind: "end" \}, "end", "end"\)/.test(ui) && /await stage\.waitForReply\(END_REPLY_WAIT_MS\)/.test(ui) && /await stage\.stop\("user"\)/.test(ui));
+  const stage = strip(read("../src/renderer/persona-stage.js"));
+  check("the stage exposes the reply waiter it already had, bounded", /waitForReply\(ms\) \{ return audioDone\(ms\); \}/.test(stage));
+  // D332: a routed turn is awaited for at most ROUTED_WAIT_MS by the chain; the submit itself goes on.
+  check("a routed turn holds the chain for at most a ceiling, after which later turns are taken while its answer is still awaited", /const ROUTED_WAIT_MS = 20_000;/.test(ui) && /Promise\.race\(\[sent\.then\(\(\) => "done"\), new Promise\(\(resolve\) => setTimeout\(\(\) => resolve\("ceiling"\), ROUTED_WAIT_MS\)\)\]\)/.test(ui) && /its answer will still be relayed/.test(ui));
+  check("…and the submit's own completion, not the ceiling, is what clears the spoken-turn flag", /const sent = submit\(next\)\.catch\(\(\) => \{\}\)\.finally\(\(\) => \{ if \(stage\) stage\.spokenTurn = false; \}\);/.test(ui) && !/await submit\(next\)/.test(ui));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

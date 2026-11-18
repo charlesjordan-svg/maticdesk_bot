@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D331 onward**, as of D330, register §5.62r, 2026-11-18; it was D324 onward as of D323 — the register's own procedure line is updated in the same pass as the number), with a status
+- New decisions are **appended** to the register with the next free ID (**D333 onward**, as of D332, register §5.62s, 2026-11-18; it was D324 onward as of D323 — the register's own procedure line is updated in the same pass as the number), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -1016,6 +1016,15 @@ the surface split (D305) and the prompt (D306).
   30 s, `outcome=handoff`); `propose()` reuses the voice path's knowledge-base answer for the
   same sentence (`Agent.ASKED_REUSE_MS`, never a gated decline). **Never** let a decline promise a
   ticket nothing is waiting for.
+- **"End the session" ends it (D331, proposed), checked BEFORE the spoken queue; a routed turn holds
+  that queue for at most 20 s (D332, proposed).** `client/src/nuance/session-end.js` `wantsToEnd()`:
+  the classifier's farewell, or a verb on the session (end/close/stop/finish/… the video/session/
+  call/chat), or a short frozen list; bare "stop" is work. persona-ui's `endByVoice()` waits up to
+  6 s for her goodbye then calls the button's `stop("user")`. **Never** put the end check behind the
+  queue, and never add bare "stop" to the list. The 00:32 session: one submit to a hub that never
+  answered held 22 sentences (`ROUTED_WAIT_MS`). **When the hub takes minutes, read `nvidia-smi`
+  first** - 22 443 of 23 028 MiB in use with the 24b at a 32k context is the thrash cliff, and
+  `/v1/health` embeds through Ollama so it times out too (not fixed; Charles's call on the context).
 - **`start-v2.ps1` mints NO enrollment secret unless `-Enroll` is passed.** It used to mint one per launch,
   and an app that could not find `enrollment.json` enrolled afresh every start (nine device rows; the
   day's tickets on superseded enrollments, invisible to the newest). The app prints an `[enroll]` block

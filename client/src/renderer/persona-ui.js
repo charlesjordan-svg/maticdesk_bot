@@ -20,6 +20,7 @@
  * client carries, and a user who never summons the face never pays for parsing it.
  */
 import { spokenTurnRoute } from "../nuance/turn-routing.js";
+import { wantsToEnd } from "../nuance/session-end.js";
 
 /**
  * @param {{
@@ -81,6 +82,15 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
   const UNROUTED_FOR_MS = 30_000;
   /** @type {null | { text: string, meta: object, at: number }} */
   let lastUnrouted = null;
+  // A HUNG HUB CANNOT HOLD THE CONVERSATION (D332, 2026-11-18). The 00:32 session: turn 3 went to
+  // Matic, the hub never answered it inside the session (the session before had a propose take
+  // 300 054 ms, the hub's own timeout), and because every spoken turn waits for the one before
+  // (D312), turns 4 to 25 waited behind it - twenty-two sentences, several of them "end the
+  // session". So a routed turn holds the chain for at most this long; its submit goes on, and its
+  // answer is still relayed when it comes.
+  const ROUTED_WAIT_MS = 20_000;
+  // Her goodbye is waited for this long before the session is stopped (D331).
+  const END_REPLY_WAIT_MS = 6_000;
   function spokenLine(info, route, outcome) {
     const turn = current.turn;
     const lag = typeof current.endedAt === "number" ? Date.now() - current.endedAt : null;
@@ -176,9 +186,28 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       if (stage) stage.spokenTurn = true;
       // The hand-off's legs (handover 2026-11-18 §6.3): this is the instant the turn leaves for Matic.
       stage?.noteSubmitted?.(turn);
-      try { await submit(next); } catch { /* submit reports its own failures */ }
-      finally { if (stage) stage.spokenTurn = false; }
+      // submit() reports its own failures. The flag clears when the SUBMIT finishes, not when the
+      // chain stops waiting for it (D332).
+      const sent = submit(next).catch(() => {}).finally(() => { if (stage) stage.spokenTurn = false; });
+      const outcome = await Promise.race([sent.then(() => "done"), new Promise((resolve) => setTimeout(() => resolve("ceiling"), ROUTED_WAIT_MS))]);
+      if (outcome === "ceiling") devlog(`[persona] turn ${turn} has been with Matic for ${ROUTED_WAIT_MS / 1000} s - later spoken turns are taken meanwhile; its answer will still be relayed when it comes (D332)`);
     }
+  }
+
+  /**
+   * The user asked to end the session (D331): one line in the log, her goodbye waited for briefly -
+   * she heard the sentence and answers small talk herself - then the same stop the button does.
+   * Called from the stage's turn callback BEFORE the chain, so a turn stuck with Matic cannot hold
+   * it. The window's local face and voice come back (Decision C).
+   */
+  async function endByVoice(text, meta) {
+    current = { turn: meta?.turn ?? "?", endedAt: typeof meta?.endedAt === "number" ? meta.endedAt : null };
+    spokenLine({ kind: "end" }, "end", "end");
+    devlog(`[persona] the user asked to end the session by voice (turn ${current.turn}) - her goodbye is waited for, then the session is stopped (D331)`);
+    showSpoken(text);
+    if (!stage) return;
+    try { await stage.waitForReply(END_REPLY_WAIT_MS); } catch { /* her goodbye is not required */ }
+    await stage.stop("user");
   }
 
   function apply({ phase, mic, camera, reason }) {
@@ -231,7 +260,12 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           // A finished spoken turn goes exactly where a typed one goes.
           // ...unless something is waiting on a spoken answer of its own - a consent card that may
           // be approved aloud (D310). Then the sentence goes there and nowhere else.
-          onUserTurn: (text, meta) => { if (spoken) spoken(text); else enqueue(text, meta); },
+          // D331: "end the session" is answered here, ahead of the queue and ahead of a consent
+          // card's own listener - ending the session is the user's click, said aloud.
+          onUserTurn: (text, meta) => {
+            if (wantsToEnd(text)) { void endByVoice(text, meta); return; }
+            if (spoken) spoken(text); else enqueue(text, meta);
+          },
           // What she says on her own goes on the panel too, so a conversation reads as one.
           // ...AFTER the sentence it answers. She replies in a second or two; whether the turn is
           // hers is not settled until a hand-off has had its chance to arrive, so her line is
