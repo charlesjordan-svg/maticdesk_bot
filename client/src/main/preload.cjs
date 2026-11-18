@@ -65,7 +65,8 @@ contextBridge.exposeInMainWorld("matic", {
   spokenInfo: (text) => ipcRenderer.invoke("agent:spoken", text),
   // D325: a SPOKEN question goes to the hub's knowledge base and NOWHERE ELSE - no proposal, no
   // escalation, no ticket offer. The answer, or a decline that the window keeps silent.
-  askKnowledge: (text) => ipcRenderer.invoke("agent:ask", text),
+  // D327: `opts.requireLexicalMatch` asks the hub to skip its model unless the lexical leg matched.
+  askKnowledge: (text, opts) => ipcRenderer.invoke("agent:ask", text, opts ?? {}),
   // D310: a consent card answered by VOICE is written down, with the words heard. The broker's own
   // audit line cannot say how the button was pressed - it sees a nonce and nothing else.
   recordVoiceConsent: (decision) => ipcRenderer.invoke("consent:voice", decision),

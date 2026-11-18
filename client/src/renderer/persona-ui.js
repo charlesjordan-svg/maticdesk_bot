@@ -61,11 +61,23 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
   let deciding = false;
   /** @type {string[]} */
   const heldHers = [];
-  /** @type {string[]} */
+  /** @type {Array<{ text: string, meta: { turn?: number, endedAt?: number } }>} */
   const waiting = [];
-  function enqueue(text) {
+  // THE [spoken] LINE (handover 2026-11-17 §2.5; fields added 2026-11-18 §6.1/§6.2): one per spoken
+  // turn, never the words. kind/route/outcome are what scripts/spoken-turns.mjs counts; `turn` is
+  // the stage's own number for the turn, so this line and the stage's "finished turn N" line are
+  // joined by a field instead of by elimination; `verb`/`why` are the classifier's, so WHICH
+  // branch produced a kind is read off the log; `decided` is the gap from the turn ending to this
+  // decision, in ms - the one lag the 2026-11-18 reading could only infer.
+  let current = { turn: "?", endedAt: null };
+  function spokenLine(info, route, outcome) {
+    const turn = current.turn;
+    const lag = typeof current.endedAt === "number" ? Date.now() - current.endedAt : null;
+    void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=${route} outcome=${outcome} turn=${turn} verb=${info.verb ?? "-"} decided=+${lag ?? "?"}ms why=${info.why ?? "?"}`);
+  }
+  function enqueue(text, meta = {}) {
     if (waiting.length >= 2) waiting.shift();
-    waiting.push(text);
+    waiting.push({ text, meta });
     // A link that throws must not poison the chain: every later spoken turn would be skipped in
     // silence. It is caught, said in the developer log, and the next turn is taken as usual.
     chain = chain.then(() => handleSpoken()).catch((err) => { deciding = false; devlog(`[persona] a spoken turn could not be handled: ${err?.message ?? err}`); });
@@ -73,8 +85,11 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
 
   async function handleSpoken() {
     {
-      const next = waiting.shift();
-      if (next === undefined) return;
+      const item = waiting.shift();
+      if (item === undefined) return;
+      const next = item.text;
+      current = { turn: item.meta?.turn ?? "?", endedAt: typeof item.meta?.endedAt === "number" ? item.meta.endedAt : null };
+      const turn = current.turn;
       // WHO ANSWERS IT (D318): turn-routing.js decides, from three facts. Is Matic waiting on an
       // answer, and what does the local classifier make of it - asked of the main process, no
       // model, no network. And did she hand it off - which may take her a few seconds to do, so
@@ -87,19 +102,23 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       // D325: a QUESTION goes to the knowledge base and nowhere else. A hand-off she has ALREADY
       // made wins (D318: she decided it is work), and is not waited for - the round trip is long
       // enough already, and the floor is held so she does not answer from world knowledge meanwhile.
+      // D327: so does the classifier's DEFAULT - an unrecognised sentence - with one difference:
+      // the hub is asked to call its model only if the lexical leg found a chunk, so a pleasantry
+      // costs a retrieval and no model call. A question keeps D325's shape.
       if (route === "ask" && stage && (await stage.waitForHandOff(0))) route = "route";
       let asked = null;
       if (route === "ask") {
+        const what = info.kind === "action" ? "an unrecognised spoken sentence" : "a spoken question";
         stage?.holdForLookup();
-        try { asked = (await bridge.askKnowledge?.(next)) ?? null; } catch { asked = null; }
+        try { asked = (await bridge.askKnowledge?.(next, { requireLexicalMatch: info.kind === "action" })) ?? null; } catch { asked = null; }
         stage?.releaseLookup();
         const outcome = asked?.ok ? (asked.answered ? "answered" : "declined") : "unreachable";
         // THE NUMBER (handover 2026-11-17 §2.5): one line per spoken question, kind and outcome and
         // nothing said, so "how often did a question stay hers" is read from audit/app.log and not
         // from memory. scripts/spoken-turns.mjs counts them.
-        void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=ask outcome=${outcome}`);
+        spokenLine(info, "ask", outcome);
         if (outcome === "answered" && asked.reply) {
-          devlog("[persona] a spoken question, answered from the knowledge base - shown and said; her own line, if any, stands first");
+          devlog(`[persona] ${what}, answered from the knowledge base - shown and said; her own line, if any, stands first`);
           showSpoken(next);
           for (const line of heldHers.splice(0)) showHers(line);
           deciding = false;
@@ -114,7 +133,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
         // result, and D318 says a hand-off is routed whatever it says. The typed path answers her.
         if (stage && (await stage.waitForHandOff(0))) { devlog(`[persona] the knowledge base ${outcome} it, and she handed it off meanwhile - routed as her hand-off`); route = "route"; }
         else {
-          devlog(`[persona] a spoken question the knowledge base ${outcome} - nothing added; her answer stands (D325)`);
+          devlog(`[persona] ${what} the knowledge base ${outcome}${asked?.modelCalled === false ? " without a model call (no lexical match)" : ""} - nothing added; her answer stands (D325${info.kind === "action" ? ", D327" : ""})`);
           showSpoken(next);
           for (const line of heldHers.splice(0)) showHers(line);
           deciding = false;
@@ -123,13 +142,13 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       }
       if (route === "hers") {
         devlog("[persona] a spoken turn she is answering herself - conversation, not routed");
-        void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=hers outcome=hers`);
+        spokenLine(info, "hers", "hers");
         showSpoken(next);
         for (const line of heldHers.splice(0)) showHers(line);
         deciding = false;
         return;
       }
-      void bridge.personaLog?.(`[spoken] kind=${info.kind ?? "?"} route=route outcome=${info.awaiting ? "answer" : "work"}`);
+      spokenLine(info, "route", info.awaiting ? "answer" : "work");
       // Routed: what she said while handing it over ("I'll look into that") is not the answer and
       // is not put on the panel beside the one that is.
       heldHers.length = 0;
@@ -137,6 +156,8 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       // The stage needs to know this turn was SPOKEN to her: she has heard it, may already be
       // answering, and may be about to hand it off (D316).
       if (stage) stage.spokenTurn = true;
+      // The hand-off's legs (handover 2026-11-18 §6.3): this is the instant the turn leaves for Matic.
+      stage?.noteSubmitted?.(turn);
       try { await submit(next); } catch { /* submit reports its own failures */ }
       finally { if (stage) stage.spokenTurn = false; }
     }
@@ -192,7 +213,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           // A finished spoken turn goes exactly where a typed one goes.
           // ...unless something is waiting on a spoken answer of its own - a consent card that may
           // be approved aloud (D310). Then the sentence goes there and nowhere else.
-          onUserTurn: (text) => { if (spoken) spoken(text); else enqueue(text); },
+          onUserTurn: (text, meta) => { if (spoken) spoken(text); else enqueue(text, meta); },
           // What she says on her own goes on the panel too, so a conversation reads as one.
           // ...AFTER the sentence it answers. She replies in a second or two; whether the turn is
           // hers is not settled until a hand-off has had its chance to arrive, so her line is

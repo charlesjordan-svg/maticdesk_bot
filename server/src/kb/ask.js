@@ -86,12 +86,36 @@ export function checkAskRequest(body) {
   if (body.sessionId !== undefined && body.sessionId !== null && !(typeof body.sessionId === "string" && UUID_SHAPE.test(body.sessionId))) {
     return "sessionId, when present, must be a uuid";
   }
+  // D327: the endpoint may ask for the model to be skipped unless the lexical leg matched. A
+  // boolean or nothing; a string "true" is refused rather than read as either.
+  if (body.requireLexicalMatch !== undefined && typeof body.requireLexicalMatch !== "boolean") {
+    return "requireLexicalMatch, when present, must be a boolean";
+  }
   // The guard described in the header. A client that can name its own tenant IS the tenancy model.
   if (body.tenant !== undefined || body.tenantId !== undefined || body.tenantLabel !== undefined) {
     return "this hub does not accept a tenant from the client. B7a's tenancy is a server-side label "
       + "(MATIC_KB_TENANT_LABEL) because device authentication is not built (D61, D132), and a "
       + "client-supplied tenant would become the tenancy model by default.";
   }
+  return null;
+}
+
+/**
+ * WHEN THE MODEL IS NOT CALLED, and why. Pure, so test/kb-static.test.mjs can hold every case.
+ *
+ * Returns the reason or null. `emptyCorpus` and `unavailable` are D236's: nothing was or could
+ * have been supplied, so the decline is the hub's own sentence and a 24B model is not loaded to
+ * say so. `no-lexical-match` is D327's (PROPOSED, 2026-11-18): the endpoint asked for it, the
+ * lexical leg ran and found nothing - the dense leg always returns neighbours, so without this
+ * every unrecognised spoken sentence would cost a model call. The decline there is DECLINE_REPLY:
+ * retrieval ran and found no coverage, which is what that sentence says.
+ *
+ * @param {{ mode: string, retrieval?: { legs?: { lexical?: boolean }, candidates?: { lexical?: number } } | null, requireLexicalMatch?: boolean }} p
+ * @returns {"emptyCorpus" | "unavailable" | "no-lexical-match" | null}
+ */
+export function modelCallSkipped({ mode, retrieval = null, requireLexicalMatch = false }) {
+  if (mode === "emptyCorpus" || mode === "unavailable") return mode;
+  if (requireLexicalMatch === true && retrieval?.legs?.lexical === true && Number(retrieval?.candidates?.lexical ?? 0) === 0) return "no-lexical-match";
   return null;
 }
 
@@ -145,6 +169,7 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
     const body = parsed.value;
     const platform = platformFromProbe(body.probe);
     const sessionId = body.sessionId ?? null;
+    const requireLexicalMatch = body.requireLexicalMatch === true;
 
     // ---- Retrieval. A failure here is DEGRADED, NOT FATAL (acceptance item 7). --------------
     // An empty corpus and an unreachable database both produce zero chunks, and zero chunks is a
@@ -152,7 +177,7 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
     let retrieval = { chunks: [], articles: [], legs: { lexical: false, semantic: false, semanticError: null }, topScore: 0, floorApplied: false, floor: null, eligibleChunks: null, candidates: { lexical: 0, semantic: 0 } };
     let retrievalError = null;
     try {
-      retrieval = await retrieve({ query: body.text, platform, topK, embedder, log });
+      retrieval = await retrieve({ query: body.text, platform, topK, embedder, requireLexicalMatch, log });
     } catch (err) {
       retrievalError = err.message;
       log(`[ask] retrieval failed, answering with no articles (the decline path): ${err.message}`);
@@ -176,14 +201,18 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
     // and buys nothing, so it is not called; the decline is the hub's own sentence, and it says the
     // guidance could not be CHECKED rather than that none covers the question — which under these
     // two modes would be false (D236, the decline-wording decision). `hybrid` and `lexicalOnly`
-    // still go to the model unchanged: retrieval RAN, and a decline there is the model's to make.
+    // still go to the model unchanged: retrieval RAN, and a decline there is the model's to make -
+    // UNLESS the endpoint asked for the lexical gate and the lexical leg found nothing (D327):
+    // then the decline is DECLINE_REPLY, retrieval having run and found no coverage.
+    // `modelCallSkipped()` above holds the three cases.
     let out, read;
     let answered, reply, cited, problems;
-    if (mode === "emptyCorpus" || mode === "unavailable") {
-      log(`[ask] retrieval mode ${mode}: nothing to check, declining without a model call`);
+    const skipped = modelCallSkipped({ mode, retrieval, requireLexicalMatch });
+    if (skipped !== null) {
+      log(`[ask] ${skipped === "no-lexical-match" ? "no lexical match and the endpoint required one" : `retrieval mode ${mode}: nothing to check`}, declining without a model call`);
       out = { ms: 0, body: null };
       read = { finishReason: null };
-      answered = false; reply = UNCHECKED_DECLINE_REPLY; cited = []; problems = [];
+      answered = false; reply = skipped === "no-lexical-match" ? DECLINE_REPLY : UNCHECKED_DECLINE_REPLY; cited = []; problems = [];
     } else {
       try {
         out = await provider.complete(buildAnswerInput({ text: body.text, retrieval }));
@@ -235,6 +264,9 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
       model: provider.model,
       answered,
       reply,
+      // D327: whether a model was asked at all. False on the three skipped cases; the endpoint's
+      // log says so, and nothing the endpoint SAYS changes on it.
+      modelCalled: skipped === null,
       // The citation. Article IDs only — chunk text never leaves the hub (D53).
       citedArticleIds: cited,
       // Enough for an endpoint to know how much to trust the answer, without carrying the corpus.
@@ -245,6 +277,8 @@ export function askHandler({ provider, embedder, hubProvider, tenantLabel = null
         // D236: the endpoint can read HOW this was retrieved. It changes nothing it says (the hub's
         // reply already reflects the mode) but it is on the response so the transcript can carry it.
         mode,
+        // D327: why the model was not called, when it was not. null when it was.
+        skipped,
         topScore: Number(retrieval.topScore.toFixed(6)),
         floorApplied: retrieval.floorApplied,
         // Loud: any quality judgement made from this response is a FLOOR, not a measurement.

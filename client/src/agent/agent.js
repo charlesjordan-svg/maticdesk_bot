@@ -162,16 +162,21 @@ export class Agent {
    *
    * The same gate as the typed path: a provider with no `ask` has no knowledge base to ask.
    *
+   * `requireLexicalMatch` (D327, PROPOSED, 2026-11-18): the hub is asked to skip its model unless
+   * its lexical leg found at least one chunk. Sent for the classifier's DEFAULT - an unrecognised
+   * spoken sentence - so small talk costs one retrieval and no model call; not sent for a question.
+   *
    * @param {string} text
-   * @returns {Promise<{ ok: boolean, answered?: boolean, reply?: string, citedArticleIds?: string[], retrieval?: object|null, error?: string }>}
+   * @param {{ requireLexicalMatch?: boolean }} [opts]
+   * @returns {Promise<{ ok: boolean, answered?: boolean, reply?: string, citedArticleIds?: string[], retrieval?: object|null, modelCalled?: boolean|null, error?: string }>}
    */
-  async askKnowledge(text) {
+  async askKnowledge(text, { requireLexicalMatch = false } = {}) {
     if (typeof this.cloud?.ask !== "function") return { ok: false, error: "this provider has no knowledge base to ask" };
     const { probe } = this.diagnose();
-    this.onLog("[router] a spoken question - asking the knowledge base only; a decline stays silent on the voice path (D325)");
-    const asked = await this.cloud.ask(text, { probe });
+    this.onLog(`[router] ${requireLexicalMatch ? "an unrecognised spoken sentence - asking the knowledge base only, model gated on a lexical match (D327)" : "a spoken question - asking the knowledge base only (D325)"}; a decline stays silent on the voice path`);
+    const asked = await this.cloud.ask(text, { probe, requireLexicalMatch });
     if (!asked.ok) return { ok: false, error: asked.error ?? "the knowledge base could not be reached" };
-    return { ok: true, answered: asked.answered === true, reply: asked.reply, citedArticleIds: asked.citedArticleIds ?? [], retrieval: asked.retrieval ?? null };
+    return { ok: true, answered: asked.answered === true, reply: asked.reply, citedArticleIds: asked.citedArticleIds ?? [], retrieval: asked.retrieval ?? null, modelCalled: asked.modelCalled ?? null };
   }
 
   async propose(text) {

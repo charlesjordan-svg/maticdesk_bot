@@ -40,8 +40,13 @@ console.log("=== 1. conversation is hers ===");
     "tell me something interesting",
     "But we haven't even talked about opening a ticket yet.",
   ]) {
-    check(`"${t}" -> hers (nothing routed, no model asked on Matic's side)`, routeOf(t) === "hers", routeOf(t));
+    // Since D327 the classifier's DEFAULT (no verb, no question marker - which is most of these)
+    // is ASKED of the knowledge base with a silent decline, so "hers" and "ask" are both
+    // conversation here. What may never happen to any of them is "route".
+    const r = routeOf(t);
+    check(`"${t}" -> never routed (${r}: hers, or asked with a silent decline)`, r === "hers" || r === "ask", r);
   }
+  check("a sentence the social layer recognises is hers outright, no hub round trip", routeOf("I'm good.") === "hers", routeOf("I'm good."));
   check("with no facts at all, it is hers", spokenTurnRoute() === "hers" && spokenTurnRoute({}) === "hers");
 }
 
@@ -53,7 +58,7 @@ console.log("\n=== 2. work is Matic's ===");
   for (const t of ["where is my ticket", "do I have any open tickets", "how is my computer doing", "how much disk space do I have", "what can you do", "what are your capabilities"]) {
     check(`"${t}" -> routed even with NO hand-off: this machine's own records answer it`, routeOf(t) === "route", routeOf(t));
   }
-  check("a PROBLEM she did not hand off is hers - the cost of this design, and it is in the file's header", routeOf("my screen is flickering") === "hers");
+  check("a PROBLEM she did not hand off is ASKED of the knowledge base (D327) and never routed - the cost is in the file's header", routeOf("my screen is flickering") === "ask", routeOf("my screen is flickering"));
   check("…and the same problem, handed off, is routed", routeOf("my screen is flickering", { handedOff: true }) === "route");
   check("only the three fields decide: a string 'true' is not a hand-off", spokenTurnRoute({ handedOff: /** @type {any} */ ("true") }) === "hers");
 }
@@ -146,7 +151,7 @@ console.log("\n=== 7. a spoken QUESTION asks the knowledge base, and a decline i
   check("a question Matic is waiting on an answer to is the ANSWER, not a lookup", routeOf("How do I take a screenshot?", { awaitingAnswer: true }) === "route");
   check("a question she handed off is routed, whatever it says (D318 wins)", routeOf("How do I take a screenshot?", { handedOff: true }) === "route");
   check("tickets, the machine and capabilities still route ahead of the lookup", routeOf("where is my ticket") === "route" && routeOf("how is my computer doing") === "route" && routeOf("what can you do") === "route");
-  check("the classifier's DEFAULT action - every unrecognised sentence - is neither asked nor routed: it stays hers", routeOf("my screen is flickering") === "hers" && routeOf("It's a beautiful day. How are you doing?") === "hers" && routeOf("did you see the game last night") === "hers");
+  check("the classifier's DEFAULT action - every unrecognised sentence - is ASKED since D327, and never routed", routeOf("my screen is flickering") === "ask" && routeOf("It's a beautiful day. How are you doing?") === "ask" && routeOf("did you see the game last night") === "ask");
   check("the pure function returns exactly three answers", new Set(["route", "ask", "hers"]).has(spokenTurnRoute({ kind: "question" })) && spokenTurnRoute({ kind: "question" }) === "ask");
 
   const { lookupHold, lookupRelease } = await import("../src/nuance/surface-split.js");
@@ -156,21 +161,21 @@ console.log("\n=== 7. a spoken QUESTION asks the knowledge base, and a decline i
 
   const ui = strip(read("../src/renderer/persona-ui.js"));
   const askBranch = ui.slice(ui.indexOf('if (route === "ask") {'), ui.indexOf('if (route === "hers") {'));
-  check("the window asks through askKnowledge() with the floor held BEFORE and released AFTER", /stage\?\.holdForLookup\(\);[\s\S]*bridge\.askKnowledge\?\.\(next\)[\s\S]*stage\?\.releaseLookup\(\);/.test(askBranch));
+  check("the window asks through askKnowledge() with the floor held BEFORE and released AFTER, asking for the lexical gate on the default action only (D327)", /stage\?\.holdForLookup\(\);[\s\S]*bridge\.askKnowledge\?\.\(next, \{ requireLexicalMatch: info\.kind === "action" \}\)[\s\S]*stage\?\.releaseLookup\(\);/.test(askBranch));
   check("an answer is shown and said through showAnswer(); the branch never calls submit() itself", /await showAnswer\(asked\)/.test(askBranch) && !/submit\(/.test(askBranch));
   check("a decline or an unreachable hub adds NOTHING: no offer, no escalation, no proposal - her answer stands", !/attachOffer|escalat|propose\(/.test(askBranch) && /nothing added; her answer stands/.test(askBranch));
   check("…unless she handed it off meanwhile, in which case D318 wins and it is routed", /waitForHandOff\(0\)[\s\S]{0,200}route = "route"/.test(askBranch));
   check("a hand-off ALREADY open wins before the lookup starts, and is not waited for", /if \(route === "ask" && stage && \(await stage\.waitForHandOff\(0\)\)\) route = "route";/.test(ui));
-  check("every spoken turn writes one [spoken] line - kind, route, outcome, never words - so §2.5's number can be read from audit/app.log", (ui.match(/personaLog\?\.\(`\[spoken\] kind=\$\{info\.kind \?\? "\?"\} route=/g) ?? []).length === 3 && !/personaLog\?\.\([^)]*next/.test(ui));
+  check("every spoken turn writes one [spoken] line - kind, route, outcome, never words - so §2.5's number can be read from audit/app.log", (ui.match(/spokenLine\(info, "(ask|hers|route)", /g) ?? []).length === 3 && /personaLog\?\.\(`\[spoken\] kind=\$\{info\.kind \?\? "\?"\} route=\$\{route\} outcome=\$\{outcome\}/.test(ui) && !/personaLog\?\.\([^)]*next/.test(ui));
 
   const stage = strip(read("../src/renderer/persona-stage.js"));
   check("the stage sends the hold and the release it is handed and writes no floor event of its own", /holdForLookup\(\) \{ if \(phase === "live"\) send\(lookupHold\(\)\); \}/.test(stage) && /releaseLookup\(\) \{ if \(phase === "live"\) send\(lookupRelease\(\)\); \}/.test(stage) && !/session\.floor\.hold/.test(stage));
   const agent = strip(read("../src/agent/agent.js"));
-  const ask = agent.slice(agent.indexOf("async askKnowledge(text)"), agent.indexOf("async propose(text)"));
-  check("agent.askKnowledge() reaches ask() on the hub client and nothing else: no propose, no broker, no escalation, no intake", /this\.cloud\.ask\(text, \{ probe \}\)/.test(ask) && !/propose|broker|escalat|intake/.test(ask));
+  const ask = agent.slice(agent.indexOf("async askKnowledge(text"), agent.indexOf("async propose(text)"));
+  check("agent.askKnowledge() reaches ask() on the hub client and nothing else: no propose, no broker, no escalation, no intake", /this\.cloud\.ask\(text, \{ probe, requireLexicalMatch \}\)/.test(ask) && !/propose|broker|escalat|intake/.test(ask));
   check("…gated as the typed path is: a provider with no ask() has no knowledge base", /typeof this\.cloud\?\.ask !== "function"/.test(ask));
   const main = strip(read("../src/main/main.js"));
-  check("main.js exposes it as agent:ask, caught, and the preload names it askKnowledge", /ipcMain\.handle\("agent:ask"/.test(main) && /agent\.askKnowledge\(String\(text \?\? ""\)\)/.test(main) && /askKnowledge: \(text\) => ipcRenderer\.invoke\("agent:ask", text\)/.test(read("../src/main/preload.cjs")));
+  check("main.js exposes it as agent:ask, caught, and the preload names it askKnowledge - the gate flag rides along and is read as a strict boolean", /ipcMain\.handle\("agent:ask"/.test(main) && /agent\.askKnowledge\(String\(text \?\? ""\), \{ requireLexicalMatch: opts\?\.requireLexicalMatch === true \}\)/.test(main) && /askKnowledge: \(text, opts\) => ipcRenderer\.invoke\("agent:ask", text, opts \?\? \{\}\)/.test(read("../src/main/preload.cjs")));
   const r = strip(read("../src/renderer/renderer.js"));
   check("the renderer's showAnswer says it came from the company's written guidance and shows and says it as a typed answer is", /showAnswer: async \(r\) => \{[\s\S]*answered from your company's written guidance[\s\S]*await knowledgeAnswered\(r\.reply/.test(r) && (r.match(/await knowledgeAnswered\(/g) ?? []).length === 2);
   check("typed turns are untouched: handleTurn still asks the agent through propose() and still offers on a decline", /const res = await window\.matic\.propose\(text\);/.test(r) && /No company guidance covers this — nothing was filed\./.test(read("../src/renderer/renderer.js")));
@@ -189,14 +194,71 @@ console.log("\n=== 8. an action that matched an explicit VERB is routed; the def
   }
   for (const t of ["my screen is flickering", "My printer won't print.", "Hello, can you hear me now?", "But we haven't even talked about opening a ticket yet."]) {
     const k = classify(t);
-    check(`"${t}" -> the default action, no verb, hers`, k.kind === "action" && k.verb === undefined && routeOf(t) === "hers", `${k.kind}/${k.verb}/${routeOf(t)}`);
+    check(`"${t}" -> the default action, no verb, NOT routed (asked, D327)`, k.kind === "action" && k.verb === undefined && routeOf(t) === "ask", `${k.kind}/${k.verb}/${routeOf(t)}`);
   }
-  check("the decision reads the `verb` FIELD, not the why string: a kind of action with no verb is hers, with a verb is routed", spokenTurnRoute({ kind: "action" }) === "hers" && spokenTurnRoute({ kind: "action", verb: null }) === "hers" && spokenTurnRoute({ kind: "action", verb: "" }) === "hers" && spokenTurnRoute({ kind: "action", verb: "restart" }) === "route");
+  check("the decision reads the `verb` FIELD, not the why string: a kind of action with no verb is asked, with a verb is routed", spokenTurnRoute({ kind: "action" }) === "ask" && spokenTurnRoute({ kind: "action", verb: null }) === "ask" && spokenTurnRoute({ kind: "action", verb: "" }) === "ask" && spokenTurnRoute({ kind: "action", verb: "restart" }) === "route");
   check("a verb on any other kind changes nothing", spokenTurnRoute({ kind: "question", verb: "restart" }) === "ask" && spokenTurnRoute({ kind: "social", subkind: "greeting", verb: "restart" }) === "hers");
   const main = strip(read("../src/main/main.js"));
   check("agent:spoken hands the window the verb, null for the default", /verb: typeof k\.verb === "string" && k\.verb \? k\.verb : null/.test(main));
   const cls = strip(read("../src/router/classify.js"));
   check("classify() sets `verb` only on the ACTION_VERB match and not on the default", /return \{ kind: "action", verb: v\.trim\(\)/.test(cls) && /return \{ kind: "action", why: "no question marker/.test(cls));
+}
+
+// ==============================================================================================
+console.log("\n=== 9. an UNRECOGNISED sentence asks the knowledge base, behind the lexical gate (D327) ===");
+{
+  // The 2026-11-17 23:41 session, read from its log: seven spoken turns, every one `action`, five
+  // with no verb - the classifier's default - and so five answered by her model, which has no
+  // access to this machine or the knowledge base. D326 was right that the default must not be
+  // ROUTED; nothing had been put in the gap it opened. So the default is ASKED, as a question is
+  // (D325): a decline is silent, so this can only ADD a correct answer and cannot volunteer a
+  // ticket offer for a pleasantry (D318's defect).
+  for (const t of ["my screen keeps going black", "it's doing that thing again", "nothing happens when I click it", "thank you so much"]) {
+    const k = classify(t);
+    check(`"${t}" -> the default action -> ask`, k.kind === "action" && k.verb === undefined && routeOf(t) === "ask", `${k.kind}/${k.verb}/${routeOf(t)}`);
+  }
+  check("the three facts that already route still win over the lookup", spokenTurnRoute({ kind: "action", awaitingAnswer: true }) === "route" && spokenTurnRoute({ kind: "action", handedOff: true }) === "route" && spokenTurnRoute({ kind: "action", verb: "fix" }) === "route");
+  check("social small talk the classifier recognises is still hers with no round trip at all", spokenTurnRoute({ kind: "social", subkind: "greeting" }) === "hers" && spokenTurnRoute({ kind: "social", subkind: "thanks" }) === "hers");
+  check("still exactly three answers, and `ask` is the default action's", spokenTurnRoute({ kind: "action" }) === "ask" && spokenTurnRoute({}) === "hers");
+
+  // THE GATE. kb.test.mjs shows the lexical leg returns ZERO chunks for an off-corpus sentence while
+  // the dense leg always returns neighbours. So for the default action - which is most sentences
+  // spoken to a face - the hub is asked NOT to call its model unless the lexical leg found at
+  // least one chunk: a pleasantry costs one retrieval and no model call. A spoken QUESTION keeps
+  // D325's shape (the model decides), because a question whose phrasing shares no term with its
+  // article is exactly the case the dense leg exists for.
+  const hub = strip(read("../src/agent/hub-client.js"));
+  check("the hub client sends `requireLexicalMatch: true` ONLY when asked to, and never otherwise", /requireLexicalMatch \? \{ requireLexicalMatch: true \} : \{\}/.test(hub));
+  check("…and the flag is read off the response for the log, never used to change what is said", /modelCalled/.test(hub) && !/UNCHECKED|DECLINE_REPLY/.test(hub));
+  const ui = strip(read("../src/renderer/persona-ui.js"));
+  check("the window names the two cases apart in its own log - a question, and an unrecognised sentence", /an unrecognised spoken sentence/.test(ui) && /a spoken question/.test(ui));
+}
+
+// ==============================================================================================
+console.log("\n=== 10. the next session diagnoses itself: verb, why, turn id, the hand-off's legs, the latch ===");
+{
+  // Everything in handover 2026-11-18 §1-§5 cost a careful read of sixty log lines and two of its
+  // findings were inferences. These are the fields that make them facts.
+  const ui = strip(read("../src/renderer/persona-ui.js"));
+  check("one builder for the [spoken] line, carrying turn=, verb=, the turn-to-decision lag and the classifier's why - and never the words", /function spokenLine\(info, route, outcome\)/.test(ui) && /turn=\$\{turn\}/.test(ui) && /verb=\$\{info\.verb \?\? "-"\}/.test(ui) && /decided=\+\$\{/.test(ui) && /why=\$\{info\.why \?\? "\?"\}/.test(ui) && !/spokenLine\([^)]*next/.test(ui));
+  check("a spoken turn is queued WITH its id and the instant it ended, from the stage", /function enqueue\(text, meta = \{\}\)/.test(ui) && /onUserTurn: \(text, meta\) =>/.test(ui));
+  const main = strip(read("../src/main/main.js"));
+  check("agent:spoken hands the window the classifier's why as well", /why: typeof k\.why === "string" \? k\.why : null/.test(main));
+  check("a talked-past offer logs what the sentence that followed CLASSIFIED as, and the stage the offer was at - not the words", /talked past in conversation - dropped \(the sentence that followed classified as \$\{k\.kind\}/.test(main) && /const stageWas = intake\?\.state\?\.stage \?\? "\?";/.test(main) && /the offer was at stage \$\{stageWas\}/.test(main) && !/talked past[^\n]*\$\{text/.test(main));
+  check("propose and askKnowledge each log how long the main-process half took, in ms", /\[agent\] propose answered in \$\{Date\.now\(\) - t0\} ms/.test(main) && /\[agent\] askKnowledge answered in \$\{Date\.now\(\) - t0\} ms/.test(main));
+
+  const stage = strip(read("../src/renderer/persona-stage.js"));
+  check("the stage numbers the user's turns and the turn line carries the number", /let turnNo = 0;/.test(stage) && /the user finished turn \$\{turnNo\}/.test(stage) && /onUserTurn\(text, \{ turn: turnNo, endedAt: Date\.now\(\) \}\)/.test(stage));
+  check("the hand-off's legs are each a [handoff] line: opened, submitted, relayed, she began speaking, she finished", /\[handoff\] opened/.test(stage) && /\[handoff\] turn \$\{turn\} submitted/.test(stage) && /\[handoff\] relayed as the result of her hand-off/.test(stage) && /\[handoff\] she began speaking/.test(stage) && /\[handoff\] she finished speaking/.test(stage));
+  check("…each with the gap in ms from the leg before it, and persona-ui marks the submission", /ms after the hand-off/.test(stage) && /ms after the relay/.test(stage) && /stage\?\.noteSubmitted\?\.\(turn\)/.test(ui));
+  check("…and the legs say nothing anybody said", !/\[handoff\][^\n]*(text|transcript|delta|herWords)/.test(stage));
+  // §5: the no-sound hint fired five times in one session on a microphone that was producing
+  // sound between the pauses, because `heard` was reset every time the watcher was (re)started.
+  check("the no-sound hint is a per-session LATCH: once the microphone has produced sound in this session the hint is spent", /let heardThisSession = false;/.test(stage) && /heardThisSession = true;/.test(stage) && /if \(!heardThisSession\) \{\s*micHint =/.test(stage));
+  check("…reset only when the session ends, not when the watcher restarts", (stage.match(/heardThisSession = false;/g) ?? []).length === 2 && /async function finish\(reason\) \{[\s\S]*heardThisSession = false;/.test(stage) && !/function watchMic\(\) \{[\s\S]{0,400}heardThisSession = false;/.test(stage));
+
+  const script = read("../scripts/spoken-turns.mjs");
+  check("scripts/spoken-turns.mjs reads the new fields and breaks the hers/ask lines down by why", /turn=/.test(script) && /why=/.test(script) && /decided=/.test(script));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

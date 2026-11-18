@@ -310,10 +310,19 @@ export function fuseRRF({ lexical = [], semantic = [], k = RRF_K, topK = DEFAULT
  *   topK?: number,
  *   embedder?: { embedQuery: (t: string) => Promise<number[]> } | null,
  *   floor?: number|null,
+ *   requireLexicalMatch?: boolean,
  *   log?: (s: string) => void,
  * }} opts
+ *
+ * `requireLexicalMatch` (D327, PROPOSED, 2026-11-18): when the lexical leg returns NOTHING, stop -
+ * no embedding, no semantic leg, `gated: "no-lexical-match"` on the result and `legs.semantic`
+ * false. The voice path sends this for an unrecognised spoken sentence, because the dense leg
+ * always returns neighbours and the hub would otherwise call its model on every pleasantry. The
+ * result's mode reads `lexicalOnly`, which is literally what ran, and which the review queue
+ * already treats as "not evidence of a gap" (D236) - right for small talk, and a named cost for a
+ * real problem whose words share nothing with its article.
  */
-export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder = null, floor = RELEVANCE_FLOOR, log = () => {} }) {
+export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder = null, floor = RELEVANCE_FLOOR, requireLexicalMatch = false, log = () => {} }) {
   /** @type {{ lexical: boolean, semantic: boolean, semanticError: string|null }} */
   const legs = { lexical: false, semantic: false, semanticError: null };
 
@@ -331,6 +340,11 @@ export async function retrieve({ query, platform, topK = DEFAULT_TOP_K, embedder
 
     const lexical = await lexicalLeg({ query, platform, client });
     legs.lexical = true;
+
+    if (requireLexicalMatch === true && lexical.length === 0) {
+      log("[kb] the lexical leg found nothing and a lexical match was required: the semantic leg is not run (D327)");
+      return { chunks: [], articles: [], legs, topScore: 0, floorApplied: false, floor, eligibleChunks, candidates: { lexical: 0, semantic: 0 }, gated: "no-lexical-match" };
+    }
 
     /** @type {Candidate[]} */
     let semantic = [];

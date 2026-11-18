@@ -30,6 +30,12 @@ try { text = readFileSync(path, "utf8"); } catch (err) { console.error(`cannot r
 
 /** @type {Record<string, number>} */
 const byKey = {};
+/** Since 2026-11-18 a [spoken] line also carries turn=, verb=, decided=+<ms>ms and why=<the classifier's sentence>. */
+/** @type {Record<string, number>} */
+const byWhy = {};
+/** @type {number[]} */
+const lags = [];
+let withFields = 0;
 const conversations = new Set();
 let total = 0;
 for (const line of text.split("\n")) {
@@ -40,17 +46,37 @@ for (const line of text.split("\n")) {
   total++;
   const key = `${m[1]} ${m[2]} ${m[3]}`;
   byKey[key] = (byKey[key] ?? 0) + 1;
+  const fields = line.match(/ turn=(\S+) verb=(\S+) decided=\+(\d+|\?)ms why=(.*)$/);
+  if (!fields) continue;
+  withFields++;
+  if (fields[3] !== "?") lags.push(Number(fields[3]));
+  // The why is broken down for the lines that did NOT route: those are where "what did the
+  // classifier make of this" is the question. Routed lines already say so (the verb, the kind).
+  if (m[2] !== "route") {
+    const w = `${m[2]}: ${fields[4].replace(/"[^"]*"/g, "\"…\"")}`;
+    byWhy[w] = (byWhy[w] ?? 0) + 1;
+  }
 }
 
 const candidates = Object.entries(byKey).filter(([k]) => /^(question|action) hers /.test(k)).reduce((n, [, c]) => n + c, 0);
 const asked = Object.entries(byKey).filter(([k]) => / ask /.test(k)).reduce((n, [, c]) => n + c, 0);
-const declined = byKey["question ask declined"] ?? 0;
+const declined = Object.entries(byKey).filter(([k]) => / ask declined$/.test(k)).reduce((n, [, c]) => n + c, 0);
+const answered = Object.entries(byKey).filter(([k]) => / ask answered$/.test(k)).reduce((n, [, c]) => n + c, 0);
 
 console.log(`${path}`);
 console.log(`spoken turns logged: ${total}`);
 for (const [k, c] of Object.entries(byKey).sort()) console.log(`  ${String(c).padStart(5)}  ${k}`);
+if (withFields) {
+  console.log("");
+  console.log(`why the classifier decided as it did, for the ${withFields} line(s) that carry it (route lines left out; quoted matches elided):`);
+  for (const [k, c] of Object.entries(byWhy).sort()) console.log(`  ${String(c).padStart(5)}  ${k}`);
+  if (lags.length) {
+    const sorted = [...lags].sort((a, b) => a - b);
+    console.log(`turn ended -> routing decided: median ${sorted[Math.floor(sorted.length / 2)]} ms, max ${sorted[sorted.length - 1]} ms over ${sorted.length} turn(s) - a gap between two client-side log lines, nothing more`);
+  }
+}
 console.log("");
 console.log(`candidates for the D318 regression (question or action, stayed hers): ${candidates} of ${total}`);
-console.log(`asked of the knowledge base: ${asked} (declined ${declined}; a decline is silent on the voice path, D325)`);
+console.log(`asked of the knowledge base: ${asked} (answered ${answered}, declined ${declined}; a decline is silent on the voice path, D325/D327)`);
 console.log(`conversations in this log to read for the numerator: ${conversations.size}${conversations.size ? " - " + [...conversations].join(", ") : ""}`);
 console.log("the numerator - how many of those replies asserted a fact about the company, the machine or the tickets - is read from the service's transcripts by a person. Zero is the only acceptable number for the machine and the tickets.");

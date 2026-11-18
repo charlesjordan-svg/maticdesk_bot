@@ -249,6 +249,27 @@ console.log("\n=== 10. the camera is the hub's to allow, and off unless it does 
 }
 
 // ==============================================================================================
+console.log("\n=== 11. bin/transcript.mjs - her actual words are reachable from the repo (handover 2026-11-18 §6) ===");
+{
+  // Every diagnosis so far was inferred from classifications and timings, because nothing in the
+  // repo could read the service's transcript. This can. NOTHING HERE CALLS THE SERVICE: the
+  // formatter is pure and the source is read.
+  const { formatTranscript } = await import("../bin/transcript.mjs");
+  const lines = formatTranscript({ transcript: [{ role: "user", text: "hello there", offset_ms: 1500 }, { role: "persona", content: "hi", timestamp: "2026-11-17T23:42:00Z" }] });
+  check("an object with a `transcript` array: one numbered line per entry, role and text, the offset or the timestamp", lines.length === 2 && /^  1  \+1\.5s  user\s+hello there$/.test(lines[0]) && /^  2  2026-11-17T23:42:00Z  persona\s+hi$/.test(lines[1]), JSON.stringify(lines));
+  check("a bare array works too, and `speaker`/`message` are read as role/text", /speaker-x\s+said this/.test(formatTranscript([{ speaker: "speaker-x", message: "said this" }])[0]));
+  check("an empty transcript says so", formatTranscript({ messages: [] })[0] === "(the transcript is empty)");
+  check("a shape it does not know is SHOWN as JSON, not silently emptied", formatTranscript({ foo: 1 }).length === 2 && /"foo": 1/.test(formatTranscript({ foo: 1 })[1]));
+  check("an entry with no text field is shown whole", /"weird":true/.test(formatTranscript([{ role: "user", weird: true }])[0]), formatTranscript([{ role: "user", weird: true }])[0]);
+  const src = readFileSync(join(HERE, "../bin/transcript.mjs"), "utf8");
+  check("it GETs /conversation/<id>/transcript on the documented host with the key as the bearer, and the id must be a uuid", /\$\{NUANCE_BASE_URL\}\/conversation\/\$\{id\}\/transcript/.test(src) && /authorization: `Bearer \$\{key\}`/.test(src) && /UUID\.test\(id\)/.test(src));
+  // The key is interpolated in exactly ONE place - the header - and no write() or console.log()
+  // carries `${key`.
+  check("the key comes from --key-file, MATIC_NUANCE_KEY_FILE or MATIC_NUANCE_API_KEY, and is written to no stream", /MATIC_NUANCE_KEY_FILE/.test(src) && /MATIC_NUANCE_API_KEY/.test(src) && (src.match(/\$\{key\}/g) ?? []).length === 1 && !/(write|log)\([^;]*\$\{key\}/.test(src));
+  check("it says the output holds the user's words and must not be pasted into the repo, and writes no file", /do not paste it anywhere in the repo/.test(src) && !/writeFileSync|appendFileSync|createWriteStream/.test(src));
+}
+
+// ==============================================================================================
 console.log("\n=== 11. she answers to her name however it was transcribed (D322) ===");
 {
   const prompt = readFileSync(join(HERE, "../src/nuance/persona-prompt.txt"), "utf8");

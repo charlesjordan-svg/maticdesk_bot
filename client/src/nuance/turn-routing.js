@@ -51,6 +51,19 @@
  *   "it's a beautiful day" is that default. The decision is read from `verb`, a field the
  *   classifier sets only on a match, never from the `why` string.
  *
+ *   ASK the knowledge base for the classifier's DEFAULT too - `action` with no verb (D327, PROPOSED,
+ *   2026-11-18). D326 put the default on her side, and the first real session after it showed what
+ *   that costs: seven turns, every one `action`, five with no verb, so five ordinary sentences -
+ *   "my screen keeps going black" is the shape - were answered by her model, and the knowledge
+ *   base built the same day was never reached. The default is where "I do not recognise this"
+ *   already lives, so it is where the lookup goes; widening QUESTION_MARKERS would pull
+ *   residue-carrying small talk into `question` and re-open D318. The argument D325 already won
+ *   holds: a decline is silent, so this can only ADD a correct answer. The cost is a hub round
+ *   trip on most spoken sentences; the window asks the hub to skip its model unless the lexical
+ *   leg found at least one chunk (`requireLexicalMatch`), so small talk costs a retrieval only.
+ *   A spoken QUESTION keeps D325's shape (the hub's model decides): a question whose phrasing
+ *   shares no term with its article is what the dense leg is for.
+ *
  * Typed turns are not touched by any of this: a sentence typed into the box always goes to Matic.
  * Pure. `test/turn-routing.test.mjs`.
  */
@@ -66,5 +79,13 @@ export function spokenTurnRoute({ awaitingAnswer = false, handedOff = false, kin
   if (kind === "social" && subkind === "capability") return "route";
   if (kind === "action" && typeof verb === "string" && verb.trim() !== "") return "route";
   if (kind === "question") return "ask";
+  // D327 (PROPOSED, 2026-11-18): the classifier's DEFAULT - `action` with no verb, which is every
+  // sentence it does not recognise - is ASKED, as a question is. The 2026-11-17 23:41 session had
+  // seven spoken turns, all `action`, five with no verb, so five were answered by her model and
+  // D325 never fired. A decline is silent, so this can only add a correct answer; the window asks
+  // the hub to skip its model unless the lexical leg found a chunk, so a pleasantry costs one
+  // retrieval and no model call. The word "action" is read here because the classifier's default
+  // IS that word; nothing reads the `why` string.
+  if (kind === "action") return "ask";
   return "hers";
 }

@@ -231,6 +231,15 @@ async function main() {
     check(`no lexical match for "${q.slice(0, 44)}..." -> zero chunks`, r.chunks.length === 0,
       `got ${r.chunks.length}: ${r.articles.map((a) => a.id).join(", ")}`);
   }
+  // D327: with the gate requested, the same miss STOPS before the embedder - an embedder that
+  // throws proves it was never asked - and the result says why.
+  {
+    const neverAsked = { embedQuery: async () => { throw new Error("the embedder was asked, and must not have been"); } };
+    const g = await retrieve({ query: "how do I request a payroll adjustment", platform: "windows", embedder: neverAsked, requireLexicalMatch: true });
+    check("the lexical gate stops an off-corpus sentence before the semantic leg, and says so", g.chunks.length === 0 && g.gated === "no-lexical-match" && g.legs.lexical === true && g.legs.semantic === false && g.candidates.lexical === 0, JSON.stringify({ gated: g.gated, legs: g.legs }));
+    const h = await retrieve({ query: "my mouse keeps cutting out", platform: "windows", embedder: null, requireLexicalMatch: true });
+    check("…and a sentence the lexical leg DOES match goes on as before", h.gated === undefined && h.chunks.length > 0, JSON.stringify({ gated: h.gated, chunks: h.chunks.length }));
+  }
   if (semanticRan) {
     console.log("\n  -- WITH the semantic leg the same questions DO return chunks, and that is expected --");
     const withSem = await retrieve({ query: "how do I request a payroll adjustment", platform: "windows", embedder });

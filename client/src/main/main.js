@@ -720,22 +720,35 @@ app.whenReady().then(async () => {
     // later must not open a ticket nobody is still talking about.
     const pending = Boolean(intake?.isPending);
     const awaiting = Boolean(intake?.answers?.(String(text ?? "")));
+    // Where the offer stood, read before it is cleared: the log line below says what the sentence
+    // CLASSIFIED as and the stage - never the words - so the next reading can tell "the yes was
+    // not recognised" from "the conversation had moved on" (handover 2026-11-18 §4: two drops in
+    // 35 s and the log could not tell them apart).
+    const stageWas = intake?.state?.stage ?? "?";
     if (pending && !awaiting) {
       intake.clear();
-      log("[ticket] the offer was talked past in conversation - dropped; nothing was filed and nothing was sent");
+      log(`[ticket] the offer was talked past in conversation - dropped (the sentence that followed classified as ${k.kind}${typeof k.verb === "string" && k.verb ? `/verb ${k.verb}` : ""}${k.subkind ? `/${k.subkind}` : ""}; the offer was at stage ${stageWas}); nothing was filed and nothing was sent`);
     }
     // `verb` (D326): the ACTION_VERB the classifier matched, or null for its default. The voice
-    // path routes an action on the former and never on the latter.
-    return { awaiting, kind: k.kind, subkind: k.subkind ?? null, verb: typeof k.verb === "string" && k.verb ? k.verb : null };
+    // path routes an action on the former and never on the latter. `why` (2026-11-18) is the
+    // classifier's own sentence for the [spoken] line - read there, never used to decide.
+    return { awaiting, kind: k.kind, subkind: k.subkind ?? null, verb: typeof k.verb === "string" && k.verb ? k.verb : null, why: typeof k.why === "string" ? k.why : null };
   });
 
   // D325. A SPOKEN question, to the knowledge base ONLY. `agent.askKnowledge()` reaches `ask()` on
   // the hub client and nothing else - no proposal, no broker, no escalation - and the window keeps
   // a decline silent. Never throws into the renderer: a failure is a `ok: false` the window reads
   // as "nothing to add".
-  ipcMain.handle("agent:ask", async (_e, text) => {
+  // D327: `opts.requireLexicalMatch` (a strict boolean, anything else is false) asks the hub to
+  // skip its model unless the lexical leg found a chunk - the window sends it for the classifier's
+  // default and not for a question. The ms is the main-process half of the round trip
+  // (handover 2026-11-18 §3: where a hand-off's time goes was not in the log).
+  ipcMain.handle("agent:ask", async (_e, text, opts) => {
+    const t0 = Date.now();
     try {
-      return await agent.askKnowledge(String(text ?? ""));
+      const r = await agent.askKnowledge(String(text ?? ""), { requireLexicalMatch: opts?.requireLexicalMatch === true });
+      log(`[agent] askKnowledge answered in ${Date.now() - t0} ms (${r?.ok ? (r.answered ? "answered" : "declined") : "unreachable"}${r?.modelCalled === false ? ", no model call" : ""})`);
+      return r;
     } catch (err) {
       log(`[agent] askKnowledge threw: ${err.stack}`);
       return { ok: false, error: err.message };
@@ -849,8 +862,14 @@ app.whenReady().then(async () => {
     return panel;
   });
   ipcMain.handle("agent:propose", async (_e, text) => {
+    // The main-process half of a turn, in ms (handover 2026-11-18 §3): a hand-off's answer took
+    // 28 s to come back and nothing in the log said where the time went. This line is one leg.
+    const t0 = Date.now();
     try {
-      return await agent.propose(String(text ?? ""));
+      const r = await agent.propose(String(text ?? ""));
+      const shape = ["escalation", "proposal", "social", "ticketIntake", "ticketDraft", "machineStatus", "ticketStatus", "citedArticleIds"].find((k) => r && r[k] !== undefined) ?? "an answer";
+      log(`[agent] propose answered in ${Date.now() - t0} ms (${shape})`);
+      return r;
     } catch (err) {
       // `err.message` is a JavaScript exception and it was SPOKEN (D247). The stack is already in
       // the log above and the message is on `error`, which the renderer puts in the inspector.

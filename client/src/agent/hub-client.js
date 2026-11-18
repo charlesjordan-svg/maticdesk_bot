@@ -219,11 +219,16 @@ export class HubClient {
    *
    * Never throws — an unreachable hub must degrade, not crash a turn.
    *
+   * **`requireLexicalMatch` (D327, PROPOSED, 2026-11-18)** asks the hub to skip its model unless
+   * the lexical leg found at least one chunk - the dense leg always returns neighbours, so without
+   * it every unrecognised spoken sentence would cost a model call. Sent as `true` or not at all.
+   * The hub answers `modelCalled: false` on a gated decline; it changes nothing this client SAYS.
+   *
    * @param {string} text
-   * @param {{ probe?: object }} [opts]
-   * @returns {Promise<{ok:boolean, answered?:boolean, reply?:string, citedArticleIds?:string[], retrieval?:object, error?:string, reason?:string, meta?:object}>}
+   * @param {{ probe?: object, requireLexicalMatch?: boolean }} [opts]
+   * @returns {Promise<{ok:boolean, answered?:boolean, reply?:string, citedArticleIds?:string[], retrieval?:object, modelCalled?:boolean|null, error?:string, reason?:string, meta?:object}>}
    */
-  async ask(text, { probe } = {}) {
+  async ask(text, { probe, requireLexicalMatch = false } = {}) {
     if (!this.available) return { ok: false, error: "No hub URL is configured, so no hub call was made." };
 
     const meta = { requests: 0, hubAuth: null, usage: { prompt_tokens: 0, completion_tokens: 0 }, logId: null };
@@ -262,7 +267,7 @@ export class HubClient {
         method: "POST",
         headers: this.#headers(),
         signal: AbortSignal.timeout(this.timeoutMs),
-        body: JSON.stringify({ text, probe: withPlatform }),
+        body: JSON.stringify({ text, probe: withPlatform, ...(requireLexicalMatch ? { requireLexicalMatch: true } : {}) }),
       });
       this.link?.noteSuccess();
       const body = await res.json().catch(() => ({}));
@@ -298,11 +303,12 @@ export class HubClient {
       if (body?.retrieval && body.retrieval.rerankerPresent === false) {
         this.onLog(`[hub] retrieved ${body.retrieval.chunks ?? 0} chunk(s) from ${(body.retrieval.articles ?? []).length} article(s); NO RERANKER, so quality here is a floor`);
       }
+      const modelCalled = typeof body?.modelCalled === "boolean" ? body.modelCalled : null;
       this.onLog(answered
         ? `[hub] answered from ${citedArticleIds.join(", ") || "no cited article"}`
-        : `[hub] DECLINED - the knowledge base does not cover this`);
+        : `[hub] DECLINED - the knowledge base does not cover this${modelCalled === false ? ` (no model call: ${body?.retrieval?.skipped ?? "skipped"})` : ""}`);
 
-      return { ok: true, answered, reply, citedArticleIds, retrieval: body?.retrieval ?? null, meta };
+      return { ok: true, answered, reply, citedArticleIds, retrieval: body?.retrieval ?? null, modelCalled, meta };
     } catch (err) {
       this.link?.noteFailure(`POST /v1/ask: ${err.name}`);
       if (err.name === "TimeoutError" || err.name === "AbortError") {

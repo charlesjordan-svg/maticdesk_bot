@@ -54,6 +54,12 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
   // and silent for ten seconds the panel says so, in the user's words, and the log says which device.
   let micHint = null;
   let watch = null;
+  // THE HINT IS A PER-SESSION LATCH (handover 2026-11-18 §5). `heard` below belongs to one run of
+  // the watcher, and the watcher is restarted every time the microphone comes back on - so in the
+  // 23:41 session the hint fired five times in 140 s on a microphone that was producing sound
+  // between the pauses, and the longest pauses were the user WAITING FOR MATIC. Once this session
+  // has heard anything, the hint is spent: a microphone that worked a minute ago is not broken now.
+  let heardThisSession = false;
   function stopWatch() {
     if (!watch) return;
     clearInterval(watch.timer);
@@ -81,13 +87,14 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
         if (Math.sqrt(sum / buf.length) > 0.003) {
           if (!heard || quiet >= 10) devlog("[persona] the microphone is picking up sound");
           heard = true; quiet = 0;
+          heardThisSession = true;
           if (micHint) { micHint = null; changed(); }
         } else if (++quiet === 10) {
-          // Logged every time; SAID ON THE PANEL only when nothing has been heard at all this session.
-          // A person who stops talking for ten seconds has a working microphone, and telling them
-          // otherwise would be the false alarm.
-          devlog(`[persona] NO SOUND from the microphone for 10 s while it is on (${mst.label || "unnamed"}; enabled ${mst.enabled}, muted by the system ${mst.muted}, ${mst.readyState})`);
-          if (!heard) {
+          // Logged every time; SAID ON THE PANEL only when nothing has been heard at all THIS
+          // SESSION - the latch above, not this watcher's run. A person who stops talking for ten
+          // seconds has a working microphone, and so does one waiting for an answer.
+          devlog(`[persona] NO SOUND from the microphone for 10 s while it is on (${mst.label || "unnamed"}; enabled ${mst.enabled}, muted by the system ${mst.muted}, ${mst.readyState})${heardThisSession ? " - heard earlier this session, so the hint is not shown" : ""}`);
+          if (!heardThisSession) {
             micHint = "I'm not picking up any sound from your microphone. Check it isn't muted, and that Windows is using the one you're speaking into.";
             changed();
           }
@@ -110,6 +117,17 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
   /** @type {Array<() => void>} */ let handOffWaiters = [];
   // True while the turn being answered was SPOKEN to her (set by persona-ui around submit()).
   let spokenTurn = false;
+  // THE USER'S TURNS ARE NUMBERED, AND A HAND-OFF'S LEGS ARE TIMED (handover 2026-11-18 §3, §6).
+  // One hand-off took 28 s from arriving to being answered and the log could not say where the
+  // time went; a turn's routing decision could only be matched to the turn by elimination. So:
+  // every finished turn carries a number, persona-ui writes the same number on its [spoken] line,
+  // and each leg of a hand-off is a [handoff] line with the gap in ms from the leg before -
+  // opened (her delegation arrived), submitted (the turn left for Matic), relayed (the answer was
+  // sent back as the hand-off's result), she began speaking, she finished. Timestamps and ids
+  // only; nothing anybody said.
+  let turnNo = 0;
+  /** @type {{ openedAt: number|null, submittedAt: number|null, relayedAt: number|null, spoke: boolean }} */
+  let legs = { openedAt: null, submittedAt: null, relayedAt: null, spoke: false };
   // HER OWN WORDS, for the panel (D318). When she answers a turn herself the conversation would
   // otherwise be one-sided on screen: the user's sentence and nothing after it. Her reply is
   // gathered from the service's own transcript of her speech and shown when she finishes - IN
@@ -176,12 +194,18 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     }
     if (type === "session.input_transcript.done") {
       const text = String(evt.transcript ?? "").trim();
-      devlog(`[persona] the user finished a turn (${text.split(/\s+/).filter(Boolean).length} words)${evt.replaces_event_id ? " - a correction of an earlier one" : ""}`);
-      if (text && !evt.replaces_event_id) onUserTurn(text);
+      if (text && !evt.replaces_event_id) turnNo += 1;
+      devlog(`[persona] the user finished turn ${turnNo} (${text.split(/\s+/).filter(Boolean).length} words)${evt.replaces_event_id ? " - a correction of an earlier one" : ""}`);
+      if (text && !evt.replaces_event_id) onUserTurn(text, { turn: turnNo, endedAt: Date.now() });
       return;
     }
     if (type === "session.output_transcript.delta") {
       if (typeof evt.delta === "string") herWords += evt.delta;
+      // The last leg: her first word after the relay. Once per relay.
+      if (legs.relayedAt !== null && !legs.spoke) {
+        legs.spoke = true;
+        devlog(`[handoff] she began speaking +${Date.now() - legs.relayedAt} ms after the relay`);
+      }
       return;
     }
     if (type === "session.output_audio.done") {
@@ -189,6 +213,10 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
       herWords = "";
       if (!weSpoke && hers) onPersonaSaid(hers);
       weSpoke = false;
+      if (legs.relayedAt !== null) {
+        devlog(`[handoff] she finished speaking +${Date.now() - legs.relayedAt} ms after the relay${legs.openedAt !== null ? `, +${Date.now() - legs.openedAt} ms after the hand-off opened` : ""}`);
+        legs = { openedAt: null, submittedAt: null, relayedAt: null, spoke: false };
+      }
       for (const w of audioDoneWaiters.splice(0)) w();
       return;
     }
@@ -199,6 +227,8 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
       // router says is that answer, and it goes back AS this hand-off's result.
       if (target === "client" && typeof id === "string") {
         openHandOff = id;
+        legs = { openedAt: Date.now(), submittedAt: legs.submittedAt, relayedAt: null, spoke: false };
+        devlog(`[handoff] opened after turn ${turnNo}${legs.submittedAt !== null ? ` (+${legs.openedAt - legs.submittedAt} ms after the turn was submitted)` : ""}`);
         for (const w of handOffWaiters.splice(0)) w();
       }
       // KEYS ONLY, never values: what a hand-off carries is not yet known, and it may carry the user's words.
@@ -253,6 +283,8 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     videoEl.srcObject = null;
     stopWatch();
     micHint = null;
+    heardThisSession = false;
+    legs = { openedAt: null, submittedAt: null, relayedAt: null, spoke: false };
     mic = null;
     camera = null;
     showSelf();
@@ -351,6 +383,11 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     if (handOff) openHandOff = null;
     for (const e of handOff ? [t.floor, asHandOffResult(t.event, handOff)].filter(Boolean) : t.send) send(e);
     devlog(`[persona] ${turn.surface ?? "(untagged)"} -> ${t.kind}/${t.speak}${t.floor ? " + floor held" : ""}${handOff ? " (as the result of her hand-off)" : ""}`);
+    if (handOff) {
+      legs.relayedAt = Date.now();
+      legs.spoke = false;
+      devlog(`[handoff] relayed as the result of her hand-off${legs.openedAt !== null ? `: +${legs.relayedAt - legs.openedAt} ms after the hand-off opened` : ""}${legs.submittedAt !== null ? `, +${legs.relayedAt - legs.submittedAt} ms after the turn was submitted` : ""}`);
+    }
     if (t.event) await audioDone();
     return t;
   }
@@ -389,6 +426,11 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
     },
     /** persona-ui sets this around the submit() of a turn that was spoken to her. */
     set spokenTurn(v) { spokenTurn = Boolean(v); },
+    /** persona-ui marks the instant a spoken turn leaves for Matic: the "submitted" leg. */
+    noteSubmitted(turn) {
+      legs.submittedAt = Date.now();
+      devlog(`[handoff] turn ${turn} submitted to Matic${legs.openedAt !== null ? ` +${legs.submittedAt - legs.openedAt} ms after the hand-off opened` : " (no hand-off open yet)"}`);
+    },
     start, stop, speak, toggleMic,
     /** The consent card was approved or dismissed. */
     releaseFloor() { if (phase === "live") send(consentRelease()); },

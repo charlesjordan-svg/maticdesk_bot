@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D324 onward**, as of D323, register §5.62n, 2026-11-17; it was D297 onward as of D296 — the register's own procedure line was updated in the same pass on 2026-09-13, §5.61), with a status
+- New decisions are **appended** to the register with the next free ID (**D329 onward**, as of D328, register §5.62q, 2026-11-18; it was D324 onward as of D323 — the register's own procedure line is updated in the same pass as the number), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -987,8 +987,22 @@ the surface split (D305) and the prompt (D306).
   only on an explicit ACTION_VERB match (D326, the founder's)** - `classify()` sets `verb` on the
   match and never on its default, and the default (every unrecognised sentence) stays hers.
   **Never** route the default, and never read the `why` string to decide.
+  **The default is ASKED, behind a lexical gate (D327, proposed, 2026-11-18).** The first real session
+  after D326 had seven spoken turns, all `action`, five with no verb: D325 never fired and her model
+  answered five ordinary sentences. So `spokenTurnRoute()` returns `ask` for the default too, and the
+  window sends `requireLexicalMatch: true` - the hub stops after an empty lexical leg (no embedding,
+  no model call, `modelCalled: false`). A spoken QUESTION keeps D325's shape (no gate). **Never** send
+  the gate for a question, never let a gated decline reach a ticket offer, and never "fix" the
+  default by widening QUESTION_MARKERS - that re-opens D318. **The no-sound hint is a per-session
+  latch (D328)**: `heardThisSession` in `persona-stage.js`, reset only when the session ends.
   `client/scripts/spoken-turns.mjs` counts the `[spoken]` lines in `audit/app.log` (kind, route,
-  outcome - never words): that is the D318 regression number's denominator.
+  outcome, and since 2026-11-18 `turn=`, `verb=`, `decided=+ms`, `why=` - never words): that is the
+  D318 regression number's denominator. A hand-off's legs are `[handoff]` lines (opened, submitted,
+  relayed, she began speaking, she finished, each with the gap in ms); `main.js` logs `propose` and
+  `askKnowledge` in ms. **No latency number goes in any document until those legs have been read from
+  a real session.** `server/bin/transcript.mjs <conversationId>` prints what she actually said (the
+  key from `--key-file`, `MATIC_NUANCE_KEY_FILE` or `MATIC_NUANCE_API_KEY`, never printed); the output
+  holds the user's words and goes nowhere near the repo.
 - **`start-v2.ps1` mints NO enrollment secret unless `-Enroll` is passed.** It used to mint one per launch,
   and an app that could not find `enrollment.json` enrolled afresh every start (nine device rows; the
   day's tickets on superseded enrollments, invisible to the newest). The app prints an `[enroll]` block

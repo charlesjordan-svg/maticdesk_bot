@@ -27,7 +27,7 @@ import {
   answerToolSchema, answerSystemPrompt, articlesBlock, buildAnswerInput,
   readAnswerCall, DECLINE_REPLY, ANSWER_TOOL,
 } from "../src/kb/answer.js";
-import { checkAskRequest, platformFromProbe } from "../src/kb/ask.js";
+import { checkAskRequest, platformFromProbe, modelCallSkipped } from "../src/kb/ask.js";
 import { EMBEDDING_DIM, toVectorLiteral, QUERY_PREFIX, NoEmbeddingProvider } from "../src/kb/embed.js";
 import {
   readBundle, parseBundle, bundleWarnings, embeddingModelConflict, RETRIEVABLE_PLATFORMS,
@@ -380,6 +380,31 @@ check("there is a GIN index on tsv and an HNSW index on embedding",
 check("an embedding cannot exist without the model that produced it",
   /kb_chunks_embedding_attributed/.test(sql));
 check("customer KB is NOT in this migration (D44)", !/customer_kb|tenant_kb/.test(sql));
+
+// ==============================================================================================
+console.log("\n=== 7. the lexical gate: the model is not called for a sentence the lexical leg found nothing for (D327) ===");
+// The voice path asks the knowledge base for every unrecognised spoken sentence since D327, and the
+// dense leg always returns neighbours (kb.test.mjs), so without a gate every pleasantry would cost a
+// model call - up to a cold load. The endpoint sends `requireLexicalMatch: true`; the hub stops
+// after the lexical leg when it is empty, and says so.
+{
+  const ran = (lexical) => ({ legs: { lexical: true, semantic: lexical > 0 }, candidates: { lexical, semantic: lexical > 0 ? 20 : 0 } });
+  check("hybrid, lexical found nothing, the gate requested -> no-lexical-match", modelCallSkipped({ mode: "hybrid", retrieval: ran(0), requireLexicalMatch: true }) === "no-lexical-match");
+  check("lexicalOnly (the embedder down), lexical found nothing, gate requested -> the same", modelCallSkipped({ mode: "lexicalOnly", retrieval: ran(0), requireLexicalMatch: true }) === "no-lexical-match");
+  check("the gate NOT requested -> the model is called on a lexical miss, as before (the dense leg's case)", modelCallSkipped({ mode: "hybrid", retrieval: ran(0) }) === null && modelCallSkipped({ mode: "hybrid", retrieval: ran(0), requireLexicalMatch: false }) === null);
+  check("the gate requested and lexical found something -> the model is called", modelCallSkipped({ mode: "hybrid", retrieval: ran(3), requireLexicalMatch: true }) === null);
+  check("only a strict true requests it", modelCallSkipped({ mode: "hybrid", retrieval: ran(0), requireLexicalMatch: /** @type {any} */ ("true") }) === null);
+  check("a lexical leg that did NOT run is not a lexical miss", modelCallSkipped({ mode: "hybrid", retrieval: { legs: { lexical: false }, candidates: { lexical: 0 } }, requireLexicalMatch: true }) === null);
+  check("D236's two modes still skip, gate or no gate, and are named as themselves", modelCallSkipped({ mode: "emptyCorpus", retrieval: ran(0) }) === "emptyCorpus" && modelCallSkipped({ mode: "unavailable", retrieval: null, requireLexicalMatch: true }) === "unavailable");
+  check("the request shape: a boolean passes, anything else is refused by name", checkAskRequest({ text: "q", requireLexicalMatch: true }) === null && checkAskRequest({ text: "q", requireLexicalMatch: false }) === null && /requireLexicalMatch/.test(String(checkAskRequest({ text: "q", requireLexicalMatch: "true" }))));
+  const askSrc = jsCode(read("src/kb/ask.js"));
+  check("the handler asks modelCallSkipped() BEFORE it can reach provider.complete(), and reads the flag as a strict boolean", askSrc.indexOf("modelCallSkipped({ mode, retrieval, requireLexicalMatch })") < askSrc.indexOf("provider.complete(") && /const requireLexicalMatch = body\.requireLexicalMatch === true;/.test(askSrc));
+  check("a gated decline is DECLINE_REPLY (retrieval ran, no coverage), not the unchecked one", /skipped === "no-lexical-match" \? DECLINE_REPLY : UNCHECKED_DECLINE_REPLY/.test(askSrc));
+  check("the response says whether a model was called, and why not", /modelCalled: skipped === null/.test(askSrc) && /skipped,/.test(askSrc));
+  const retSrc = jsCode(read("src/kb/retrieve.js"));
+  check("retrieve() stops after an empty lexical leg when asked - no embedding is computed for a pleasantry", retSrc.indexOf('requireLexicalMatch === true && lexical.length === 0') > retSrc.indexOf("await lexicalLeg(") && retSrc.indexOf('requireLexicalMatch === true && lexical.length === 0') < retSrc.indexOf("embedder.embedQuery("));
+  check("…and the stopped result says so", /gated: "no-lexical-match"/.test(retSrc));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exitCode = 1;
