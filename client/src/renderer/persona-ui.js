@@ -70,6 +70,17 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
   // branch produced a kind is read off the log; `decided` is the gap from the turn ending to this
   // decision, in ms - the one lag the 2026-11-18 reading could only infer.
   let current = { turn: "?", endedAt: null };
+  // THE SENTENCE SHE WAS LEFT TO ANSWER (D329, 2026-11-18). "Nothing happens when she says let
+  // me check that for you ... she says it and just a blank stare" (Charles). Read from the 00:12
+  // session's log: a sentence the knowledge base declined in silence was checked for her hand-off,
+  // which arrived four milliseconds LATER - so the hand-off stayed open, she had said "I'll look
+  // into it", and nothing was looking. The next sentence (two words: "yes") was then routed as
+  // that hand-off's work, the hub's model answered it with no tool call, and she pointed at the
+  // screen. So: the last sentence left unrouted is remembered for a short while, and when her
+  // hand-off arrives with nothing in flight, THAT sentence is routed as the hand-off's result.
+  const UNROUTED_FOR_MS = 30_000;
+  /** @type {null | { text: string, meta: object, at: number }} */
+  let lastUnrouted = null;
   function spokenLine(info, route, outcome) {
     const turn = current.turn;
     const lag = typeof current.endedAt === "number" ? Date.now() - current.endedAt : null;
@@ -98,6 +109,9 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
       let info = {};
       try { info = (await bridge.spokenInfo?.(next)) ?? {}; } catch { /* treated as conversation unless she hands it off */ }
       let route = spokenTurnRoute({ awaitingAnswer: info.awaiting, kind: info.kind, subkind: info.subkind, verb: info.verb });
+      // D329: a sentence re-queued because her hand-off for it arrived late is routed outright -
+      // she has already said she is looking into it, and D318 says a hand-off is routed whatever it says.
+      if (item.meta?.handedOff === true) route = "route";
       if (route === "hers" && stage && (await stage.waitForHandOff(5000))) route = "route";
       // D325: a QUESTION goes to the knowledge base and nowhere else. A hand-off she has ALREADY
       // made wins (D318: she decided it is work), and is not waited for - the round trip is long
@@ -136,6 +150,7 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           devlog(`[persona] ${what} the knowledge base ${outcome}${asked?.modelCalled === false ? " without a model call (no lexical match)" : ""} - nothing added; her answer stands (D325${info.kind === "action" ? ", D327" : ""})`);
           showSpoken(next);
           for (const line of heldHers.splice(0)) showHers(line);
+          lastUnrouted = { text: next, meta: item.meta, at: Date.now() };
           deciding = false;
           return;
         }
@@ -145,14 +160,17 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
         spokenLine(info, "hers", "hers");
         showSpoken(next);
         for (const line of heldHers.splice(0)) showHers(line);
+        lastUnrouted = { text: next, meta: item.meta, at: Date.now() };
         deciding = false;
         return;
       }
-      spokenLine(info, "route", info.awaiting ? "answer" : "work");
+      spokenLine(info, "route", info.awaiting ? "answer" : item.meta?.handedOff === true ? "handoff" : "work");
       // Routed: what she said while handing it over ("I'll look into that") is not the answer and
       // is not put on the panel beside the one that is.
       heldHers.length = 0;
       deciding = false;
+      // A routed sentence is answered; a later hand-off cannot re-send it.
+      lastUnrouted = null;
       // The stage needs to know this turn was SPOKEN to her: she has heard it, may already be
       // answering, and may be about to hand it off (D316).
       if (stage) stage.spokenTurn = true;
@@ -219,6 +237,17 @@ export function mountPersonaUi({ bridge, avatar, note, devlog, setState, submit,
           // hers is not settled until a hand-off has had its chance to arrive, so her line is
           // held until the user's has been shown.
           onPersonaSaid: (text) => { if (deciding) heldHers.push(text); else showHers(text); },
+          // D329: her hand-off arrived for a sentence this window had already left unrouted. With
+          // nothing in flight, that sentence is routed as the hand-off's result; with a turn in
+          // flight, that turn's own checks will see the hand-off. The sentence is shown a second
+          // time on the panel by submit(), beside the answer it now gets.
+          onHandOff: () => {
+            if (deciding || waiting.length > 0 || !lastUnrouted) return;
+            if (Date.now() - lastUnrouted.at > UNROUTED_FOR_MS) { lastUnrouted = null; return; }
+            devlog(`[persona] she handed off the sentence she had been left to answer (turn ${lastUnrouted.meta?.turn ?? "?"}) - routed as her hand-off's result (D329)`);
+            enqueue(lastUnrouted.text, { ...lastUnrouted.meta, handedOff: true });
+            lastUnrouted = null;
+          },
           onChange: apply,
           devlog,
         });

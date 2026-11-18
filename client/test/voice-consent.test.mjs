@@ -62,14 +62,21 @@ console.log("\n=== 2. what counts as saying yes ===");
 }
 
 // ==============================================================================================
-console.log("\n=== 3. the consent pointer says how, and only when voice is allowed ===");
+console.log("\n=== 3. the consent line says how, and only when voice is allowed ===");
 {
-  const voice = personaTurn({ surface: "@consent", text: "x", voice: true });
-  const click = personaTurn({ surface: "@consent", text: "x" });
+  // D330: with the card's words in hand the consent surface is RELAYED (the renderer's
+  // consentSpoken() builds the line and teaches the phrase); the POINTERS are the fallback for a
+  // card with no text, and they still say how, and only when voice is allowed.
+  const voice = personaTurn({ surface: "@consent", voice: true });
+  const click = personaTurn({ surface: "@consent" });
   check("with voice allowed the persona is told they may say so, in the words that work", /approve it/i.test(voice.event.response.instructions) && voice.event.response.instructions === POINTERS.consentVoice);
   check("without it the pointer is the original and mentions no saying", click.event.response.instructions === POINTERS.consent && !/say|aloud|voice/i.test(POINTERS.consent));
   check("both still refuse to describe the change, and both hold the floor", /do not describe/i.test(POINTERS.consentVoice) && voice.floor?.type === "session.floor.hold" && click.floor?.type === "session.floor.hold");
   check("the phrase the pointer teaches is one the rule accepts", voiceVerdict("yes, approve it") === "approve" && POINTERS.consentVoice.includes("yes, approve it"));
+  const relayed = personaTurn({ surface: "@consentVoice", text: "Restart the Print Spooler service. Nothing happens until you approve it — press the button, or say 'yes, approve it'." });
+  check("with the card's words the line is relayed, still holds the floor, and the taught phrase survives in it", relayed.speak === "own" && relayed.floor?.type === "session.floor.hold" && relayed.event.response.instructions.includes("yes, approve it"));
+  const rendererSrc = readFileSync(join(HERE, "../src/renderer/renderer.js"), "utf8");
+  check("the renderer's spoken consent line teaches 'yes, approve it' only when voice is allowed", /byVoice \? "press the button, or say 'yes, approve it'\." : "press the button when you have read it\."/.test(rendererSrc));
 }
 
 // ==============================================================================================

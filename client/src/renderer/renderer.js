@@ -39,6 +39,9 @@ import { proseSegments, plainProse } from "./model-prose.js";
 // service state is said would drift, and the drift is two surfaces describing one service
 // differently. `greeting.js` below crosses the same boundary for the same reason.
 import { serviceWords } from "../agent/machine-band.js";
+// The SPOKEN owner labels (D244): "the identity team", with the article a sentence needs. The
+// card's own table (ESCALATION_PLAIN.owner) is deliberately a different thing.
+import { ESCALATION_OWNER_LABELS } from "../agent/prompt.js";
 // D288: the words for what the hub says about a ticket - shared with the spoken answer in
 // src/router/social.js, so the band and the voice cannot describe one ticket two ways.
 import { stateWords, stateClass, stateDetail, updateLines } from "../ticket/state-words.js";
@@ -576,6 +579,33 @@ let personaUi = null;
  * nothing at all.
  */
 function forPersona(surface, spokenText = null) { nextSurface = surface; nextSpokenText = spokenText; }
+
+/**
+ * The consent card, as a sentence for her (D330). Built from `request.rendered` ONLY - the
+ * broker's catalog-assembled plain line (D248's gloss, else `what`) and the notice - plus how to
+ * answer. No model text. `byVoice` adds the phrase voice-consent.js accepts (D310).
+ * @param {{ detailPlain?: string|null, what?: string, notice?: string|null }} rendered
+ * @param {boolean} byVoice
+ */
+function consentSpoken(rendered, byVoice) {
+  const line = String(rendered?.detailPlain || rendered?.what || "a change to this machine").trim().replace(/\.?$/, ".");
+  const notice = rendered?.notice ? ` ${String(rendered.notice).trim().replace(/\.?$/, ".")}` : "";
+  const how = byVoice ? "press the button, or say 'yes, approve it'." : "press the button when you have read it.";
+  return `${line}${notice} Nothing happens until you approve it — ${how}`;
+}
+
+/**
+ * The ticket draft, as a sentence for her (D330): the user's own words, the category in the same
+ * plain words the card shows, who it goes to, and that nothing leaves until they submit. The phrase
+ * taught is the one voice-consent.js accepts for a draft (D321).
+ * @param {{ description?: string, category?: string, suggestedOwner?: string|null }} draft
+ */
+function draftSpoken(draft) {
+  const what = String(draft?.description ?? "").trim();
+  const category = ESCALATION_PLAIN.category[draft?.category] ?? "something else";
+  const owner = draft?.suggestedOwner ? ESCALATION_OWNER_LABELS[draft.suggestedOwner] ?? draft.suggestedOwner : null;
+  return `Here's the ticket I'd open${what ? `: "${what}"` : ""}. I'd mark it as ${category}${owner ? `, for ${owner}` : ", and let IT route it"}. It stays on this PC until you submit it — press submit, or say 'submit the ticket'.`;
+}
 /** D315: a version of the next line SHAPED TO BE SAID, when the product has one. The panel shows `text`. */
 let nextSpokenText = null;
 
@@ -1353,7 +1383,10 @@ async function handleTurn(text) {
     checked("Not applicable — a ticket is not a machine change, so the broker never sees it.", "not applicable");
     done("Waiting on your review.", { executed: false, sent: false });
     setState("thinking");
-    forPersona("@draft");
+    // D330: she is handed a SUMMARY of the draft - the user's own words, the category in plain
+    // words, who it goes to, and that it stays here until submitted - instead of a pointer. The
+    // panel keeps the intake's own line; the card below it is still the thing that gets sent.
+    forPersona("@draft", draftSpoken(res.ticketDraft));
     await say(res.reply, "idle");
 
     const { approved, report } = await reviewTicket(res.ticketDraft);
@@ -1499,7 +1532,10 @@ async function handleTurn(text) {
     // badge, no bow — composed, never sorry. Held after the reply because the offer is open.
     setState("declining");
     forPersona("@answer");
-    await say(res.reply, "declining");
+    const spoken = await say(res.reply, "declining");
+    // D329: the decline's "I can raise a ticket, if you'd like" is a real offer now - the agent
+    // armed it - so the same buttons the escalation offer gets go inside the message that made it.
+    if (res.answer?.offered) attachOffer(spoken);
     note("No company guidance covers this — nothing was filed.");
     return;
   }
@@ -1524,6 +1560,9 @@ async function handleTurn(text) {
     checked("Not applicable — nothing was proposed.", "not applicable");
     // The last resort: it tried and could not help. That is `apologising`, not `idle` (D232 / v7).
     setState("apologising");
+    // D330: named for her, so she says the sentence instead of pointing at it. The agent says
+    // which fallback it chose; an unnamed one is left to the default and pointed at.
+    if (res.fallback) forPersona(`fallback.${res.fallback}`);
     await say(res.reply ?? "I could not work out a safe next step for that.", "idle");
     return;
   }
@@ -1562,6 +1601,7 @@ async function handleTurn(text) {
     // Win32 control masks and the Service Control Manager — `validation.errors[0]` used to be the
     // fallback here, so a missing `reply` put a hex mask in the avatar's mouth. It is one line up,
     // in the inspector, where `checked()` already puts it. The fallback is now a sentence.
+    forPersona("@refused");
     await say(replyText || "I can't do that one — it isn't something I'm allowed to do on this machine.", "idle");
     note("I checked that against what I'm allowed to do on this machine, and it isn't allowed. Nothing was changed.");
     return;
@@ -1575,9 +1615,8 @@ async function handleTurn(text) {
   // where `proposed()` still puts it, and wrong in the avatar's mouth. Nothing is lost by dropping
   // it here: the consent card is the very next thing on screen and it describes the action in the
   // catalog's plain words, which is what this sentence was gesturing at.
-  // "@consentVoice" tells her it may be approved aloud - only when it may (D310).
-  forPersona(personaUi?.live && voiceApprovable(proposal.capabilityId) ? "@consentVoice" : "@consent");
-  await say(replyText || "I think this is the fix — have a look at what it would do.", "listening");
+  // D330: the spoken line moved BELOW prepareConsent(), so it can be the card's own words. The
+  // model's reasoning is on the card, labelled as the model's, and is not what she says.
 
   // The evidence, at the moment it matters, rather than as a row in a band nobody opens - the
   // design's single largest change to how a proposal reads.
@@ -1599,11 +1638,22 @@ async function handleTurn(text) {
     // `prepared.error` is the broker's thrown message — "refusing to prepare consent for an invalid
     // proposal: capability "x" is not in the catalog". It was interpolated straight into speech,
     // with no fallback guarding it (D247). It is in the inspector and the developer log now.
+    forPersona("@consentRefused");
     await say("I can't ask you to approve that one, so I'm not going to do it.", "idle");
     note("Nothing was changed.");
     return;
   }
   const request = prepared.request;
+
+  // THE CARD'S OWN WORDS, SPOKEN (D330, the founder's: "she should be able to read what's on the
+  // screen beside me"). `request.rendered` is catalog text assembled by the broker (D128, D130,
+  // D248) - the gloss, or the plain `what`, and the notice - and she is handed exactly that with
+  // the guard that she adds nothing. Never the model's reasoning. "@consentVoice" tells her it may
+  // be approved aloud - only when it may (D310) - and the line teaches the phrase voice-consent.js
+  // accepts. The panel shows the same sentence above the card.
+  const byVoice = Boolean(personaUi?.live && voiceApprovable(proposal.capabilityId));
+  forPersona(personaUi?.live && voiceApprovable(proposal.capabilityId) ? "@consentVoice" : "@consent", consentSpoken(request.rendered, byVoice));
+  await say(consentSpoken(request.rendered, byVoice), "listening");
 
   const approved = await askConsent(request, proposal);
   // The card has been answered either way: the persona may speak again (D305).
@@ -1612,6 +1662,7 @@ async function handleTurn(text) {
     consented("You did not approve it. The nonce was never presented back and nothing ran.",
       { nonce: request.nonce, approved: false });
     setState("idle");
+    forPersona("@consentDeclined");
     await say("Understood, I won't change anything.", "idle");
     return;
   }

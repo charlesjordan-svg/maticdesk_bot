@@ -46,7 +46,7 @@ const dec = new TextDecoder();
  *   devlog: (s: string) => void,
  * }} deps
  */
-export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn, onPersonaSaid = () => {}, onChange, devlog: devlogLocal }) {
+export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn, onPersonaSaid = () => {}, onHandOff = () => {}, onChange, devlog: devlogLocal }) {
   // Everything this file logs goes to the developer pane AND to audit/app.log (D323): event types,
   // microphone levels and device names. Never a word anybody said.
   const devlog = (line) => { devlogLocal(line); try { void bridge.personaLog?.(line); } catch { /* the pane has it */ } };
@@ -230,6 +230,9 @@ export function createPersonaStage({ bridge, videoEl, selfEl = null, onUserTurn,
         legs = { openedAt: Date.now(), submittedAt: legs.submittedAt, relayedAt: null, spoke: false };
         devlog(`[handoff] opened after turn ${turnNo}${legs.submittedAt !== null ? ` (+${legs.openedAt - legs.submittedAt} ms after the turn was submitted)` : ""}`);
         for (const w of handOffWaiters.splice(0)) w();
+        // D329: persona-ui may have just left this sentence unrouted (hers, or declined in
+        // silence). It decides whether this hand-off is for that sentence; the stage only reports.
+        onHandOff();
       }
       // KEYS ONLY, never values: what a hand-off carries is not yet known, and it may carry the user's words.
       devlog(`[persona] the persona handed something off (target ${target ?? "?"}) - ${openHandOff === id ? "the next answer goes back as its result" : "not ours to answer"}`);

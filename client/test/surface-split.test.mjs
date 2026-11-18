@@ -76,8 +76,11 @@ console.log("=== 1. every persona line is classified, and only those ===");
   for (const s of ["social.greeting", "social.howareyou", "social.thanks", "social.farewell", "social.nothingneeded", "boot"]) {
     check(`${s} is handed to the persona`, SURFACES[s] === "persona", SURFACES[s]);
   }
+  // D330 (the founder's, 2026-11-18: "Reduce the times she says it's on the screen beside you").
+  // These were pinned; they are RELAYED now - the exact line, with the guard - so she says the
+  // sentence instead of pointing at it. Nothing is handed to her own words.
   for (const s of surfaces.filter((x) => /^fallback\./.test(x)).concat(["social.offtopic"])) {
-    check(`${s} is pinned`, SURFACES[s] === "pinned", SURFACES[s]);
+    check(`${s} is relayed (D330) - the exact line, never her own words`, SURFACES[s] === "relay", SURFACES[s]);
   }
   // D311 (PROPOSED, awaits Charles): the GENERATED capability answer is relayed. He asked what she
   // can do three times in one session and was pointed at the screen three times.
@@ -90,14 +93,15 @@ console.log("=== 1. every persona line is classified, and only those ===");
     check(`${s} is relayed (D309) - not pinned, and not handed over to her own words`, SURFACES[s] === "relay", SURFACES[s]);
   }
   const relayed = Object.entries(SURFACES).filter(([, k]) => k === "relay").map(([s]) => s);
-  check("the ONLY relayed surfaces are the ticket lines, the filed confirmation, the machine band (the founder's, D308/D309) and the generated capability answer (D311, proposed) - no others", relayed.every((s) => s.startsWith("tickets.") || s.startsWith("capability.") || s.startsWith("capabilitySpoken.") || s === "@machine" || s === "@filed") && relayed.includes("@machine"), relayed.join());
-  check("fallback, filing, off-topic, consent and an executed change are STILL not relayed", !relayed.some((s) => /^(fallback|filing|social)\.|^@(consent|consentVoice|execution|draft)$/.test(s)));
+  const persona = Object.entries(SURFACES).filter(([, k]) => k === "persona").map(([s]) => s);
+  check("NOTHING is handed to her own words but small talk, the hello, an answer and an intake question - a relay is still our sentence", persona.every((s) => /^social\.(greeting|howareyou|thanks|farewell|nothingneeded)$|^boot$|^@(answer|intake)$/.test(s)), persona.join());
+  check("the relayed set is: tickets, capabilities, the machine band, the filed confirmation (D308/D309/D311), and since D330 the fallbacks, the filing outcomes, off-topic, the draft, consent and an executed change", relayed.every((s) => s.startsWith("tickets.") || s.startsWith("capability.") || s.startsWith("capabilitySpoken.") || /^(fallback|filing)\./.test(s) || ["social.offtopic", "@machine", "@filed", "@draft", "@consent", "@consentVoice", "@execution", "@refused", "@consentRefused", "@consentDeclined"].includes(s)) && relayed.includes("@machine"), relayed.join());
   for (const s of surfaces.filter((x) => x.startsWith("filing."))) {
-    check(`${s} is never spoken`, s === "filing.timeout" ? SURFACES[s] === "silent" : SURFACES[s] === "pinned", SURFACES[s]);
+    check(`${s} is ${s === "filing.timeout" ? "never spoken" : "relayed exactly (D330)"}`, s === "filing.timeout" ? SURFACES[s] === "silent" : SURFACES[s] === "relay", SURFACES[s]);
   }
   check("filing.timeout gets NOTHING AT ALL - the most dangerous rephrase in the product", SURFACES["filing.timeout"] === "silent");
   check("bootState.offline cannot be the persona's: offline, there is no persona", SURFACES["bootState.offline"] === "degraded");
-  check("consent, an executed change and the machine band are classified too", SURFACES["@consent"] === "pinned" && SURFACES["@consentVoice"] === "pinned" && SURFACES["@execution"] === "pinned" && SURFACES["@machine"] === "relay" && SURFACES["@answer"] === "persona");
+  check("consent, an executed change and the machine band are classified too", SURFACES["@consent"] === "relay" && SURFACES["@consentVoice"] === "relay" && SURFACES["@execution"] === "relay" && SURFACES["@machine"] === "relay" && SURFACES["@answer"] === "persona");
 }
 
 // ==============================================================================================
@@ -137,8 +141,8 @@ console.log("\n=== 2. no pinned line reaches response.create ===");
   // D312: an intake question is asked; a draft is pointed at and NOT called sent; a repeat is dropped.
   const q = personaTurn({ surface: "@intake", text: "And your last name?" });
   check("a ticket-intake question is ASKED, not pointed at", q.speak === "own" && instructionsOf(q).includes("And your last name?"));
-  const d = personaTurn({ surface: "@draft", text: "Thanks. Here's the ticket I'd open." });
-  check("the draft gets its own pointer, which says it has gone nowhere", d.speak === "pointer" && instructionsOf(d) === POINTERS.draft && /do not say it has gone anywhere/i.test(POINTERS.draft));
+  const d = personaTurn({ surface: "@draft", text: "Here's the ticket I'd open: \"my screen is cracked\". It stays on this PC until you submit it." });
+  check("the draft is relayed (D330): the summary the renderer built, with the guard, and the pointer it used to get still says it has gone nowhere", d.speak === "own" && /stays on this PC/.test(instructionsOf(d)) && /do not add to it/i.test(instructionsOf(d)) && /do not say it has gone anywhere/i.test(POINTERS.draft));
   const a = personaTurn({ surface: undefined, text: "x" }), b = personaTurn({ surface: "something.else", text: "y" });
   check("the same pointer twice running is a repeat", isRepeatPointer(instructionsOf(a), b) === true);
   check("a different pointer is not, and neither is an answer", isRepeatPointer(instructionsOf(a), d) === false && isRepeatPointer(instructionsOf(a), q) === false);
@@ -146,7 +150,8 @@ console.log("\n=== 2. no pinned line reaches response.create ===");
   check("nothing said yet: nothing is a repeat", isRepeatPointer(null, a) === false);
 
   // D316: the answer to a hand-off is the SAME words in the service's envelope for one.
-  const pinnedLine = personaTurn({ surface: "filing.unreachable", text: "I could not reach the service desk, so that has not been filed." });
+  // An UNKNOWN surface is the pinned case now that the filing lines are relayed (D330).
+  const pinnedLine = personaTurn({ surface: "@somethingUnclassified", text: "I could not reach the service desk, so that has not been filed." });
   const h = asHandOffResult(pinnedLine.event, "d-1");
   check("a hand-off's result is a commentary event carrying the delegation's id", h.type === "session.commentary.append" && h.delegation_id === "d-1" && Object.keys(h).sort().join() === "content,delegation_id,type");
   check("…and its content is exactly what personaTurn() decided - nothing added, so a pinned line is still a pointer", h.content === instructionsOf(pinnedLine) && Object.values(POINTERS).includes(h.content));
@@ -172,15 +177,15 @@ console.log("\n=== 3. the persona's own job, and the default ===");
   check("the machine summary is relayed, with the guard against changing its claims (D308)", m.speak === "own" && instructionsOf(m).includes("memory — almost full") && /do not add to it/i.test(instructionsOf(m)));
   check("a relayed line too long for one note falls back to a pointer, never a truncation", personaTurn({ surface: "@machine", text: "word ".repeat(600) }).speak === "pointer");
   const e = personaTurn({ surface: "@execution", text: "I restarted the Print Spooler service and it is running." });
-  check("the result of a change is on the screen, not in the persona's mouth - it is an outcome claim", e.speak === "pointer" && !instructionsOf(e).includes("Print Spooler"));
+  check("the result of a change is relayed in the broker's own plain words (D250), with the guard that she changes no claim in it (D330)", e.speak === "own" && instructionsOf(e).includes("Print Spooler") && /do not change what it says has or has not happened/i.test(instructionsOf(e)));
 }
 
 // ==============================================================================================
 console.log("\n=== 4. consent holds the floor ===");
 {
-  const c = personaTurn({ surface: "@consent", text: "EVERY network connection on this machine drops for several seconds, including any remote session, call or download." });
-  check("a consent card is a pointer, and its text does not travel", c.speak === "pointer" && !/network connection|remote session/i.test(JSON.stringify(c.event)));
-  check("…the pointer says nothing happens until they approve", /approve/i.test(instructionsOf(c)) && /do not describe/i.test(instructionsOf(c)));
+  const c = personaTurn({ surface: "@consent", text: "Restart the Print Spooler service. Nothing happens until you approve it." });
+  check("a consent card is RELAYED (D330): the card's own catalog words travel, with the guard, and she says them", c.speak === "own" && /Print Spooler/.test(instructionsOf(c)) && /do not add to it/i.test(instructionsOf(c)));
+  check("…and with no text to relay it falls back to the consent POINTER, which says nothing happens until they approve", personaTurn({ surface: "@consent" }).speak === "pointer" && /approve/i.test(instructionsOf(personaTurn({ surface: "@consent" }))) && /do not describe/i.test(instructionsOf(personaTurn({ surface: "@consent" }))));
   check("…and the floor is held, with a reason, ending on speech", c.floor?.type === "session.floor.hold" && typeof c.floor.reason === "string" && c.floor.reason.length <= 200 && c.floor.ends_on_speech === true);
   check("the hold goes BEFORE the reply in the order to send", c.send[0] === c.floor && c.send[1] === c.event);
   check("no other surface holds the floor", lines.every(([surface, text]) => personaTurn({ surface, text }).floor === null));

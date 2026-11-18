@@ -176,8 +176,16 @@ export class Agent {
     this.onLog(`[router] ${requireLexicalMatch ? "an unrecognised spoken sentence - asking the knowledge base only, model gated on a lexical match (D327)" : "a spoken question - asking the knowledge base only (D325)"}; a decline stays silent on the voice path`);
     const asked = await this.cloud.ask(text, { probe, requireLexicalMatch });
     if (!asked.ok) return { ok: false, error: asked.error ?? "the knowledge base could not be reached" };
+    // D329: when she then hands the same sentence off, propose() asks the knowledge base AGAIN -
+    // 11.8 s and then 7.7 s for one question in the 00:12 session. The hub's answer is kept for a
+    // short while so propose() can reuse it. A GATED decline is not kept: propose() does not gate,
+    // and the model never saw that sentence.
+    if (asked.modelCalled !== false) this.lastAsked = { text, asked, at: Date.now() };
     return { ok: true, answered: asked.answered === true, reply: asked.reply, citedArticleIds: asked.citedArticleIds ?? [], retrieval: asked.retrieval ?? null, modelCalled: asked.modelCalled ?? null };
   }
+
+  /** How long a knowledge-base answer fetched by the voice path is reused by propose() for the same sentence. */
+  static get ASKED_REUSE_MS() { return 120_000; }
 
   async propose(text) {
     const { probe, summary, panel } = this.diagnose();
@@ -337,9 +345,33 @@ export class Agent {
     // it would produce a consent card the user never provoked, which is D198's defect.
     if (typeof this.cloud?.ask === "function") {
       if (kind.kind === "question") {
-        this.onLog(`[router] classified as a question (${kind.why}) - asking the knowledge base, not proposing`);
-        const asked = await this.cloud.ask(text, { probe });
+        // D329: the voice path may have asked this exact sentence seconds ago (askKnowledge, D325);
+        // the hub's answer is reused rather than fetched twice.
+        const reuse = this.lastAsked && this.lastAsked.text === text && Date.now() - this.lastAsked.at <= Agent.ASKED_REUSE_MS ? this.lastAsked.asked : null;
+        this.onLog(`[router] classified as a question (${kind.why}) - ${reuse ? "reusing the knowledge base's answer the voice path fetched for this sentence" : "asking the knowledge base"}, not proposing`);
+        const asked = reuse ?? await this.cloud.ask(text, { probe });
         if (asked.ok) {
+          // A DECLINE MAKES AN OFFER, AND THE OFFER IS ARMED (D329, 2026-11-18). The hub's decline
+          // ends "I can raise a ticket for someone in IT to pick up, if you'd like" - and until this,
+          // nothing was waiting for the answer: in the 00:12 session Charles said "yes" to it and
+          // the "yes" went to the knowledge base as an unrecognised sentence. The same offer the
+          // escalation path arms, with what is known: the question as the description, a case note
+          // saying the guidance did not cover it, and a category for a person to judge. Only when
+          // this build can file - with no filing path there is no offer to arm.
+          const canFile = Boolean(this.intake) && typeof this.cloud?.fileTicket === "function";
+          const offered = asked.answered !== true && canFile;
+          if (offered) {
+            this.intake.offer({
+              escalation: {
+                category: "needs_human_judgement",
+                suggestedOwner: null,
+                summary: `The user asked: "${text}". The company's written guidance was checked and does not cover it, so this needs a person to answer or route.`,
+                whatWasChecked: "The company's written guidance (the knowledge base) was searched for this question and no article covered it.",
+              },
+              userText: text,
+              machineName: this.identify().computer,
+            });
+          }
           // `ok: true` with `answered: false` is the NORMAL decline (D205), not a failure.
           return {
             ok: true,
@@ -349,7 +381,10 @@ export class Agent {
               answered: asked.answered,
               citedArticleIds: asked.citedArticleIds ?? [],
               retrieval: asked.retrieval ?? null,
+              // D329: whether the decline's offer is waiting for an answer.
+              offered,
             },
+            canFile,
             facts: panel,
             reply: asked.reply,
           };
@@ -443,6 +478,9 @@ export class Agent {
         // sentence now keeps it too.
         // Wording lives in persona.json (D234); the two keys keep the two facts apart.
         reply: cloudResult.reason === "connection" ? persona.fallback.hubUnreachable : persona.fallback.hubNoAnswer,
+        // Which one, by name, so the renderer can tag the surface (D330): untagged, she pointed at
+        // the screen for a hub error three times in the 00:12 session.
+        fallback: cloudResult.reason === "connection" ? "hubUnreachable" : "hubNoAnswer",
       };
     }
 

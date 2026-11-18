@@ -71,8 +71,13 @@ export const SURFACES = Object.freeze({
   "social.farewell": "persona",
   "social.nothingneeded": "persona",    // D265's behaviour is a rule, and a rule survives rephrasing.
 
-  // ---- pinned.
-  "social.offtopic": "pinned",          // a rephrased scope statement is a scope CLAIM (D260).
+  // ---- D330 (the founder's, 2026-11-18): "Reduce the times she says it's on the screen beside
+  // you. She should be able to read what's on the screen beside me and summarize." In the 00:12
+  // session she pointed at the screen four times in 213 s - three hub errors and one executed
+  // change. She cannot see the panel, so "reading it" is being HANDED its exact words with the
+  // guard that she adds nothing and changes no claim (the relay, D308/D309). What used to be
+  // PINNED below is relayed now; the words are still ours, and the panel still shows the line.
+  "social.offtopic": "relay",           // the scope statement, said exactly (D260: never rephrased).
   // D311 (DECIDED by the founder, 2026-11-17: "yes Keep it"). These were pinned: D165/D212 generate the answer
   // from the catalog so it cannot drift, and a rephrased list is a promise the broker may refuse.
   // In his second live session Charles asked what she can do THREE times - "What can you do?",
@@ -107,12 +112,12 @@ export const SURFACES = Object.freeze({
   "tickets.unseen": "relay",
   "tickets.none": "relay",
   "tickets.unavailable": "relay",
-  "fallback.hubUnreachable": "pinned",  // the fix is that it names BOTH things; a summary drops one (D244).
-  "fallback.hubNoAnswer": "pinned",
-  "filing.noDestination": "pinned",     // persona.json rule 2. An outcome is on the panel or it is nowhere.
-  "filing.badDraft": "pinned",
-  "filing.unreachable": "pinned",
-  "filing.refused": "pinned",
+  "fallback.hubUnreachable": "relay",   // names BOTH things; relayed EXACTLY, so no summary can drop one (D244, D330).
+  "fallback.hubNoAnswer": "relay",
+  "filing.noDestination": "relay",      // persona.json rule 2: the outcome is the line, said as written (D330).
+  "filing.badDraft": "relay",
+  "filing.unreachable": "relay",
+  "filing.refused": "relay",
 
   // ---- nothing at all.
   "filing.timeout": "silent",           // "I'm not sure that one got through." Every word is a hedge.
@@ -127,15 +132,23 @@ export const SURFACES = Object.freeze({
   // questions in a row came out as "It's on the screen beside me" while he answered a form he was
   // not being asked. She asks it.
   "@intake": "persona",
-  "@draft": "pinned",                   // the ticket before it is sent: on the screen, and NOT sent - its own pointer says so.
+  // D330: the renderer SUMMARISES the draft for her - the user's own words, the category in plain
+  // words, who it goes to, and that it stays on this PC until submitted - and she says that.
+  "@draft": "relay",
   "@filed": "relay",                    // "That's filed. Your reference is MD-1042": the hub said so, and D309 covers tickets.
   // The restart suggestion rides on a turn the user started, and has its own buttons on the panel. She
   // says NOTHING for it: heard live on 2026-11-17 it came out as a stray "it is on the screen beside me"
   // tacked onto the answer to a different question. Advice is not relayed (D256), so the rule is silence.
   "@restart": "silent",
-  "@consent": "pinned",                 // the card is the catalog's, assembled by the broker (D128, D130, D248).
-  "@consentVoice": "pinned",            // the same card, when it may also be approved by saying so (D310).
-  "@execution": "pinned",               // what a change did is an outcome claim (D250's words stay on screen).
+  // D330: the card's OWN words - `detailPlain`/`what` and the notice, catalog text assembled by
+  // the broker (D128, D130, D248), handed to her by the renderer AFTER the broker rendered the
+  // card - never the model's reasoning. The floor is still held while they read (below).
+  "@consent": "relay",
+  "@consentVoice": "relay",             // the same card, when it may also be approved by saying so (D310).
+  "@execution": "relay",                // what a change did, in the broker's plain words (D250), said with the guard (D330).
+  "@refused": "relay",                  // the broker refused the proposal: the renderer's sentence, said as written.
+  "@consentRefused": "relay",           // the broker would not render a card.
+  "@consentDeclined": "relay",          // the user said no: "Understood, I won't change anything."
   // D308 (the founder's, 2026-11-17): "speak on the info from the 'what I can see about this machine'
   // tab". Was SILENT (D245: the band is never narrated). Relayed now - and only the sentence
   // src/agent/machine-summary.js builds from the band's own rows, when the user ASKS. Nothing
@@ -236,8 +249,16 @@ export function personaTurn({ surface, text, voice = false, variant = 0 } = {}) 
   if (kind === "relay") {
     // D308/D309. The exact text is the note; she is told to add nothing and change no claim in it.
     const note = `Tell them this, in plain spoken sentences. Do not add to it, and do not change what it says has or has not happened: ${panelText ?? ""}`;
-    if (!panelText || note.length > INSTRUCTIONS_MAX) return done("pointer", reply(pointerFor(surface)));
-    return done("own", reply(note));
+    // A consent card holds the floor while they read, whether its words are relayed (D330) or
+    // pointed at; the hold goes first (functional analysis §2.2).
+    const hold = surface === "@consent" || surface === "@consentVoice"
+      ? { type: "session.floor.hold", reason: "the user is reading a consent card", ends_on_speech: true }
+      : null;
+    if (!panelText || note.length > INSTRUCTIONS_MAX) {
+      const said = hold && (voice || surface === "@consentVoice") ? POINTERS.consentVoice : pointerFor(surface);
+      return done("pointer", reply(said), hold);
+    }
+    return done("own", reply(note), hold);
   }
 
   if (kind === "persona") {

@@ -69,7 +69,7 @@ console.log("\n=== 3. the wiring ===");
   const ui = strip(read("../src/renderer/persona-ui.js"));
   check("the controls decide through spokenTurnRoute() and nothing else, handing it the verb too (D326)", /spokenTurnRoute\(\{ awaitingAnswer: info\.awaiting, kind: info\.kind, subkind: info\.subkind, verb: info\.verb \}\)/.test(ui));
   check("a hand-off is waited for only when the first two facts do not already route", /route === "hers" && stage && \(await stage\.waitForHandOff\(/.test(ui));
-  check("a turn that is hers is SHOWN - the user's words, then hers - and not submitted", /showSpoken\(next\);\s*for \(const line of heldHers\.splice\(0\)\) showHers\(line\);[\s\S]{0,60}return;/.test(ui));
+  check("a turn that is hers is SHOWN - the user's words, then hers - remembered as unrouted (D329), and not submitted", /showSpoken\(next\);\s*for \(const line of heldHers\.splice\(0\)\) showHers\(line\);\s*lastUnrouted = \{[^}]*\};\s*deciding = false;\s*return;/.test(ui));
   // 2026-11-17: the import of spokenTurnRoute was written INSIDE a comment block. `node --check`
   // passes that, every structural check here passed that, and in the window every spoken turn
   // threw "spokenTurnRoute is not defined" into a promise nobody was watching. So: it is imported
@@ -259,6 +259,99 @@ console.log("\n=== 10. the next session diagnoses itself: verb, why, turn id, th
 
   const script = read("../scripts/spoken-turns.mjs");
   check("scripts/spoken-turns.mjs reads the new fields and breaks the hers/ask lines down by why", /turn=/.test(script) && /why=/.test(script) && /decided=/.test(script));
+}
+
+// ==============================================================================================
+console.log("\n=== 11. the open-ticket process, tightened from the 00:12 session's log (D329) ===");
+{
+  // Read from client/audit/app.log, conversation c0a946c0, 2026-11-18 00:12:54-00:16:27 Z, eleven
+  // turns. Three things went wrong with the offer:
+  //  (a) a question the knowledge base DECLINED was answered with the hub's own words - "I can
+  //      raise a ticket for someone in IT to pick up, if you'd like" - and nothing was waiting for
+  //      the answer: the next turn (one word) went to the knowledge base as an unrecognised
+  //      sentence and was declined in silence;
+  //  (b) she handed off a sentence a few milliseconds AFTER the silent decline had checked for a
+  //      hand-off, so the hand-off stayed open and swallowed the NEXT sentence - "yes", two words -
+  //      which the hub's model answered with no tool call (502) and she pointed at the screen;
+  //  (c) a spoken question was asked of the knowledge base twice - once by the voice path
+  //      (11.8 s, a model call) and again by propose() when she handed it off (7.7 s).
+  const { Agent } = await import("../src/agent/agent.js");
+  const { TicketIntake } = await import("../src/ticket/intake.js");
+  const probe = { online: true, primary: [], services: {}, adapters: [], actionable: [] };
+  const mk = (cloud) => {
+    const intake = new TicketIntake({ profile: { missing: () => [], reporter: () => ({ osUsername: "tester" }), write: () => {} }, now: () => 1000 });
+    const agent = new Agent({ broker: { validate: () => ({ ok: true, errors: [] }) }, cloud, intake, onLog: () => {} });
+    agent.diagnose = () => ({ probe, summary: {}, identity: { computer: "TEST-PC", user: "tester" }, panel: {} });
+    return { agent, intake };
+  };
+  const declining = () => {
+    const calls = [];
+    return { calls, available: true, async ask(text) { calls.push(text); return { ok: true, answered: false, reply: "I don't have company guidance covering that. I can raise a ticket for someone in IT to pick up, if you'd like.", citedArticleIds: [] }; }, async fileTicket() { return { ok: true }; }, async propose() { return { ok: false, error: "not reached" }; } };
+  };
+  // (a) the offer the decline makes is REAL: the next "yes" opens the draft.
+  {
+    const cloud = declining();
+    const { agent, intake } = mk(cloud);
+    const res = await agent.propose("what's the policy on expensing a taxi");
+    check("a declined question comes back as an answer with the offer ARMED", res.ok === true && res.answer?.answered === false && res.answer?.offered === true && res.canFile === true, JSON.stringify(res.answer));
+    check("…so Matic is waiting on an answer, and 'yes' is one", intake.isPending === true && intake.answers("yes") === true && intake.answers("It's a beautiful day") === false);
+    const step = intake.accept("yes please");
+    check("…and 'yes' opens the draft, with the question as the description and the decline as the case note", step.kind === "draft" && step.draft.description === "what's the policy on expensing a taxi" && step.draft.category === "needs_human_judgement" && step.draft.suggestedOwner === null && /written guidance/i.test(step.draft.whatWasChecked) && /^The user asked/.test(step.draft.summary), JSON.stringify(step));
+    const { agent: a2, intake: i2 } = mk({ available: true, async ask() { return { ok: true, answered: true, reply: "Press Win+Shift+S.", citedArticleIds: ["kb-1"] }; }, async fileTicket() { return { ok: true }; } });
+    const r2 = await a2.propose("how do I take a screenshot");
+    check("an ANSWERED question arms nothing", r2.answer?.answered === true && r2.answer?.offered === false && i2.isPending === false);
+    const { agent: a3, intake: i3 } = mk({ available: true, async ask() { return { ok: true, answered: false, reply: "decline" }; } });
+    const r3 = await a3.propose("what's the policy on expensing a taxi");
+    check("a build that cannot file arms nothing and says so", r3.answer?.offered === false && r3.canFile === false && i3.isPending === false);
+  }
+  // (c) the voice path's answer is reused by propose() for the same sentence, not fetched twice.
+  {
+    const cloud = declining();
+    const { agent } = mk(cloud);
+    await agent.askKnowledge("what's the policy on expensing a taxi");
+    const res = await agent.propose("what's the policy on expensing a taxi");
+    check("askKnowledge() then propose() of the SAME sentence asks the hub ONCE, and the offer is still armed", cloud.calls.length === 1 && res.answer?.offered === true, String(cloud.calls.length));
+    await agent.propose("what's the policy on expensing a bus");
+    check("a different sentence is asked afresh", cloud.calls.length === 2);
+    const stale = mk(cloud).agent;
+    await stale.askKnowledge("what's the policy on expensing a taxi");
+    stale.lastAsked.at -= 10 * 60_000;
+    await stale.propose("what's the policy on expensing a taxi");
+    check("…and a result older than the window is not reused", cloud.calls.length === 4, String(cloud.calls.length));
+  }
+  // (b) a hand-off that arrives after a silent decline is answered with THAT sentence, not the next one.
+  const stage = strip(read("../src/renderer/persona-stage.js"));
+  check("the stage tells persona-ui when she hands something off to the client", /onHandOff = \(\) => \{\}/.test(stage) && /openHandOff = id;[\s\S]{0,400}onHandOff\(\);/.test(stage));
+  const ui = strip(read("../src/renderer/persona-ui.js"));
+  check("persona-ui remembers the last sentence it left unrouted - hers, or declined in silence - and for how long", /lastUnrouted = \{ text: next, meta: item\.meta, at: Date\.now\(\) \}/.test(ui) && (ui.match(/lastUnrouted = \{ text: next/g) ?? []).length === 2 && /UNROUTED_FOR_MS = 30_000/.test(ui));
+  check("…and when her hand-off arrives with nothing in flight, that sentence is queued as the hand-off's, within the window", /onHandOff: \(\) => \{[\s\S]{0,600}enqueue\(lastUnrouted\.text, \{ \.\.\.lastUnrouted\.meta, handedOff: true \}\)/.test(ui) && /Date\.now\(\) - lastUnrouted\.at > UNROUTED_FOR_MS/.test(ui));
+  check("…a queued hand-off is routed outright - no classifier wait, no lookup - and the [spoken] line says so", /if \(item\.meta\?\.handedOff === true\) route = "route";/.test(ui) && /spokenLine\(info, "route", info\.awaiting \? "answer" : item\.meta\?\.handedOff === true \? "handoff" : "work"\)/.test(ui));
+  check("…and a routed turn clears the memory, so a later hand-off cannot re-send an answered sentence", /lastUnrouted = null;[\s\S]{0,200}stage\?\.noteSubmitted/.test(ui));
+  const main = strip(read("../src/main/main.js"));
+  check("the untagged fallback say() is tagged from the agent's own word for which fallback it was", /fallback: cloudResult\.reason === "connection" \? "hubUnreachable" : "hubNoAnswer"/.test(strip(read("../src/agent/agent.js"))) && /forPersona\(`fallback\.\$\{res\.fallback\}`\)/.test(strip(read("../src/renderer/renderer.js"))) && main.length > 0);
+}
+
+// ==============================================================================================
+console.log("\n=== 12. fewer pointers: she is handed the words, not told to point (D330, the founder's) ===");
+{
+  // Charles, 2026-11-18, after the 00:12 session: "Reduce the times she says it's on the screen
+  // beside you. She should be able to read what's on the screen beside me and summarize." In that
+  // session she pointed at the screen four times in 213 s - for three hub errors and one executed
+  // change. She cannot see the panel; "reading it" means being HANDED its words, with the guard
+  // that she adds nothing (the relay, D308/D309). The words stay ours.
+  const { SURFACES, personaTurn } = await import("../src/nuance/surface-split.js");
+  for (const s of ["@execution", "@draft", "@consent", "@consentVoice", "@refused", "@consentRefused", "@consentDeclined", "fallback.hubUnreachable", "fallback.hubNoAnswer", "filing.noDestination", "filing.badDraft", "filing.unreachable", "filing.refused", "social.offtopic"]) {
+    check(`${s} is relayed: the exact line, with the guard`, SURFACES[s] === "relay", SURFACES[s]);
+  }
+  check("filing.timeout is still silent, and the restart advice too", SURFACES["filing.timeout"] === "silent" && SURFACES["@restart"] === "silent");
+  const c = personaTurn({ surface: "@consentVoice", text: "Restart the Print Spooler service. Nothing happens until you approve it." });
+  check("a relayed consent card still holds the floor, hold first, and carries the card's own words", c.speak === "own" && c.floor?.type === "session.floor.hold" && c.send[0] === c.floor && /Print Spooler/.test(c.event.response.instructions) && /do not add to it/i.test(c.event.response.instructions));
+  const r = strip(read("../src/renderer/renderer.js"));
+  check("the consent line is spoken AFTER the broker rendered the card, from the card's own catalog words - never the model's reasoning", r.indexOf("const prepared = await window.matic.prepareConsent(proposal, navigator.language);") < r.indexOf('forPersona(personaUi?.live && voiceApprovable(proposal.capabilityId) ? "@consentVoice" : "@consent", consentSpoken(') && /function consentSpoken\(rendered, byVoice\)/.test(r) && /rendered\?\.detailPlain \|\| rendered\?\.what/.test(r) && !/consentSpoken\([^)]*reasoning/.test(r));
+  check("…and it teaches the voice phrase only when the card may be approved by voice", /byVoice \? ".*yes, approve it.*" : /.test(r.slice(r.indexOf("function consentSpoken"), r.indexOf("function consentSpoken") + 900)));
+  check("the draft is SUMMARISED to her - the user's words, the category in plain words, who it goes to, and that it stays here until submitted", /forPersona\("@draft", draftSpoken\(res\.ticketDraft\)\)/.test(r) && /function draftSpoken\(draft\)/.test(r) && /ESCALATION_PLAIN\.category\[draft\.category\]/.test(r) && /stays on this PC until you submit it/.test(r) && /say 'submit the ticket'/.test(r));
+  check("a refused proposal, a refused card and a declined card are tagged, not left to the default pointer", /forPersona\("@refused"\);/.test(r) && /forPersona\("@consentRefused"\);/.test(r) && /forPersona\("@consentDeclined"\);/.test(r));
+  check("a knowledge-base decline on the TYPED path attaches the offer it just made", /forPersona\("@answer"\);\s*const spoken = await say\(res\.reply, "declining"\);\s*if \(res\.answer\?\.offered\) attachOffer\(spoken\);/.test(r));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

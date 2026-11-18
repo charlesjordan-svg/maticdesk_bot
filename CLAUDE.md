@@ -30,7 +30,7 @@ and earlier use that path; do not "fix" them, they are records.
 
 ## Decisions
 
-- New decisions are **appended** to the register with the next free ID (**D329 onward**, as of D328, register §5.62q, 2026-11-18; it was D324 onward as of D323 — the register's own procedure line is updated in the same pass as the number), with a status
+- New decisions are **appended** to the register with the next free ID (**D331 onward**, as of D330, register §5.62r, 2026-11-18; it was D324 onward as of D323 — the register's own procedure line is updated in the same pass as the number), with a status
   (*done* / *decided* / *proposed* / *rejected*) and a forcing reason. **Nobody renumbers.**
 - **When a migration implements a decision, the SQL names it AND the status it held when the
   migration was written** (register §5.7b) — `-- D153 (PROPOSED when written; ratified 2026-09-04)`.
@@ -1003,6 +1003,19 @@ the surface split (D305) and the prompt (D306).
   a real session.** `server/bin/transcript.mjs <conversationId>` prints what she actually said (the
   key from `--key-file`, `MATIC_NUANCE_KEY_FILE` or `MATIC_NUANCE_API_KEY`, never printed); the output
   holds the user's words and goes nowhere near the repo.
+- **She is HANDED the words, not told to point (D330, the founder's, 2026-11-18: "she should be able
+  to read what's on the screen beside me and summarize").** `fallback.*`, `filing.*` (not `timeout`),
+  `social.offtopic`, `@execution`, `@draft` (a summary the renderer builds - `draftSpoken()`) and
+  `@consent`/`@consentVoice` (the card's OWN catalog words, `consentSpoken(request.rendered, …)`,
+  spoken AFTER `prepareConsent()`, never the model's reasoning) are RELAYED - our exact line with
+  the guard. **Never** hand a load-bearing line to her own words (D301-D still stands), never speak
+  the consent line before the broker has rendered the card, and never leave a `say()` untagged -
+  an unknown surface is a pointer. **The open-ticket process (D329, proposed):** a knowledge-base
+  decline ARMS the offer it makes (`answer.offered`; "yes" opens the draft); a hand-off that
+  arrives after a silent decline is answered with THAT sentence (`onHandOff` → `lastUnrouted`,
+  30 s, `outcome=handoff`); `propose()` reuses the voice path's knowledge-base answer for the
+  same sentence (`Agent.ASKED_REUSE_MS`, never a gated decline). **Never** let a decline promise a
+  ticket nothing is waiting for.
 - **`start-v2.ps1` mints NO enrollment secret unless `-Enroll` is passed.** It used to mint one per launch,
   and an app that could not find `enrollment.json` enrolled afresh every start (nine device rows; the
   day's tickets on superseded enrollments, invisible to the newest). The app prints an `[enroll]` block
